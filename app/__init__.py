@@ -9,8 +9,11 @@ def create_app():
 
     db.init_app(app)
 
+    from app.routes.whatsapp import whatsapp_bp
+    app.register_blueprint(whatsapp_bp)
+
     with app.app_context():
-        from app import models  # importa los modelos para que SQLAlchemy los registre
+        from app import models
         db.create_all()
 
     return app
