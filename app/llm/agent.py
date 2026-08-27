@@ -2,27 +2,33 @@ import json
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import TOOLS
-from app.models import Grupo, ClaseSuelta
+from app.models import Grupo, ClaseSuelta, Conversacion
+
+MAX_HISTORIAL = 10
+
+SYSTEM_PROMPT = (
+    "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
+    "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
+    "si no sabés usá 'Hola amigo/a'). Hablás como un profe argentino de confianza: "
+    "'dale', 'manso', 'buenísimo'. Por ejemplo: 'Hola amigo, tenemos disponibilidad "
+    "los lunes a las 7, 8 y 9. ¿Cuál te viene mejor?'\n\n"
+    "Reglas estrictas:\n"
+    "- Nunca menciones nombres de profesores (no vas a recibir ese dato), salvo si "
+    "el alumno te pidió un profe puntual para una clase particular.\n"
+    "- Nunca repitas la categoría que el alumno ya dijo.\n"
+    "- Si piden clase particular, preguntá la hora y el día, y si quieren algún profe "
+    "en particular, ANTES de usar la tool de agendar. No agendes con datos que no te "
+    "dieron todavía.\n"
+    "- Ya tenés el historial de la charla con este alumno más abajo: usalo para no "
+    "volver a preguntar cosas que ya te dijeron."
+)
 
 
 def procesar_mensaje(telefono: str, texto: str) -> str:
-    mensajes = [
-        {"role": "system", "content": (
-            "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
-            "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
-            "si no sabés usá 'Hola amigo/a'). Hablás como un profe argentino de confianza: "
-            "'dale', 'manso', 'buenísimo'. Por ejemplo: 'Hola amigo, tenemos disponibilidad "
-            "los lunes a las 7, 8 y 9. ¿Cuál te viene mejor?'\n\n"
-            "Reglas estrictas:\n"
-            "- Nunca menciones nombres de profesores (no vas a recibir ese dato), salvo si "
-            "el alumno te pidió un profe puntual para una clase particular.\n"
-            "- Nunca repitas la categoría que el alumno ya dijo.\n"
-            "- Si piden clase particular, preguntá la hora y el día, y si quieren algún profe "
-            "en particular, ANTES de usar la tool de agendar. No agendes con datos que no te "
-            "dieron todavía."
-        )},
-        {"role": "user", "content": texto},
-    ]
+    _guardar_mensaje(telefono, "user", texto)
+
+    mensajes = [{"role": "system", "content": SYSTEM_PROMPT}]
+    mensajes.extend(_historial(telefono))
 
     respuesta = client.chat.completions.create(
         model=MODEL,
@@ -34,7 +40,9 @@ def procesar_mensaje(telefono: str, texto: str) -> str:
     mensaje_modelo = respuesta.choices[0].message
 
     if not mensaje_modelo.tool_calls:
-        return mensaje_modelo.content or "No entendí eso, ¿podés reformularlo?"
+        texto_final = mensaje_modelo.content or "No entendí eso, ¿podés reformularlo?"
+        _guardar_mensaje(telefono, "assistant", texto_final)
+        return texto_final
 
     mensajes.append(mensaje_modelo.model_dump())
 
@@ -59,7 +67,24 @@ def procesar_mensaje(telefono: str, texto: str) -> str:
         model=MODEL,
         messages=mensajes,
     )
-    return respuesta_final.choices[0].message.content
+    texto_final = respuesta_final.choices[0].message.content
+    _guardar_mensaje(telefono, "assistant", texto_final)
+    return texto_final
+
+
+def _guardar_mensaje(telefono: str, rol: str, contenido: str) -> None:
+    db.session.add(Conversacion(telefono=telefono, rol=rol, contenido=contenido))
+    db.session.commit()
+
+
+def _historial(telefono: str) -> list[dict]:
+    mensajes = (
+        Conversacion.query.filter_by(telefono=telefono)
+        .order_by(Conversacion.creado_en.desc())
+        .limit(MAX_HISTORIAL)
+        .all()
+    )
+    return [{"role": m.rol, "content": m.contenido} for m in reversed(mensajes)]
 
 
 def _buscar_grupo_disponible(args: dict) -> dict:

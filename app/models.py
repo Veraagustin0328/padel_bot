@@ -34,3 +34,14 @@ class ClaseSuelta(db.Model):
     horario = db.Column(db.String(10), nullable=False)
     profesor = db.Column(db.String(80), nullable=True)  # opcional, si lo pidieron
     estado = db.Column(db.String(20), default="pendiente")
+    
+from datetime import datetime
+
+class Conversacion(db.Model):
+    __tablename__ = "conversaciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    telefono = db.Column(db.String(20), nullable=False, index=True)
+    rol = db.Column(db.String(20), nullable=False)  # user / assistant
+    contenido = db.Column(db.Text, nullable=False)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
