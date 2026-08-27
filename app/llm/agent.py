@@ -2,7 +2,7 @@ import json
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import TOOLS
-from app.models import Grupo, ClaseSuelta, Conversacion
+from app.models import Grupo, ClaseSuelta, Conversacion, Pago
 
 MAX_HISTORIAL = 10
 
@@ -54,6 +54,8 @@ def procesar_mensaje(telefono: str, texto: str) -> str:
             resultado = _buscar_grupo_disponible(args)
         elif nombre == "agendar_clase_suelta":
             resultado = _agendar_clase_suelta(telefono, args)
+        elif nombre == "consultar_estado_pago":
+            resultado = _consultar_estado_pago(telefono)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -115,3 +117,10 @@ def _agendar_clase_suelta(telefono: str, args: dict) -> dict:
     db.session.add(clase)
     db.session.commit()
     return {"status": "agendada", "clase_id": clase.id}
+
+
+def _consultar_estado_pago(telefono: str) -> dict:
+    pago = Pago.query.filter_by(telefono=telefono).order_by(Pago.id.desc()).first()
+    if not pago:
+        return {"estado": "sin_registro", "detalle": "No hay pagos registrados para este número"}
+    return {"estado": pago.estado, "mes": pago.mes, "monto": float(pago.monto)}

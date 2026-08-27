@@ -45,3 +45,12 @@ class Conversacion(db.Model):
     rol = db.Column(db.String(20), nullable=False)  # user / assistant
     contenido = db.Column(db.Text, nullable=False)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    
+class Pago(db.Model):
+    __tablename__ = "pagos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    telefono = db.Column(db.String(20), nullable=False, index=True)
+    mes = db.Column(db.String(20), nullable=False)
+    monto = db.Column(db.Numeric(10, 2), nullable=False)
+    estado = db.Column(db.String(20), default="pendiente")

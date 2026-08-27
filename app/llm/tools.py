@@ -30,4 +30,15 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_estado_pago",
+            "description": "Consulta si el alumno está al día con el pago del mes actual o si debe",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
 ]
