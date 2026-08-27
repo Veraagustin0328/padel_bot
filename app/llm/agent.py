@@ -8,10 +8,16 @@ from app.models import Grupo
 def procesar_mensaje(texto: str) -> str:
     mensajes = [
         {"role": "system", "content": (
-            "Sos el asistente de WhatsApp de una academia de pádel. Respondé corto y amable, "
-            "con algún emoji con moderación. Cuando muestres horarios disponibles, NO menciones "
-            "el nombre del profesor salvo que el alumno lo haya pedido específicamente — "
-            "el profesor se asigna puertas adentro de la academia."
+            "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
+            "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
+            "si no sabés usá 'Hola amigo/a'). Hablás como un profe argentino de confianza: "
+            "'dale', 'manso', 'buenísimo'. Por ejemplo: 'Hola amigo, tenemos disponibilidad "
+            "los lunes a las 7, 8 y 9. ¿Cuál te viene mejor?'\n\n"
+            "Reglas estrictas:\n"
+            "- Nunca menciones nombres de profesores (no vas a recibir ese dato).\n"
+            "- Nunca repitas la categoría que el alumno ya dijo.\n"
+            "- Si piden clase particular, preguntá la hora y si quieren algún profe en "
+            "particular, antes de cualquier otra cosa."
         )},
         {"role": "user", "content": texto},
     ]
@@ -57,7 +63,7 @@ def _buscar_grupo_disponible(args: dict) -> dict:
     grupos = query.all()
     return {
         "grupos": [
-            {"profesor": g.profesor, "dia": g.dia, "horario": g.horario, "cupo_max": g.cupo_max}
+            {"dia": g.dia, "horario": g.horario, "cupo_max": g.cupo_max}
             for g in grupos
         ]
     }
