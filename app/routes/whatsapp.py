@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from app.llm.agent import procesar_mensaje
 
 whatsapp_bp = Blueprint("whatsapp", __name__, url_prefix="/webhook")
 
@@ -13,7 +14,6 @@ def recibir_mensaje():
     if not telefono or not texto:
         return jsonify({"error": "Faltan 'telefono' o 'texto' en el body"}), 400
 
-    # Por ahora, respuesta fija -- después acá va la lógica del LLM
-    respuesta = f"Recibí tu mensaje: '{texto}'. Todavía no tengo el agente conectado."
+    respuesta = procesar_mensaje(texto)
 
     return jsonify({"respuesta": respuesta}), 200
