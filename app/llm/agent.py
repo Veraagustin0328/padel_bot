@@ -1,4 +1,5 @@
 import json
+from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import TOOLS
 from app.models import Grupo
@@ -27,12 +28,10 @@ def procesar_mensaje(texto: str) -> str:
     if not mensaje_modelo.tool_calls:
         return mensaje_modelo.content or "No entendí eso, ¿podés reformularlo?"
 
-    # Ejecutamos la primera tool que pidió (por ahora solo tenemos una)
     tool_call = mensaje_modelo.tool_calls[0]
     args = json.loads(tool_call.function.arguments)
     resultado = _buscar_grupo_disponible(args)
 
-    # Le devolvemos el resultado al modelo para que arme la respuesta final en texto
     mensajes.append(mensaje_modelo.model_dump())
     mensajes.append({
         "role": "tool",
@@ -48,9 +47,12 @@ def procesar_mensaje(texto: str) -> str:
 
 
 def _buscar_grupo_disponible(args: dict) -> dict:
-    query = Grupo.query.filter_by(categoria=args.get("categoria"))
-    if args.get("dia"):
-        query = query.filter_by(dia=args["dia"])
+    categoria = args.get("categoria", "").strip().lower()
+    dia = args.get("dia", "").strip().lower()
+
+    query = Grupo.query.filter(db.func.lower(Grupo.categoria) == categoria)
+    if dia:
+        query = query.filter(db.func.lower(Grupo.dia) == dia)
 
     grupos = query.all()
     return {
