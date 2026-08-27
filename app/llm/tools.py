@@ -1,4 +1,4 @@
-TOOLS = [
+TOOLS_ALUMNO = [
     {
         "type": "function",
         "function": {
@@ -42,3 +42,25 @@ TOOLS = [
         },
     },
 ]
+
+TOOLS_JEFE = TOOLS_ALUMNO + [
+    {
+        "type": "function",
+        "function": {
+            "name": "actualizar_categoria",
+            "description": "Cambia la categoría de un alumno. Solo lo puede pedir el encargado.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alumno_nombre": {"type": "string"},
+                    "nueva_categoria": {"type": "string"},
+                },
+                "required": ["alumno_nombre", "nueva_categoria"],
+            },
+        },
+    },
+]
+
+
+def tools_para_rol(es_jefe: bool) -> list[dict]:
+    return TOOLS_JEFE if es_jefe else TOOLS_ALUMNO

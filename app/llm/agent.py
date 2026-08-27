@@ -1,12 +1,12 @@
 import json
 from app.extensions import db
 from app.llm.client import client, MODEL
-from app.llm.tools import TOOLS
-from app.models import Grupo, ClaseSuelta, Conversacion, Pago
+from app.llm.tools import tools_para_rol
+from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno
 
 MAX_HISTORIAL = 10
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_ALUMNO = (
     "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
     "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
     "si no sabés usá 'Hola amigo/a'). Hablás como un profe argentino de confianza: "
@@ -20,20 +20,35 @@ SYSTEM_PROMPT = (
     "en particular, ANTES de usar la tool de agendar. No agendes con datos que no te "
     "dieron todavía.\n"
     "- Ya tenés el historial de la charla con este alumno más abajo: usalo para no "
-    "volver a preguntar cosas que ya te dijeron."
+    "volver a preguntar cosas que ya te dijeron.\n"
+    "- Si te preguntan cómo pagar o dónde, decí que se puede abonar en las "
+    "instalaciones de la academia. NUNCA menciones una 'app' de pagos ni ningún "
+    "otro canal que no te haya dado explícitamente.\n"
+    "- No tenés forma de cambiar categorías, dar de baja ni confirmar pagos vos "
+    "mismo: eso lo maneja el encargado. Si te lo piden, indicá amablemente que se "
+    "comuniquen con el encargado."
+)
+
+SYSTEM_PROMPT_JEFE = (
+    "Sos el asistente interno de Academia Arena Pádel, hablando con el encargado. "
+    "Podés ejecutar cambios administrativos como actualizar la categoría de un "
+    "alumno. Sé directo y breve, es un canal de trabajo."
 )
 
 
-def procesar_mensaje(telefono: str, texto: str) -> str:
+def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     _guardar_mensaje(telefono, "user", texto)
 
-    mensajes = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system_prompt = SYSTEM_PROMPT_JEFE if es_jefe else SYSTEM_PROMPT_ALUMNO
+    tools = tools_para_rol(es_jefe)
+
+    mensajes = [{"role": "system", "content": system_prompt}]
     mensajes.extend(_historial(telefono))
 
     respuesta = client.chat.completions.create(
         model=MODEL,
         messages=mensajes,
-        tools=TOOLS,
+        tools=tools,
         tool_choice="auto",
     )
 
@@ -56,6 +71,8 @@ def procesar_mensaje(telefono: str, texto: str) -> str:
             resultado = _agendar_clase_suelta(telefono, args)
         elif nombre == "consultar_estado_pago":
             resultado = _consultar_estado_pago(telefono)
+        elif nombre == "actualizar_categoria":
+            resultado = _actualizar_categoria(args, es_jefe)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -124,3 +141,16 @@ def _consultar_estado_pago(telefono: str) -> dict:
     if not pago:
         return {"estado": "sin_registro", "detalle": "No hay pagos registrados para este número"}
     return {"estado": pago.estado, "mes": pago.mes, "monto": float(pago.monto)}
+
+
+def _actualizar_categoria(args: dict, es_jefe: bool) -> dict:
+    if not es_jefe:
+        return {"error": "No autorizado. Solo el encargado puede hacer esto."}
+
+    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
+    if not alumno:
+        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
+
+    alumno.categoria = args["nueva_categoria"]
+    db.session.commit()
+    return {"status": "actualizado", "alumno": alumno.nombre, "categoria": alumno.categoria}

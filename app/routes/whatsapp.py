@@ -1,3 +1,4 @@
+import os
 from flask import Blueprint, request, jsonify
 from app.llm.agent import procesar_mensaje
 
@@ -14,6 +15,8 @@ def recibir_mensaje():
     if not telefono or not texto:
         return jsonify({"error": "Faltan 'telefono' o 'texto' en el body"}), 400
 
-    respuesta = procesar_mensaje(telefono, texto)
+    es_jefe = telefono == os.environ.get("ENCARGADO_TELEFONO")
+
+    respuesta = procesar_mensaje(telefono, texto, es_jefe)
 
     return jsonify({"respuesta": respuesta}), 200
