@@ -14,6 +14,6 @@ def recibir_mensaje():
     if not telefono or not texto:
         return jsonify({"error": "Faltan 'telefono' o 'texto' en el body"}), 400
 
-    respuesta = procesar_mensaje(texto)
+    respuesta = procesar_mensaje(telefono, texto)
 
     return jsonify({"respuesta": respuesta}), 200

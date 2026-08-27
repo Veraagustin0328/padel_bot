@@ -23,3 +23,14 @@ class Grupo(db.Model):
     horario = db.Column(db.String(10), nullable=False)
     categoria = db.Column(db.String(20), nullable=True)
     cupo_max = db.Column(db.Integer, default=4)
+    
+class ClaseSuelta(db.Model):
+    __tablename__ = "clases_sueltas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    telefono = db.Column(db.String(20), nullable=False)
+    tipo = db.Column(db.String(20), nullable=False)  # particular / grupal
+    dia = db.Column(db.String(15), nullable=False)
+    horario = db.Column(db.String(10), nullable=False)
+    profesor = db.Column(db.String(80), nullable=True)  # opcional, si lo pidieron
+    estado = db.Column(db.String(20), default="pendiente")
