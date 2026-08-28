@@ -41,6 +41,29 @@ TOOLS_ALUMNO = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "resolver_cambio_pendiente",
+            "description": (
+                "Se llama cuando el alumno responde sobre una propuesta de cambio pendiente. "
+                "Si el alumno dice que sí, dale, acepto, está bien, o cualquier confirmación "
+                "positiva, usá decision='si_acepto'. Si dice que no, prefiere que no, o "
+                "cualquier negativa, usá decision='no_rechazo'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "decision": {
+                        "type": "string",
+                        "enum": ["si_acepto", "no_rechazo"],
+                        "description": "si_acepto = el alumno confirmó que sí quiere el cambio. no_rechazo = el alumno no quiere el cambio.",
+                    },
+                },
+                "required": ["decision"],
+            },
+        },
+    },
 ]
 
 TOOLS_JEFE = TOOLS_ALUMNO + [
@@ -56,6 +79,21 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
                     "nueva_categoria": {"type": "string"},
                 },
                 "required": ["alumno_nombre", "nueva_categoria"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_cambio_pendiente",
+            "description": "Propone un cambio a un alumno (por ejemplo, moverlo de día u horario), que queda esperando su confirmación",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alumno_nombre": {"type": "string"},
+                    "propuesta": {"type": "string", "description": "Descripción clara de qué se le está proponiendo al alumno"},
+                },
+                "required": ["alumno_nombre", "propuesta"],
             },
         },
     },

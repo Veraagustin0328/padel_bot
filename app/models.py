@@ -53,4 +53,14 @@ class Pago(db.Model):
     telefono = db.Column(db.String(20), nullable=False, index=True)
     mes = db.Column(db.String(20), nullable=False)
     monto = db.Column(db.Numeric(10, 2), nullable=False)
-    estado = db.Column(db.String(20), default="pendiente")
+    estado = db.Column(db.String(20), default="pendiente") 
+
+class CambioPendiente(db.Model):
+    __tablename__ = "cambios_pendientes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    alumno_telefono = db.Column(db.String(20), nullable=False, index=True)
+    tipo = db.Column(db.String(30), nullable=False)  # reasignacion, etc.
+    propuesta = db.Column(db.Text, nullable=False)  # descripción en texto de qué se propone
+    estado = db.Column(db.String(20), default="pendiente")  # pendiente / aceptado / rechazado
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)

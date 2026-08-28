@@ -2,7 +2,7 @@ import json
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
-from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno
+from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente
 
 MAX_HISTORIAL = 10
 
@@ -26,13 +26,18 @@ SYSTEM_PROMPT_ALUMNO = (
     "otro canal que no te haya dado explícitamente.\n"
     "- No tenés forma de cambiar categorías, dar de baja ni confirmar pagos vos "
     "mismo: eso lo maneja el encargado. Si te lo piden, indicá amablemente que se "
-    "comuniquen con el encargado."
+    "comuniquen con el encargado.\n"
+    "- Si más abajo ves que hay un 'cambio pendiente' para este alumno, contale de "
+    "qué se trata la propuesta (aunque no la haya mencionado en su mensaje) y "
+    "preguntale si lo acepta o no. Cuando te conteste, usá la tool "
+    "resolver_cambio_pendiente con la decisión correspondiente."
 )
 
 SYSTEM_PROMPT_JEFE = (
     "Sos el asistente interno de Academia Arena Pádel, hablando con el encargado. "
     "Podés ejecutar cambios administrativos como actualizar la categoría de un "
-    "alumno. Sé directo y breve, es un canal de trabajo."
+    "alumno, o proponerle un cambio de día/horario (que queda pendiente de que el "
+    "alumno lo confirme). Sé directo y breve, es un canal de trabajo."
 )
 
 
@@ -44,6 +49,14 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
 
     mensajes = [{"role": "system", "content": system_prompt}]
     mensajes.extend(_historial(telefono))
+
+    if not es_jefe:
+        pendiente = _cambio_pendiente_de(telefono)
+        if pendiente:
+            mensajes.append({
+                "role": "system",
+                "content": f"Cambio pendiente para este alumno (id={pendiente.id}): {pendiente.propuesta}",
+            })
 
     respuesta = client.chat.completions.create(
         model=MODEL,
@@ -73,13 +86,17 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _consultar_estado_pago(telefono)
         elif nombre == "actualizar_categoria":
             resultado = _actualizar_categoria(args, es_jefe)
+        elif nombre == "crear_cambio_pendiente":
+            resultado = _crear_cambio_pendiente(args, es_jefe)
+        elif nombre == "resolver_cambio_pendiente":
+            resultado = _resolver_cambio_pendiente(telefono, args)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
         mensajes.append({
             "role": "tool",
             "tool_call_id": tool_call.id,
-            "content": json.dumps(resultado, ensure_ascii=False),
+            "content": json.dumps(resultado, ensure_ascii=False)
         })
 
     respuesta_final = client.chat.completions.create(
@@ -104,6 +121,14 @@ def _historial(telefono: str) -> list[dict]:
         .all()
     )
     return [{"role": m.rol, "content": m.contenido} for m in reversed(mensajes)]
+
+
+def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
+    return (
+        CambioPendiente.query.filter_by(alumno_telefono=telefono, estado="pendiente")
+        .order_by(CambioPendiente.creado_en.desc())
+        .first()
+    )
 
 
 def _buscar_grupo_disponible(args: dict) -> dict:
@@ -154,3 +179,32 @@ def _actualizar_categoria(args: dict, es_jefe: bool) -> dict:
     alumno.categoria = args["nueva_categoria"]
     db.session.commit()
     return {"status": "actualizado", "alumno": alumno.nombre, "categoria": alumno.categoria}
+
+
+def _crear_cambio_pendiente(args: dict, es_jefe: bool) -> dict:
+    if not es_jefe:
+        return {"error": "No autorizado. Solo el encargado puede proponer cambios."}
+
+    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
+    if not alumno:
+        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
+
+    cambio = CambioPendiente(
+        alumno_telefono=alumno.telefono,
+        tipo="reasignacion",
+        propuesta=args["propuesta"],
+    )
+    db.session.add(cambio)
+    db.session.commit()
+    return {"status": "propuesta creada", "cambio_id": cambio.id, "alumno": alumno.nombre}
+
+
+def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
+    cambio = _cambio_pendiente_de(telefono)
+    if not cambio:
+        return {"error": "No hay ningún cambio pendiente para vos"}
+
+    cambio.estado = "aceptado" if args["decision"] == "si_acepto" else "rechazado"
+    db.session.commit()
+    return {"status": cambio.estado, "propuesta": cambio.propuesta}
+
