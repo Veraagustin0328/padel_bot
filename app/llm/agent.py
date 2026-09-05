@@ -10,8 +10,8 @@ SYSTEM_PROMPT_ALUMNO = (
     "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
     "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
     "si no sabés usá 'Hola amigo/a'). Hablás como un profe argentino de confianza: "
-    "'dale', 'manso', 'buenísimo'. Por ejemplo: 'Hola amigo, tenemos disponibilidad "
-    "los lunes a las 7, 8 y 9. ¿Cuál te viene mejor?'\n\n"
+    "'dale', 'manso', 'buenísimo'. Mantené ese tono cálido SIEMPRE, incluso cuando "
+    "tengas que decir que no podés ayudar con algo — nunca respondas seco o cortante.\n\n"
     "Reglas estrictas:\n"
     "- Nunca menciones nombres de profesores (no vas a recibir ese dato), salvo si "
     "el alumno te pidió un profe puntual para una clase particular.\n"
@@ -32,6 +32,11 @@ SYSTEM_PROMPT_ALUMNO = (
     "directamente, yo no puedo hacerlo desde acá.' No inventes que hay una "
     "propuesta pendiente si no te lo dije explícitamente más abajo en este mensaje "
     "de sistema.\n"
+    "- Nunca compartas datos de otros alumnos (teléfonos, categorías, lo que sea). "
+    "Si te lo piden, decí con buena onda que esa info no la podés compartir.\n"
+    "- Si un alumno confirma que quiere anotarse a un grupo y todavía no está "
+    "registrado en el sistema, pedile el nombre y usá la tool registrar_alumno con "
+    "los datos que ya tenés (categoría y planilla) más el nombre que te dio.\n"
     "- Si más abajo ves que hay un 'cambio pendiente' para este alumno, contale de "
     "qué se trata la propuesta (aunque no la haya mencionado en su mensaje) y "
     "preguntale si lo acepta o no. Cuando te conteste, usá la tool "
@@ -95,6 +100,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _crear_cambio_pendiente(args, es_jefe)
         elif nombre == "resolver_cambio_pendiente":
             resultado = _resolver_cambio_pendiente(telefono, args)
+        elif nombre == "registrar_alumno":
+            resultado = _registrar_alumno(telefono, args)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -213,3 +220,17 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
     db.session.commit()
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
 
+def _registrar_alumno(telefono: str, args: dict) -> dict:
+    existente = Alumno.query.filter_by(telefono=telefono).first()
+    if existente:
+        return {"status": "ya_registrado", "alumno": existente.nombre}
+
+    alumno = Alumno(
+        nombre=args["nombre"],
+        telefono=telefono,
+        categoria=args["categoria"],
+        planilla="adultos",
+    )
+    db.session.add(alumno)
+    db.session.commit()
+    return {"status": "registrado", "alumno": alumno.nombre}

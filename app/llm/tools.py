@@ -64,7 +64,28 @@ TOOLS_ALUMNO = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "registrar_alumno",
+            "description": (
+                "Registra a un alumno nuevo que todavía no está en el sistema. "
+                "Llamala SOLO cuando ya tengas el nombre real que te dijo el alumno "
+                "(nunca placeholders ni texto entre corchetes) y la categoría de "
+                "juego que mencionó antes en la charla."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {"type": "string", "description": "Nombre real del alumno, tal como te lo dijo"},
+                    "categoria": {"type": "string", "description": "Categoría de juego ya mencionada en la charla"},
+                },
+                "required": ["nombre", "categoria"],
+            },
+        },
+    },
 ]
+
 
 TOOLS_JEFE = TOOLS_ALUMNO + [
     {
