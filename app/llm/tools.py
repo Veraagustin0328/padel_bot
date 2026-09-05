@@ -84,6 +84,26 @@ TOOLS_ALUMNO = [
             },
         },
     },
+    
+        {
+        "type": "function",
+        "function": {
+            "name": "reprogramar_clase",
+            "description": (
+                "Reprograma o recupera una clase para el alumno, en un día y horario "
+                "nuevo. Cada alumno tiene derecho a UNA sola recuperación por mes. "
+                "Llamala solo cuando ya tengas el día y horario nuevo confirmados."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dia_nuevo": {"type": "string"},
+                    "horario_nuevo": {"type": "string"},
+                },
+                "required": ["dia_nuevo", "horario_nuevo"],
+            },
+        },
+    },
 ]
 
 

@@ -64,3 +64,14 @@ class CambioPendiente(db.Model):
     propuesta = db.Column(db.Text, nullable=False)  # descripción en texto de qué se propone
     estado = db.Column(db.String(20), default="pendiente")  # pendiente / aceptado / rechazado
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    
+class Recuperacion(db.Model):
+    __tablename__ = "recuperaciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    telefono = db.Column(db.String(20), nullable=False, index=True)
+    mes = db.Column(db.String(20), nullable=False)
+    dia_nuevo = db.Column(db.String(15), nullable=False)
+    horario_nuevo = db.Column(db.String(10), nullable=False)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)

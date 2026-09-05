@@ -1,8 +1,9 @@
 import json
+from datetime import datetime
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
-from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente
+from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion
 
 MAX_HISTORIAL = 10
 
@@ -34,7 +35,11 @@ SYSTEM_PROMPT_ALUMNO = (
     "de sistema.\n"
     "- Nunca compartas datos de otros alumnos (teléfonos, categorías, lo que sea). "
     "Si te lo piden, decí con buena onda que esa info no la podés compartir.\n"
-    "-Si un alumno confirma que quiere anotarse a un grupo grupal y todavía no "
+    "- Si el alumno pide reprogramar o recuperar una clase, preguntale a qué día y "
+    "horario la quiere pasar, y usá la tool reprogramar_clase. Recordá que solo "
+    "tiene derecho a 1 recuperación por mes — si la tool te devuelve un error "
+    "diciendo que ya la usó, contale eso con buena onda, sin prometer excepciones.\n"
+    "- Si un alumno confirma que quiere anotarse a un grupo grupal y todavía no "
     "está registrado, NO le vuelvas a preguntar el día ni la hora (ya los sabés de "
     "la charla). Preguntale SOLO el nombre, nada más, y apenas te lo diga, llamá "
     "registrar_alumno con ese nombre y la categoría que ya mencionaste antes. No "
@@ -104,6 +109,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _resolver_cambio_pendiente(telefono, args)
         elif nombre == "registrar_alumno":
             resultado = _registrar_alumno(telefono, args)
+        elif nombre == "reprogramar_clase":
+            resultado = _reprogramar_clase(telefono, args)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -222,6 +229,7 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
     db.session.commit()
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
 
+
 def _registrar_alumno(telefono: str, args: dict) -> dict:
     nombre = args.get("nombre", "").strip()
 
@@ -247,3 +255,33 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
     db.session.add(alumno)
     db.session.commit()
     return {"status": "registrado", "alumno": alumno.nombre}
+
+
+def _reprogramar_clase(telefono: str, args: dict) -> dict:
+    mes_actual = datetime.utcnow().strftime("%Y-%m")
+
+    ya_uso = Recuperacion.query.filter_by(telefono=telefono, mes=mes_actual).first()
+    if ya_uso:
+        return {
+            "error": (
+                f"Este alumno ya usó su recuperación del mes ({ya_uso.mes}), "
+                f"la cambió al {ya_uso.dia_nuevo} {ya_uso.horario_nuevo}. No puede "
+                "usar otra hasta el mes que viene."
+            )
+        }
+
+    dia_nuevo = args.get("dia_nuevo", "").strip()
+    horario_nuevo = args.get("horario_nuevo", "").strip()
+
+    if not dia_nuevo or not horario_nuevo:
+        return {"error": "Faltan día u horario nuevo, no se puede reprogramar sin eso."}
+
+    recu = Recuperacion(
+        telefono=telefono,
+        mes=mes_actual,
+        dia_nuevo=dia_nuevo,
+        horario_nuevo=horario_nuevo,
+    )
+    db.session.add(recu)
+    db.session.commit()
+    return {"status": "reprogramada", "dia_nuevo": dia_nuevo, "horario_nuevo": horario_nuevo}
