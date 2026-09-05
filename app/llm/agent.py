@@ -34,9 +34,11 @@ SYSTEM_PROMPT_ALUMNO = (
     "de sistema.\n"
     "- Nunca compartas datos de otros alumnos (teléfonos, categorías, lo que sea). "
     "Si te lo piden, decí con buena onda que esa info no la podés compartir.\n"
-    "- Si un alumno confirma que quiere anotarse a un grupo y todavía no está "
-    "registrado en el sistema, pedile el nombre y usá la tool registrar_alumno con "
-    "los datos que ya tenés (categoría y planilla) más el nombre que te dio.\n"
+    "-Si un alumno confirma que quiere anotarse a un grupo grupal y todavía no "
+    "está registrado, NO le vuelvas a preguntar el día ni la hora (ya los sabés de "
+    "la charla). Preguntale SOLO el nombre, nada más, y apenas te lo diga, llamá "
+    "registrar_alumno con ese nombre y la categoría que ya mencionaste antes. No "
+    "hace falta ningún otro dato para registrarlo.\n"
     "- Si más abajo ves que hay un 'cambio pendiente' para este alumno, contale de "
     "qué se trata la propuesta (aunque no la haya mencionado en su mensaje) y "
     "preguntale si lo acepta o no. Cuando te conteste, usá la tool "
@@ -221,12 +223,23 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
 
 def _registrar_alumno(telefono: str, args: dict) -> dict:
+    nombre = args.get("nombre", "").strip()
+
+    if not nombre or nombre.startswith("[") or nombre.lower() in ("nombre", "name", "nombre del alumno"):
+        return {
+            "error": (
+                "El nombre recibido no es válido (parece un placeholder, no un "
+                "nombre real). Preguntale de nuevo al alumno cuál es su nombre "
+                "completo antes de volver a intentar registrar."
+            )
+        }
+
     existente = Alumno.query.filter_by(telefono=telefono).first()
     if existente:
         return {"status": "ya_registrado", "alumno": existente.nombre}
 
     alumno = Alumno(
-        nombre=args["nombre"],
+        nombre=nombre,
         telefono=telefono,
         categoria=args["categoria"],
         planilla="adultos",
