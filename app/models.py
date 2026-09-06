@@ -12,6 +12,7 @@ class Alumno(db.Model):
     planilla = db.Column(db.String(30), nullable=False)  # adultos, kids, kids_pro, etc.
     estado = db.Column(db.String(20), default="activo")  # activo / baja
     fecha_inscripcion = db.Column(db.DateTime, default=datetime.utcnow)
+    motivo_baja = db.Column(db.String(20), nullable=True)
 
 
 class Grupo(db.Model):

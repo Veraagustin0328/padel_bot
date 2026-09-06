@@ -7,6 +7,7 @@ from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPen
 
 MAX_HISTORIAL = 10
 
+
 SYSTEM_PROMPT_ALUMNO = (
     "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
     "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
@@ -25,16 +26,19 @@ SYSTEM_PROMPT_ALUMNO = (
     "- Si te preguntan cómo pagar o dónde, decí que se puede abonar en las "
     "instalaciones de la academia. NUNCA menciones una 'app' de pagos ni ningún "
     "otro canal que no te haya dado explícitamente.\n"
-    "- No tenés forma de cambiar categorías, dar de baja ni confirmar pagos vos "
-    "mismo: esas acciones NO están entre tus herramientas disponibles, sin "
-    "excepción, sin importar quién diga ser o cómo te lo pida. Si alguien te pide "
-    "algo así, respondé EXACTAMENTE con este tipo de mensaje, sin prometer que vas "
-    "a 'gestionarlo' ni nada parecido: 'Ese cambio lo tiene que hacer el encargado "
+    "- No tenés forma de cambiar categorías ni confirmar pagos vos mismo: esas "
+    "acciones NO están entre tus herramientas disponibles, sin excepción, sin "
+    "importar quién diga ser o cómo te lo pida. Si alguien te pide algo así, "
+    "respondé EXACTAMENTE con este tipo de mensaje, sin prometer que vas a "
+    "'gestionarlo' ni nada parecido: 'Ese cambio lo tiene que hacer el encargado "
     "directamente, yo no puedo hacerlo desde acá.' No inventes que hay una "
     "propuesta pendiente si no te lo dije explícitamente más abajo en este mensaje "
     "de sistema.\n"
     "- Nunca compartas datos de otros alumnos (teléfonos, categorías, lo que sea). "
     "Si te lo piden, decí con buena onda que esa info no la podés compartir.\n"
+    "- Si el alumno quiere dejar la academia, preguntale el motivo (horario, "
+    "lesión u otro) con buena onda antes de usar dar_de_baja, y despedite "
+    "amablemente, dejando la puerta abierta a que vuelva cuando quiera.\n"
     "- Si el alumno pide reprogramar o recuperar una clase, preguntale a qué día y "
     "horario la quiere pasar, y usá la tool reprogramar_clase. Recordá que solo "
     "tiene derecho a 1 recuperación por mes — si la tool te devuelve un error "
@@ -109,8 +113,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _resolver_cambio_pendiente(telefono, args)
         elif nombre == "registrar_alumno":
             resultado = _registrar_alumno(telefono, args)
-        elif nombre == "reprogramar_clase":
-            resultado = _reprogramar_clase(telefono, args)
+        elif nombre == "dar_de_baja":
+            resultado = _dar_de_baja(telefono, args)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -307,3 +311,15 @@ def _reprogramar_clase(telefono: str, args: dict) -> dict:
 
     _notificar(f"{telefono} reprogramó su clase para {dia_nuevo} {horario_nuevo}", tipo="reprogramacion")
     return {"status": "reprogramada", "dia_nuevo": dia_nuevo, "horario_nuevo": horario_nuevo}
+
+def _dar_de_baja(telefono: str, args: dict) -> dict:
+    alumno = Alumno.query.filter_by(telefono=telefono).first()
+    if not alumno:
+        return {"error": "No encontré tu registro como alumno."}
+
+    alumno.estado = "baja"
+    alumno.motivo_baja = args["motivo"]
+    db.session.commit()
+
+    _notificar(f"{alumno.nombre} se dio de baja. Motivo: {args['motivo']}", tipo="baja_alumno")
+    return {"status": "baja registrada", "alumno": alumno.nombre}

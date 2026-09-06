@@ -104,6 +104,20 @@ TOOLS_ALUMNO = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "dar_de_baja",
+            "description": "Da de baja al alumno de la academia, cuando confirma que quiere dejar. Preguntale el motivo antes de llamarla.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "motivo": {"type": "string", "enum": ["horario", "lesion", "otro"]},
+                },
+                "required": ["motivo"],
+            },
+        },
+    },
 ]
 
 

@@ -31,3 +31,15 @@ def recibir_mensaje():
     respuesta = procesar_mensaje(telefono, texto, es_jefe)
 
     return jsonify({"respuesta": respuesta}), 200
+
+from app.extensions import db
+from app.models import Notificacion
+
+
+@whatsapp_bp.route("/notificaciones", methods=["GET"])
+def ver_notificaciones():
+    notifs = Notificacion.query.order_by(Notificacion.creado_en.desc()).limit(20).all()
+    return jsonify([
+        {"id": n.id, "tipo": n.tipo, "mensaje": n.mensaje, "creado_en": n.creado_en.isoformat()}
+        for n in notifs
+    ])
