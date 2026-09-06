@@ -75,3 +75,13 @@ class Recuperacion(db.Model):
     dia_nuevo = db.Column(db.String(15), nullable=False)
     horario_nuevo = db.Column(db.String(10), nullable=False)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    
+class Notificacion(db.Model):
+    __tablename__ = "notificaciones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    mensaje = db.Column(db.Text, nullable=False)
+    tipo = db.Column(db.String(30), nullable=False)  # alta_alumno, cambio_resuelto, etc.
+    leida = db.Column(db.Boolean, default=False)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)

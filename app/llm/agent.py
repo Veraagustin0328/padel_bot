@@ -3,7 +3,7 @@ from datetime import datetime
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
-from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion
+from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion, Notificacion
 
 MAX_HISTORIAL = 10
 
@@ -134,6 +134,11 @@ def _guardar_mensaje(telefono: str, rol: str, contenido: str) -> None:
     db.session.commit()
 
 
+def _notificar(mensaje: str, tipo: str) -> None:
+    db.session.add(Notificacion(mensaje=mensaje, tipo=tipo))
+    db.session.commit()
+
+
 def _historial(telefono: str) -> list[dict]:
     mensajes = (
         Conversacion.query.filter_by(telefono=telefono)
@@ -179,6 +184,12 @@ def _agendar_clase_suelta(telefono: str, args: dict) -> dict:
     )
     db.session.add(clase)
     db.session.commit()
+
+    _notificar(
+        f"Nueva clase particular agendada: {telefono}, {args['dia']} {args['horario']}"
+        + (f" con {args.get('profesor')}" if args.get("profesor") else ""),
+        tipo="clase_agendada",
+    )
     return {"status": "agendada", "clase_id": clase.id}
 
 
@@ -227,6 +238,13 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
 
     cambio.estado = "aceptado" if args["decision"] == "si_acepto" else "rechazado"
     db.session.commit()
+
+    alumno = Alumno.query.filter_by(telefono=telefono).first()
+    nombre = alumno.nombre if alumno else telefono
+    _notificar(
+        f"{nombre} {cambio.estado} el cambio propuesto: {cambio.propuesta}",
+        tipo="cambio_resuelto",
+    )
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
 
 
@@ -254,6 +272,8 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
     )
     db.session.add(alumno)
     db.session.commit()
+
+    _notificar(f"Nuevo alumno registrado: {nombre} ({telefono}), categoría {args['categoria']}", tipo="alta_alumno")
     return {"status": "registrado", "alumno": alumno.nombre}
 
 
@@ -284,4 +304,6 @@ def _reprogramar_clase(telefono: str, args: dict) -> dict:
     )
     db.session.add(recu)
     db.session.commit()
+
+    _notificar(f"{telefono} reprogramó su clase para {dia_nuevo} {horario_nuevo}", tipo="reprogramacion")
     return {"status": "reprogramada", "dia_nuevo": dia_nuevo, "horario_nuevo": horario_nuevo}
