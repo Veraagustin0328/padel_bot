@@ -76,7 +76,15 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         if pendiente:
             mensajes.append({
                 "role": "system",
-                "content": f"Cambio pendiente para este alumno (id={pendiente.id}): {pendiente.propuesta}",
+                "content": (
+                    f"IMPORTANTE - ACCIÓN OBLIGATORIA: este alumno tiene un cambio "
+                    f"pendiente sin resolver (id={pendiente.id}): '{pendiente.propuesta}'. "
+                    "SIN IMPORTAR lo que diga en su mensaje (aunque sea solo 'hola' o "
+                    "algo genérico), tu respuesta DEBE mencionar esta propuesta y "
+                    "preguntarle si la acepta, ANTES de cualquier otra cosa. No falta "
+                    "ningún otro contexto, ya tenés todo lo que necesitás para "
+                    "contarle esto ahora mismo."
+                ),
             })
 
     respuesta = client.chat.completions.create(
@@ -84,6 +92,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         messages=mensajes,
         tools=tools,
         tool_choice="auto",
+        temperature=0.2,
     )
 
     mensaje_modelo = respuesta.choices[0].message
@@ -115,6 +124,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _registrar_alumno(telefono, args)
         elif nombre == "dar_de_baja":
             resultado = _dar_de_baja(telefono, args)
+        elif nombre == "reprogramar_clase":
+            resultado = _reprogramar_clase(telefono, args)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -127,6 +138,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     respuesta_final = client.chat.completions.create(
         model=MODEL,
         messages=mensajes,
+        temperature=0.2,
     )
     texto_final = respuesta_final.choices[0].message.content
     _guardar_mensaje(telefono, "assistant", texto_final)
@@ -311,6 +323,7 @@ def _reprogramar_clase(telefono: str, args: dict) -> dict:
 
     _notificar(f"{telefono} reprogramó su clase para {dia_nuevo} {horario_nuevo}", tipo="reprogramacion")
     return {"status": "reprogramada", "dia_nuevo": dia_nuevo, "horario_nuevo": horario_nuevo}
+
 
 def _dar_de_baja(telefono: str, args: dict) -> dict:
     alumno = Alumno.query.filter_by(telefono=telefono).first()
