@@ -152,7 +152,37 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "pausar_bot",
+            "description": "Pausa al bot en la conversación de un alumno puntual, para que el encargado responda a mano por un rato.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alumno_nombre": {"type": "string"},
+                },
+                "required": ["alumno_nombre"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reanudar_bot",
+            "description": "Reactiva al bot en la conversación de un alumno, para que vuelva a responder automáticamente.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alumno_nombre": {"type": "string"},
+                },
+                "required": ["alumno_nombre"],
+            },
+        },
+    },
+    
 ]
+
 
 
 def tools_para_rol(es_jefe: bool) -> list[dict]:

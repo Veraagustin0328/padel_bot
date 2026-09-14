@@ -3,7 +3,7 @@ from datetime import datetime
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
-from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion, Notificacion
+from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion, Notificacion, EstadoChat
 
 MAX_HISTORIAL = 10
 
@@ -124,8 +124,10 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _registrar_alumno(telefono, args)
         elif nombre == "dar_de_baja":
             resultado = _dar_de_baja(telefono, args)
-        elif nombre == "reprogramar_clase":
-            resultado = _reprogramar_clase(telefono, args)
+        elif nombre == "pausar_bot":
+            resultado = _pausar_bot(args, es_jefe)
+        elif nombre == "reanudar_bot":
+            resultado = _reanudar_bot(args, es_jefe)
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
@@ -336,3 +338,39 @@ def _dar_de_baja(telefono: str, args: dict) -> dict:
 
     _notificar(f"{alumno.nombre} se dio de baja. Motivo: {args['motivo']}", tipo="baja_alumno")
     return {"status": "baja registrada", "alumno": alumno.nombre}
+
+def esta_pausado(telefono: str) -> bool:
+    estado = EstadoChat.query.filter_by(telefono=telefono).first()
+    return bool(estado and estado.modo == "humano")
+
+
+def _pausar_bot(args: dict, es_jefe: bool) -> dict:
+    if not es_jefe:
+        return {"error": "No autorizado."}
+
+    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
+    if not alumno:
+        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
+
+    estado = EstadoChat.query.filter_by(telefono=alumno.telefono).first()
+    if not estado:
+        estado = EstadoChat(telefono=alumno.telefono)
+        db.session.add(estado)
+    estado.modo = "humano"
+    db.session.commit()
+    return {"status": "pausado", "alumno": alumno.nombre}
+
+
+def _reanudar_bot(args: dict, es_jefe: bool) -> dict:
+    if not es_jefe:
+        return {"error": "No autorizado."}
+
+    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
+    if not alumno:
+        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
+
+    estado = EstadoChat.query.filter_by(telefono=alumno.telefono).first()
+    if estado:
+        estado.modo = "bot"
+        db.session.commit()
+    return {"status": "reanudado", "alumno": alumno.nombre}

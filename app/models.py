@@ -86,3 +86,10 @@ class Notificacion(db.Model):
     tipo = db.Column(db.String(30), nullable=False)  # alta_alumno, cambio_resuelto, etc.
     leida = db.Column(db.Boolean, default=False)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    
+class EstadoChat(db.Model):
+    __tablename__ = "estados_chat"
+
+    id = db.Column(db.Integer, primary_key=True)
+    telefono = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    modo = db.Column(db.String(10), default="bot")  # "bot" o "humano"

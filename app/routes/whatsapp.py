@@ -1,6 +1,7 @@
 import os
 from flask import Blueprint, request, jsonify
-from app.llm.agent import procesar_mensaje
+from app.llm.agent import procesar_mensaje, esta_pausado, _guardar_mensaje
+from app.models import Notificacion
 
 whatsapp_bp = Blueprint("whatsapp", __name__, url_prefix="/webhook")
 
@@ -16,7 +17,7 @@ def recibir_mensaje():
 
     telefono = data.get("telefono")
     texto = data.get("texto")
-    tipo = data.get("tipo", "texto")  # "texto" o "audio", simulado por ahora
+    tipo = data.get("tipo", "texto")
 
     if not telefono:
         return jsonify({"error": "Falta 'telefono' en el body"}), 400
@@ -28,12 +29,14 @@ def recibir_mensaje():
         return jsonify({"error": "Falta 'texto' en el body"}), 400
 
     es_jefe = telefono == os.environ.get("ENCARGADO_TELEFONO")
+
+    if not es_jefe and esta_pausado(telefono):
+        _guardar_mensaje(telefono, "user", texto)
+        return jsonify({"respuesta": None, "status": "bot_pausado_esperando_encargado"}), 200
+
     respuesta = procesar_mensaje(telefono, texto, es_jefe)
 
     return jsonify({"respuesta": respuesta}), 200
-
-from app.extensions import db
-from app.models import Notificacion
 
 
 @whatsapp_bp.route("/notificaciones", methods=["GET"])
