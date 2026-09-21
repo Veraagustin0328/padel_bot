@@ -17,7 +17,10 @@ SYSTEM_PROMPT_ALUMNO = (
     "Reglas estrictas:\n"
     "- Nunca menciones nombres de profesores (no vas a recibir ese dato), salvo si "
     "el alumno te pidió un profe puntual para una clase particular.\n"
-    "- Nunca repitas la categoría que el alumno ya dijo.\n"
+    "- Nunca repitas el nivel de juego que el alumno ya dijo.\n"
+    "- Para buscar_grupo_disponible solo hacen falta el nivel de juego y el día. NO "
+    "inventes que falta un dato adicional (como 'tipo de clase' o 'categoría de "
+    "torneo') — eso no existe en el sistema.\n"
     "- Si piden clase particular, preguntá la hora y el día, y si quieren algún profe "
     "en particular, ANTES de usar la tool de agendar. No agendes con datos que no te "
     "dieron todavía.\n"
@@ -46,8 +49,8 @@ SYSTEM_PROMPT_ALUMNO = (
     "- Si un alumno confirma que quiere anotarse a un grupo grupal y todavía no "
     "está registrado, NO le vuelvas a preguntar el día ni la hora (ya los sabés de "
     "la charla). Preguntale SOLO el nombre, nada más, y apenas te lo diga, llamá "
-    "registrar_alumno con ese nombre y la categoría que ya mencionaste antes. No "
-    "hace falta ningún otro dato para registrarlo.\n"
+    "registrar_alumno con ese nombre y el nivel de juego que ya mencionaste antes. "
+    "No hace falta ningún otro dato para registrarlo.\n"
     "- Si más abajo ves que hay un 'cambio pendiente' para este alumno, contale de "
     "qué se trata la propuesta (aunque no la haya mencionado en su mensaje) y "
     "preguntale si lo acepta o no. Cuando te conteste, usá la tool "
@@ -57,8 +60,9 @@ SYSTEM_PROMPT_ALUMNO = (
 SYSTEM_PROMPT_JEFE = (
     "Sos el asistente interno de Academia Arena Pádel, hablando con el encargado. "
     "Podés ejecutar cambios administrativos como actualizar la categoría de un "
-    "alumno, o proponerle un cambio de día/horario (que queda pendiente de que el "
-    "alumno lo confirme). Sé directo y breve, es un canal de trabajo."
+    "alumno, proponerle un cambio de día/horario (que queda pendiente de que el "
+    "alumno lo confirme), o pausar/reanudar al bot en una conversación puntual. "
+    "Sé directo y breve, es un canal de trabajo."
 )
 
 
@@ -124,6 +128,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _registrar_alumno(telefono, args)
         elif nombre == "dar_de_baja":
             resultado = _dar_de_baja(telefono, args)
+        elif nombre == "reprogramar_clase":
+            resultado = _reprogramar_clase(telefono, args)
         elif nombre == "pausar_bot":
             resultado = _pausar_bot(args, es_jefe)
         elif nombre == "reanudar_bot":
@@ -145,6 +151,11 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     texto_final = respuesta_final.choices[0].message.content
     _guardar_mensaje(telefono, "assistant", texto_final)
     return texto_final
+
+
+def esta_pausado(telefono: str) -> bool:
+    estado = EstadoChat.query.filter_by(telefono=telefono).first()
+    return bool(estado and estado.modo == "humano")
 
 
 def _guardar_mensaje(telefono: str, rol: str, contenido: str) -> None:
@@ -176,10 +187,10 @@ def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
 
 
 def _buscar_grupo_disponible(args: dict) -> dict:
-    categoria = args.get("categoria", "").strip().lower()
+    nivel = args.get("nivel_juego", "").strip().lower()
     dia = args.get("dia", "").strip().lower()
 
-    query = Grupo.query.filter(db.func.lower(Grupo.categoria) == categoria)
+    query = Grupo.query.filter(db.func.lower(Grupo.categoria) == nivel)
     if dia:
         query = query.filter(db.func.lower(Grupo.dia) == dia)
 
@@ -338,10 +349,6 @@ def _dar_de_baja(telefono: str, args: dict) -> dict:
 
     _notificar(f"{alumno.nombre} se dio de baja. Motivo: {args['motivo']}", tipo="baja_alumno")
     return {"status": "baja registrada", "alumno": alumno.nombre}
-
-def esta_pausado(telefono: str) -> bool:
-    estado = EstadoChat.query.filter_by(telefono=telefono).first()
-    return bool(estado and estado.modo == "humano")
 
 
 def _pausar_bot(args: dict, es_jefe: bool) -> dict:

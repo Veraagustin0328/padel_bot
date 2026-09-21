@@ -3,14 +3,22 @@ TOOLS_ALUMNO = [
         "type": "function",
         "function": {
             "name": "buscar_grupo_disponible",
-            "description": "Busca un grupo de pádel disponible por categoría y, opcionalmente, día",
+            "description": (
+                "Busca un grupo GRUPAL de pádel disponible por nivel de juego y, "
+                "opcionalmente, día. Con el nivel de juego y el día alcanza para "
+                "buscar — no hace falta ningún otro dato adicional."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "categoria": {"type": "string"},
+                    "nivel_juego": {
+                        "type": "string",
+                        "enum": ["1ra", "2da", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "principiante"],
+                        "description": "Nivel de juego del alumno, NO el tipo de clase.",
+                    },
                     "dia": {"type": "string"},
                 },
-                "required": ["categoria"],
+                "required": ["nivel_juego"],
             },
         },
     },
@@ -71,36 +79,16 @@ TOOLS_ALUMNO = [
             "description": (
                 "Registra a un alumno nuevo que todavía no está en el sistema. "
                 "Llamala SOLO cuando ya tengas el nombre real que te dijo el alumno "
-                "(nunca placeholders ni texto entre corchetes) y la categoría de "
-                "juego que mencionó antes en la charla."
+                "(nunca placeholders ni texto entre corchetes) y su nivel de juego "
+                "ya mencionado en la charla."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "nombre": {"type": "string", "description": "Nombre real del alumno, tal como te lo dijo"},
-                    "categoria": {"type": "string", "description": "Categoría de juego ya mencionada en la charla"},
+                    "categoria": {"type": "string", "description": "Nivel de juego ya mencionado en la charla"},
                 },
                 "required": ["nombre", "categoria"],
-            },
-        },
-    },
-    
-        {
-        "type": "function",
-        "function": {
-            "name": "reprogramar_clase",
-            "description": (
-                "Reprograma o recupera una clase para el alumno, en un día y horario "
-                "nuevo. Cada alumno tiene derecho a UNA sola recuperación por mes. "
-                "Llamala solo cuando ya tengas el día y horario nuevo confirmados."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "dia_nuevo": {"type": "string"},
-                    "horario_nuevo": {"type": "string"},
-                },
-                "required": ["dia_nuevo", "horario_nuevo"],
             },
         },
     },
@@ -120,13 +108,12 @@ TOOLS_ALUMNO = [
     },
 ]
 
-
 TOOLS_JEFE = TOOLS_ALUMNO + [
     {
         "type": "function",
         "function": {
             "name": "actualizar_categoria",
-            "description": "Cambia la categoría de un alumno. Solo lo puede pedir el encargado.",
+            "description": "Cambia la categoría (nivel de juego) de un alumno. Solo lo puede pedir el encargado.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -141,12 +128,15 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
         "type": "function",
         "function": {
             "name": "crear_cambio_pendiente",
-            "description": "Propone un cambio a un alumno (por ejemplo, moverlo de día u horario), que queda esperando su confirmación",
+            "description": (
+                "Inicia una propuesta que depende de la confirmación de un alumno "
+                "(ej: reasignar de día u horario)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "alumno_nombre": {"type": "string"},
-                    "propuesta": {"type": "string", "description": "Descripción clara de qué se le está proponiendo al alumno"},
+                    "propuesta": {"type": "string", "description": "Detalle en texto de qué se propone"},
                 },
                 "required": ["alumno_nombre", "propuesta"],
             },
@@ -180,9 +170,7 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
             },
         },
     },
-    
 ]
-
 
 
 def tools_para_rol(es_jefe: bool) -> list[dict]:
