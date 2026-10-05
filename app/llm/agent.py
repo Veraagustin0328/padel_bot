@@ -9,11 +9,25 @@ MAX_HISTORIAL = 10
 
 
 SYSTEM_PROMPT_ALUMNO = (
-    "Sos el asistente de WhatsApp de Academia Arena Pádel. SIEMPRE arrancás el "
-    "mensaje saludando con 'Hola amigo' o 'Hola amiga' (elegí según el contexto, "
-    "si no sabés usá 'Hola amigo/a'). Hablás como un profe argentino de confianza: "
-    "'dale', 'manso', 'buenísimo'. Mantené ese tono cálido SIEMPRE, incluso cuando "
-    "tengas que decir que no podés ayudar con algo — nunca respondas seco o cortante.\n\n"
+    "Sos el asistente de WhatsApp de Academia Arena Pádel. Hablás como un profe "
+    "argentino de confianza: 'dale', 'manso', 'buenísimo'. Mantené ese tono cálido "
+    "SIEMPRE, incluso cuando tengas que decir que no podés ayudar con algo — nunca "
+    "respondas seco o cortante. Mensajes cortos, como en WhatsApp.\n\n"
+    "Niveles de juego:\n"
+    "- Los niveles de juego son: 1era, 2da, 3ra, 4ta, 5ta, 6ta, 7ma, 8va y "
+    "principiante. Si el alumno dice '5ta', 'quinta', 'séptima', 'septima', "
+    "'primera', etc., te está diciendo su NIVEL, nunca un día ni una fecha.\n"
+    "- Antes de usar las tools, pasalo a su forma corta: primera -> 1era, segunda -> "
+    "2da, tercera -> 3ra, cuarta -> 4ta, quinta -> 5ta, sexta -> 6ta, séptima -> "
+    "7ma, octava -> 8va. Si dice que recién empieza o que nunca jugó, es "
+    "principiante.\n"
+    "- Si el alumno ya te dijo su nivel, no se lo vuelvas a preguntar.\n\n"
+    "Disponibilidad:\n"
+    "- Cuando pregunten si hay lugar o qué horarios hay, usá buscar_grupo_disponible "
+    "con el nivel. Si no te dijeron el día, no se lo pidas antes: buscá igual con el "
+    "día vacío y ofrecé los días y horarios que vuelvan.\n"
+    "- NUNCA inventes horarios, días ni cupos. Usá solo lo que devuelve la tool. Si "
+    "no hay resultados, decilo con buena onda y ofrecé mirar otro nivel o día.\n\n"
     "Reglas estrictas:\n"
     "- Nunca menciones nombres de profesores (no vas a recibir ese dato), salvo si "
     "el alumno te pidió un profe puntual para una clase particular.\n"
@@ -57,6 +71,16 @@ SYSTEM_PROMPT_ALUMNO = (
     "resolver_cambio_pendiente con la decisión correspondiente."
 )
 
+SALUDO_PRIMER_MENSAJE = (
+    "Es el primer mensaje de esta charla: arrancá saludando con 'Hola amigo' o "
+    "'Hola amiga' (elegí según el contexto, si no sabés usá 'Hola amigo/a')."
+)
+
+SALUDO_YA_SALUDASTE = (
+    "Ya saludaste antes en esta charla: NO vuelvas a saludar con 'Hola amigo', "
+    "seguí la conversación directo."
+)
+
 SYSTEM_PROMPT_JEFE = (
     "Sos el asistente interno de Academia Arena Pádel, hablando con el encargado. "
     "Podés ejecutar cambios administrativos como actualizar la categoría de un "
@@ -67,12 +91,24 @@ SYSTEM_PROMPT_JEFE = (
 
 
 def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
+    # lo calculo antes de guardar nada, así sé si ya le contestamos alguna vez
+    es_primer_mensaje = (
+        Conversacion.query.filter_by(telefono=telefono, rol="assistant").first() is None
+    )
+
     _guardar_mensaje(telefono, "user", texto)
 
     system_prompt = SYSTEM_PROMPT_JEFE if es_jefe else SYSTEM_PROMPT_ALUMNO
     tools = tools_para_rol(es_jefe)
 
     mensajes = [{"role": "system", "content": system_prompt}]
+
+    if not es_jefe:
+        mensajes.append({
+            "role": "system",
+            "content": SALUDO_PRIMER_MENSAJE if es_primer_mensaje else SALUDO_YA_SALUDASTE,
+        })
+
     mensajes.extend(_historial(telefono))
 
     if not es_jefe:
@@ -148,7 +184,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         messages=mensajes,
         temperature=0.2,
     )
-    texto_final = respuesta_final.choices[0].message.content
+    texto_final = respuesta_final.choices[0].message.content or "No entendí eso, ¿podés reformularlo?"
     _guardar_mensaje(telefono, "assistant", texto_final)
     return texto_final
 
