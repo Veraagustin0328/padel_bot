@@ -13,6 +13,14 @@ def create_app():
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+    # Neon corta las conexiones que quedan paradas y despues tiraba
+    # "SSL error: decryption failed". Con esto prueba la conexion antes de
+    # usarla y las renueva cada 280 segundos.
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+    }
+
     db.init_app(app)
 
     from app.routes.whatsapp import whatsapp_bp

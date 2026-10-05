@@ -1,11 +1,14 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
 from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion, Notificacion, EstadoChat
 
 MAX_HISTORIAL = 10
+
+# pasadas estas horas sin hablar, la charla arranca de cero (sin historial y con saludo)
+SESION_HORAS = 24
 
 
 SYSTEM_PROMPT_ALUMNO = (
@@ -90,10 +93,20 @@ SYSTEM_PROMPT_JEFE = (
 )
 
 
+def _inicio_sesion() -> datetime:
+    return datetime.utcnow() - timedelta(hours=SESION_HORAS)
+
+
 def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
-    # lo calculo antes de guardar nada, así sé si ya le contestamos alguna vez
+    # lo calculo antes de guardar nada: si no le contestamos en las últimas
+    # SESION_HORAS horas, arranca una charla nueva y hay que saludar
     es_primer_mensaje = (
-        Conversacion.query.filter_by(telefono=telefono, rol="assistant").first() is None
+        Conversacion.query.filter(
+            Conversacion.telefono == telefono,
+            Conversacion.rol == "assistant",
+            Conversacion.creado_en >= _inicio_sesion(),
+        ).first()
+        is None
     )
 
     _guardar_mensaje(telefono, "user", texto)
@@ -205,8 +218,12 @@ def _notificar(mensaje: str, tipo: str) -> None:
 
 
 def _historial(telefono: str) -> list[dict]:
+    # solo los mensajes de la sesión actual, así no arrastramos charlas viejas
     mensajes = (
-        Conversacion.query.filter_by(telefono=telefono)
+        Conversacion.query.filter(
+            Conversacion.telefono == telefono,
+            Conversacion.creado_en >= _inicio_sesion(),
+        )
         .order_by(Conversacion.creado_en.desc())
         .limit(MAX_HISTORIAL)
         .all()
@@ -417,3 +434,5 @@ def _reanudar_bot(args: dict, es_jefe: bool) -> dict:
         estado.modo = "bot"
         db.session.commit()
     return {"status": "reanudado", "alumno": alumno.nombre}
+
+
