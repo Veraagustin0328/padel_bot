@@ -2,6 +2,14 @@ import os
 import requests
 
 
+def _normalizar_telefono(telefono: str) -> str:
+    # WhatsApp manda los números argentinos como 549..., pero la API
+    # (y la lista de destinatarios de prueba) los espera como 54...
+    if telefono.startswith("549"):
+        return "54" + telefono[3:]
+    return telefono
+
+
 def enviar_mensaje_whatsapp(telefono: str, texto: str) -> dict:
     # strip() por si la variable en Render quedó con enters o espacios al final
     token = os.environ.get("WHATSAPP_TOKEN", "").strip()
@@ -14,7 +22,7 @@ def enviar_mensaje_whatsapp(telefono: str, texto: str) -> dict:
     }
     payload = {
         "messaging_product": "whatsapp",
-        "to": telefono,
+        "to": _normalizar_telefono(telefono),
         "type": "text",
         "text": {"body": texto},
     }
