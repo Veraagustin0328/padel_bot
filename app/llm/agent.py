@@ -1,87 +1,127 @@
 import json
+import re
 from datetime import datetime, timedelta
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
-from app.models import Grupo, ClaseSuelta, Conversacion, Pago, Alumno, CambioPendiente, Recuperacion, Notificacion, EstadoChat
+from app.models import (
+    Grupo, ClaseSuelta, Conversacion, Pago, Alumno,
+    CambioPendiente, Recuperacion, Notificacion, EstadoChat,
+)
 
 MAX_HISTORIAL = 10
-
-# pasadas estas horas sin hablar, la charla arranca de cero (sin historial y con saludo)
 SESION_HORAS = 24
 
+# Completar cuando tengas los datos reales. Ejemplo:
+# "Alias: arena.padel | Titular: Gabriela X | Se acepta Mercado Pago, transferencia y efectivo. "
+# "Después de pagar, mandá el comprobante por acá."
+DATOS_DE_PAGO = ""
 
-SYSTEM_PROMPT_ALUMNO = (
+# ---------------------------------------------------------------- niveles
+# Forma canónica -> todas las formas que aceptamos (1ra y 1era son lo mismo).
+_NIVELES = {
+    "1era": ["1era", "1ra", "1°", "primera", "1"],
+    "2da": ["2da", "2a", "2°", "segunda", "2"],
+    "3ra": ["3ra", "3era", "3°", "tercera", "3"],
+    "4ta": ["4ta", "4°", "cuarta", "4"],
+    "5ta": ["5ta", "5°", "quinta", "5"],
+    "6ta": ["6ta", "6°", "sexta", "6"],
+    "7ma": ["7ma", "7°", "septima", "séptima", "7"],
+    "8va": ["8va", "8°", "octava", "8"],
+    "principiante": ["principiante", "inicial", "principiantes"],
+}
+
+
+def _nivel_canonico(texto: str) -> str | None:
+    t = (texto or "").strip().lower().replace(" ", "")
+    for canonico, formas in _NIVELES.items():
+        if t in formas:
+            return canonico
+    return None
+
+
+def _variantes_nivel(texto: str) -> list[str]:
+    canonico = _nivel_canonico(texto)
+    if not canonico:
+        return [(texto or "").strip().lower()]
+    return _NIVELES[canonico]
+
+
+# ---------------------------------------------------------------- prompts
+PROMPT_ALUMNO_PARTE_1 = (
     "Sos el asistente de WhatsApp de Academia Arena Pádel. Hablás como un profe "
-    "argentino de confianza: 'dale', 'manso', 'buenísimo'. Mantené ese tono cálido "
-    "SIEMPRE, incluso cuando tengas que decir que no podés ayudar con algo — nunca "
-    "respondas seco o cortante. Mensajes cortos, como en WhatsApp.\n\n"
-    "Niveles de juego:\n"
-    "- Los niveles de juego son: 1era, 2da, 3ra, 4ta, 5ta, 6ta, 7ma, 8va y "
-    "principiante. Si el alumno dice '5ta', 'quinta', 'séptima', 'septima', "
-    "'primera', etc., te está diciendo su NIVEL, nunca un día ni una fecha.\n"
-    "- Antes de usar las tools, pasalo a su forma corta: primera -> 1era, segunda -> "
-    "2da, tercera -> 3ra, cuarta -> 4ta, quinta -> 5ta, sexta -> 6ta, séptima -> "
-    "7ma, octava -> 8va. Si dice que recién empieza o que nunca jugó, es "
-    "principiante.\n"
-    "- Si el alumno ya te dijo su nivel, no se lo vuelvas a preguntar.\n\n"
+    "argentino de confianza, cálido y cercano.\n\n"
+    "Estilo:\n"
+    "- Usá SIEMPRE voseo ('querés', 'podés', 'decime', 'contame'). Nunca mezcles "
+    "con tuteo ('quieres', 'puedes').\n"
+    "- Mensajes cortos y naturales. No uses emojis numerados ni listas con "
+    "emojis. Podés usar algún emoji suelto, con moderación.\n"
+    "- Mantené el tono cálido SIEMPRE, incluso cuando tengas que decir que no "
+    "podés ayudar con algo.\n\n"
+    "Niveles de juego: 1era (también se escribe 1ra, es lo mismo), 2da, 3ra, 4ta, "
+    "5ta, 6ta, 7ma, 8va y principiante. Si el alumno los escribe con palabras "
+    "(primera, quinta, séptima...) o con número solo, normalizalo al nivel "
+    "correspondiente (quinta = 5ta). Un número como '5ta' es un NIVEL, nunca un "
+    "día ni una hora.\n\n"
     "Disponibilidad:\n"
-    "- Cuando pregunten si hay lugar o qué horarios hay, usá buscar_grupo_disponible "
-    "con el nivel. Si no te dijeron el día, no se lo pidas antes: buscá igual con el "
-    "día vacío y ofrecé los días y horarios que vuelvan.\n"
-    "- NUNCA inventes horarios, días ni cupos. Usá solo lo que devuelve la tool. Si "
-    "no hay resultados, decilo con buena onda y ofrecé mirar otro nivel o día.\n\n"
-    "Reglas estrictas:\n"
-    "- Nunca menciones nombres de profesores (no vas a recibir ese dato), salvo si "
-    "el alumno te pidió un profe puntual para una clase particular.\n"
+    "- Para buscar_grupo_disponible solo hacen falta el nivel de juego y, si lo "
+    "dijo, el día. NO inventes que falta otro dato ('tipo de clase', 'categoría "
+    "de torneo'): eso no existe.\n"
+    "- Si piden clase particular, preguntá día y hora, y si quieren algún profe "
+    "en particular, ANTES de usar agendar_clase_suelta. No agendes con datos que "
+    "no te dieron.\n\n"
+    "Confirmaciones:\n"
+    "- Nunca digas que una clase quedó agendada, cancelada o que alguien quedó "
+    "registrado si no llamaste a la tool correspondiente y devolvió ok.\n"
+    "- Si un alumno confirma que quiere anotarse a un grupo y NO está registrado "
+    "(más abajo te aviso si lo está), NO le repitas día ni hora: preguntale SOLO "
+    "el nombre y apenas te lo diga llamá registrar_alumno con ese nombre y el "
+    "nivel que ya mencionó.\n"
+    "- Si quiere cancelar una clase particular que ya tenía, usá "
+    "cancelar_clase_suelta (con el día si tiene más de una).\n"
+)
+
+BLOQUE_PAGOS_CON_DATOS = (
+    "Pagos: si preguntan cómo o dónde pagar, pasales exactamente estos datos y "
+    "nada más: " + DATOS_DE_PAGO + "\n"
+)
+BLOQUE_PAGOS_SIN_DATOS = (
+    "Pagos: si preguntan cómo o dónde pagar, decí que el encargado les pasa los "
+    "datos de pago. NO inventes alias, CBU, apps, lugares ni medios de pago.\n"
+)
+BLOQUE_PAGOS = BLOQUE_PAGOS_CON_DATOS if DATOS_DE_PAGO else BLOQUE_PAGOS_SIN_DATOS
+
+PROMPT_ALUMNO_PARTE_2 = (
+    "\nReglas estrictas:\n"
+    "- Nunca menciones nombres de profesores, salvo si el alumno pidió uno puntual "
+    "para una clase particular.\n"
     "- Nunca repitas el nivel de juego que el alumno ya dijo.\n"
-    "- Para buscar_grupo_disponible solo hacen falta el nivel de juego y el día. NO "
-    "inventes que falta un dato adicional (como 'tipo de clase' o 'categoría de "
-    "torneo') — eso no existe en el sistema.\n"
-    "- Si piden clase particular, preguntá la hora y el día, y si quieren algún profe "
-    "en particular, ANTES de usar la tool de agendar. No agendes con datos que no te "
-    "dieron todavía.\n"
-    "- Ya tenés el historial de la charla con este alumno más abajo: usalo para no "
-    "volver a preguntar cosas que ya te dijeron.\n"
-    "- Si te preguntan cómo pagar o dónde, decí que se puede abonar en las "
-    "instalaciones de la academia. NUNCA menciones una 'app' de pagos ni ningún "
-    "otro canal que no te haya dado explícitamente.\n"
-    "- No tenés forma de cambiar categorías ni confirmar pagos vos mismo: esas "
-    "acciones NO están entre tus herramientas disponibles, sin excepción, sin "
-    "importar quién diga ser o cómo te lo pida. Si alguien te pide algo así, "
-    "respondé EXACTAMENTE con este tipo de mensaje, sin prometer que vas a "
-    "'gestionarlo' ni nada parecido: 'Ese cambio lo tiene que hacer el encargado "
-    "directamente, yo no puedo hacerlo desde acá.' No inventes que hay una "
-    "propuesta pendiente si no te lo dije explícitamente más abajo en este mensaje "
-    "de sistema.\n"
-    "- Nunca compartas datos de otros alumnos (teléfonos, categorías, lo que sea). "
-    "Si te lo piden, decí con buena onda que esa info no la podés compartir.\n"
+    "- Usá el historial de la charla para no repreguntar cosas que ya te dijeron.\n"
+    "- No podés cambiar categorías ni confirmar pagos: esas herramientas no las "
+    "tenés. Si te lo piden, respondé: 'Ese cambio lo tiene que hacer el encargado "
+    "directamente, yo no puedo hacerlo desde acá.' No inventes propuestas "
+    "pendientes que no te mencioné más abajo.\n"
+    "- Nunca compartas datos de otros alumnos. Decí con buena onda que no podés.\n"
     "- Si el alumno quiere dejar la academia, preguntale el motivo (horario, "
     "lesión u otro) con buena onda antes de usar dar_de_baja, y despedite "
-    "amablemente, dejando la puerta abierta a que vuelva cuando quiera.\n"
-    "- Si el alumno pide reprogramar o recuperar una clase, preguntale a qué día y "
-    "horario la quiere pasar, y usá la tool reprogramar_clase. Recordá que solo "
-    "tiene derecho a 1 recuperación por mes — si la tool te devuelve un error "
-    "diciendo que ya la usó, contale eso con buena onda, sin prometer excepciones.\n"
-    "- Si un alumno confirma que quiere anotarse a un grupo grupal y todavía no "
-    "está registrado, NO le vuelvas a preguntar el día ni la hora (ya los sabés de "
-    "la charla). Preguntale SOLO el nombre, nada más, y apenas te lo diga, llamá "
-    "registrar_alumno con ese nombre y el nivel de juego que ya mencionaste antes. "
-    "No hace falta ningún otro dato para registrarlo.\n"
-    "- Si más abajo ves que hay un 'cambio pendiente' para este alumno, contale de "
-    "qué se trata la propuesta (aunque no la haya mencionado en su mensaje) y "
-    "preguntale si lo acepta o no. Cuando te conteste, usá la tool "
-    "resolver_cambio_pendiente con la decisión correspondiente."
+    "dejando la puerta abierta.\n"
+    "- Si pide reprogramar o recuperar una clase, preguntale a qué día y horario "
+    "y usá reprogramar_clase. Tiene derecho a 1 recuperación por mes; si la tool "
+    "dice que ya la usó, contale con buena onda, sin prometer excepciones.\n"
+    "- Si más abajo ves un 'cambio pendiente', contale de qué se trata y "
+    "preguntale si lo acepta; cuando conteste usá resolver_cambio_pendiente.\n"
 )
+
+SYSTEM_PROMPT_ALUMNO = PROMPT_ALUMNO_PARTE_1 + BLOQUE_PAGOS + PROMPT_ALUMNO_PARTE_2
 
 SALUDO_PRIMER_MENSAJE = (
-    "Es el primer mensaje de esta charla: arrancá saludando con 'Hola amigo' o "
-    "'Hola amiga' (elegí según el contexto, si no sabés usá 'Hola amigo/a')."
+    "Es el primer mensaje de esta conversación (o pasó más de un día desde el "
+    "último). Arrancá tu respuesta con un saludo breve: 'Hola amigo' o 'Hola "
+    "amiga' (si no sabés, 'Hola amigo/a'), y después respondé lo que preguntó."
 )
-
 SALUDO_YA_SALUDASTE = (
-    "Ya saludaste antes en esta charla: NO vuelvas a saludar con 'Hola amigo', "
-    "seguí la conversación directo."
+    "Ya saludaste en esta conversación. NO vuelvas a saludar ni a decir 'Hola'; "
+    "respondé directo."
 )
 
 SYSTEM_PROMPT_JEFE = (
@@ -93,22 +133,22 @@ SYSTEM_PROMPT_JEFE = (
 )
 
 
+# ---------------------------------------------------------------- principal
 def _inicio_sesion() -> datetime:
     return datetime.utcnow() - timedelta(hours=SESION_HORAS)
 
 
-def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
-    # lo calculo antes de guardar nada: si no le contestamos en las últimas
-    # SESION_HORAS horas, arranca una charla nueva y hay que saludar
-    es_primer_mensaje = (
-        Conversacion.query.filter(
-            Conversacion.telefono == telefono,
-            Conversacion.rol == "assistant",
-            Conversacion.creado_en >= _inicio_sesion(),
-        ).first()
-        is None
+def _nota_registro(telefono: str) -> str:
+    alumno = Alumno.query.filter_by(telefono=telefono).first()
+    if alumno:
+        return f"Este número YA está registrado como alumno: {alumno.nombre}. No hace falta registrarlo."
+    return (
+        "Este número NO está registrado todavía como alumno. Si quiere anotarse "
+        "a un grupo, primero hay que registrarlo con registrar_alumno."
     )
 
+
+def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     _guardar_mensaje(telefono, "user", texto)
 
     system_prompt = SYSTEM_PROMPT_JEFE if es_jefe else SYSTEM_PROMPT_ALUMNO
@@ -117,10 +157,19 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     mensajes = [{"role": "system", "content": system_prompt}]
 
     if not es_jefe:
+        ya_hablo_bot = (
+            Conversacion.query.filter(
+                Conversacion.telefono == telefono,
+                Conversacion.rol == "assistant",
+                Conversacion.creado_en >= _inicio_sesion(),
+            ).first()
+            is not None
+        )
         mensajes.append({
             "role": "system",
-            "content": SALUDO_PRIMER_MENSAJE if es_primer_mensaje else SALUDO_YA_SALUDASTE,
+            "content": SALUDO_YA_SALUDASTE if ya_hablo_bot else SALUDO_PRIMER_MENSAJE,
         })
+        mensajes.append({"role": "system", "content": _nota_registro(telefono)})
 
     mensajes.extend(_historial(telefono))
 
@@ -132,11 +181,9 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
                 "content": (
                     f"IMPORTANTE - ACCIÓN OBLIGATORIA: este alumno tiene un cambio "
                     f"pendiente sin resolver (id={pendiente.id}): '{pendiente.propuesta}'. "
-                    "SIN IMPORTAR lo que diga en su mensaje (aunque sea solo 'hola' o "
-                    "algo genérico), tu respuesta DEBE mencionar esta propuesta y "
-                    "preguntarle si la acepta, ANTES de cualquier otra cosa. No falta "
-                    "ningún otro contexto, ya tenés todo lo que necesitás para "
-                    "contarle esto ahora mismo."
+                    "SIN IMPORTAR lo que diga en su mensaje, tu respuesta DEBE "
+                    "mencionar esta propuesta y preguntarle si la acepta, ANTES de "
+                    "cualquier otra cosa."
                 ),
             })
 
@@ -147,7 +194,6 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         tool_choice="auto",
         temperature=0.2,
     )
-
     mensaje_modelo = respuesta.choices[0].message
 
     if not mensaje_modelo.tool_calls:
@@ -159,12 +205,17 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
 
     for tool_call in mensaje_modelo.tool_calls:
         nombre = tool_call.function.name
-        args = json.loads(tool_call.function.arguments)
+        try:
+            args = json.loads(tool_call.function.arguments or "{}")
+        except json.JSONDecodeError:
+            args = {}
 
         if nombre == "buscar_grupo_disponible":
             resultado = _buscar_grupo_disponible(args)
         elif nombre == "agendar_clase_suelta":
             resultado = _agendar_clase_suelta(telefono, args)
+        elif nombre == "cancelar_clase_suelta":
+            resultado = _cancelar_clase_suelta(telefono, args)
         elif nombre == "consultar_estado_pago":
             resultado = _consultar_estado_pago(telefono)
         elif nombre == "actualizar_categoria":
@@ -189,7 +240,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         mensajes.append({
             "role": "tool",
             "tool_call_id": tool_call.id,
-            "content": json.dumps(resultado, ensure_ascii=False)
+            "content": json.dumps(resultado, ensure_ascii=False),
         })
 
     respuesta_final = client.chat.completions.create(
@@ -197,7 +248,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         messages=mensajes,
         temperature=0.2,
     )
-    texto_final = respuesta_final.choices[0].message.content or "No entendí eso, ¿podés reformularlo?"
+    texto_final = respuesta_final.choices[0].message.content or "Listo, ya está."
     _guardar_mensaje(telefono, "assistant", texto_final)
     return texto_final
 
@@ -218,7 +269,6 @@ def _notificar(mensaje: str, tipo: str) -> None:
 
 
 def _historial(telefono: str) -> list[dict]:
-    # solo los mensajes de la sesión actual, así no arrastramos charlas viejas
     mensajes = (
         Conversacion.query.filter(
             Conversacion.telefono == telefono,
@@ -239,11 +289,12 @@ def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
     )
 
 
+# ---------------------------------------------------------------- tools
 def _buscar_grupo_disponible(args: dict) -> dict:
-    nivel = args.get("nivel_juego", "").strip().lower()
-    dia = args.get("dia", "").strip().lower()
+    variantes = _variantes_nivel(args.get("nivel_juego", ""))
+    dia = (args.get("dia") or "").strip().lower()
 
-    query = Grupo.query.filter(db.func.lower(Grupo.categoria) == nivel)
+    query = Grupo.query.filter(db.func.lower(Grupo.categoria).in_(variantes))
     if dia:
         query = query.filter(db.func.lower(Grupo.dia) == dia)
 
@@ -275,6 +326,33 @@ def _agendar_clase_suelta(telefono: str, args: dict) -> dict:
     return {"status": "agendada", "clase_id": clase.id}
 
 
+def _cancelar_clase_suelta(telefono: str, args: dict) -> dict:
+    dia = (args.get("dia") or "").strip().lower()
+
+    query = ClaseSuelta.query.filter(
+        ClaseSuelta.telefono == telefono,
+        ClaseSuelta.estado != "cancelada",
+    )
+    if dia:
+        query = query.filter(db.func.lower(ClaseSuelta.dia) == dia)
+
+    clases = query.all()
+    if not clases:
+        return {"error": "No encontré ninguna clase particular agendada para cancelar."}
+    if len(clases) > 1 and not dia:
+        return {
+            "error": "Tiene más de una clase agendada, preguntale cuál quiere cancelar (por día).",
+            "clases": [{"dia": c.dia, "horario": c.horario} for c in clases],
+        }
+
+    clase = clases[0]
+    clase.estado = "cancelada"
+    db.session.commit()
+
+    _notificar(f"Clase particular cancelada: {telefono}, {clase.dia} {clase.horario}", tipo="clase_cancelada")
+    return {"status": "cancelada", "dia": clase.dia, "horario": clase.horario}
+
+
 def _consultar_estado_pago(telefono: str) -> dict:
     pago = Pago.query.filter_by(telefono=telefono).order_by(Pago.id.desc()).first()
     if not pago:
@@ -290,7 +368,8 @@ def _actualizar_categoria(args: dict, es_jefe: bool) -> dict:
     if not alumno:
         return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
 
-    alumno.categoria = args["nueva_categoria"]
+    nueva = args["nueva_categoria"]
+    alumno.categoria = _nivel_canonico(nueva) or nueva
     db.session.commit()
     return {"status": "actualizado", "alumno": alumno.nombre, "categoria": alumno.categoria}
 
@@ -323,22 +402,19 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
 
     alumno = Alumno.query.filter_by(telefono=telefono).first()
     nombre = alumno.nombre if alumno else telefono
-    _notificar(
-        f"{nombre} {cambio.estado} el cambio propuesto: {cambio.propuesta}",
-        tipo="cambio_resuelto",
-    )
+    _notificar(f"{nombre} {cambio.estado} el cambio propuesto: {cambio.propuesta}", tipo="cambio_resuelto")
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
 
 
 def _registrar_alumno(telefono: str, args: dict) -> dict:
-    nombre = args.get("nombre", "").strip()
+    nombre = (args.get("nombre") or "").strip()
 
     if not nombre or nombre.startswith("[") or nombre.lower() in ("nombre", "name", "nombre del alumno"):
         return {
             "error": (
-                "El nombre recibido no es válido (parece un placeholder, no un "
-                "nombre real). Preguntale de nuevo al alumno cuál es su nombre "
-                "completo antes de volver a intentar registrar."
+                "El nombre recibido no es válido (parece un placeholder). "
+                "Preguntale de nuevo al alumno cuál es su nombre completo antes "
+                "de volver a intentar registrar."
             )
         }
 
@@ -346,16 +422,19 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
     if existente:
         return {"status": "ya_registrado", "alumno": existente.nombre}
 
+    categoria_cruda = args.get("categoria", "")
+    categoria = _nivel_canonico(categoria_cruda) or categoria_cruda
+
     alumno = Alumno(
         nombre=nombre,
         telefono=telefono,
-        categoria=args["categoria"],
+        categoria=categoria,
         planilla="adultos",
     )
     db.session.add(alumno)
     db.session.commit()
 
-    _notificar(f"Nuevo alumno registrado: {nombre} ({telefono}), categoría {args['categoria']}", tipo="alta_alumno")
+    _notificar(f"Nuevo alumno registrado: {nombre} ({telefono}), categoría {categoria}", tipo="alta_alumno")
     return {"status": "registrado", "alumno": alumno.nombre}
 
 
@@ -372,18 +451,12 @@ def _reprogramar_clase(telefono: str, args: dict) -> dict:
             )
         }
 
-    dia_nuevo = args.get("dia_nuevo", "").strip()
-    horario_nuevo = args.get("horario_nuevo", "").strip()
-
+    dia_nuevo = (args.get("dia_nuevo") or "").strip()
+    horario_nuevo = (args.get("horario_nuevo") or "").strip()
     if not dia_nuevo or not horario_nuevo:
         return {"error": "Faltan día u horario nuevo, no se puede reprogramar sin eso."}
 
-    recu = Recuperacion(
-        telefono=telefono,
-        mes=mes_actual,
-        dia_nuevo=dia_nuevo,
-        horario_nuevo=horario_nuevo,
-    )
+    recu = Recuperacion(telefono=telefono, mes=mes_actual, dia_nuevo=dia_nuevo, horario_nuevo=horario_nuevo)
     db.session.add(recu)
     db.session.commit()
 
@@ -434,5 +507,3 @@ def _reanudar_bot(args: dict, es_jefe: bool) -> dict:
         estado.modo = "bot"
         db.session.commit()
     return {"status": "reanudado", "alumno": alumno.nombre}
-
-

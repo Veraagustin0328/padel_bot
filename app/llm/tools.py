@@ -1,3 +1,5 @@
+NIVELES = ["1era", "1ra", "2da", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "principiante"]
+
 TOOLS_ALUMNO = [
     {
         "type": "function",
@@ -5,18 +7,18 @@ TOOLS_ALUMNO = [
             "name": "buscar_grupo_disponible",
             "description": (
                 "Busca un grupo GRUPAL de pádel disponible por nivel de juego y, "
-                "opcionalmente, día. Con el nivel de juego y el día alcanza para "
-                "buscar — no hace falta ningún otro dato adicional."
+                "opcionalmente, día. Con el nivel de juego alcanza para buscar — "
+                "no hace falta ningún otro dato adicional."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "nivel_juego": {
                         "type": "string",
-                        "enum": ["1ra", "2da", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "principiante"],
-                        "description": "Nivel de juego del alumno, NO el tipo de clase.",
+                        "enum": NIVELES,
+                        "description": "Nivel de juego del alumno (1era o 1ra son lo mismo), NO el tipo de clase.",
                     },
-                    "dia": {"type": "string"},
+                    "dia": {"type": "string", "description": "Opcional. Solo si el alumno mencionó un día."},
                 },
                 "required": ["nivel_juego"],
             },
@@ -41,12 +43,25 @@ TOOLS_ALUMNO = [
     {
         "type": "function",
         "function": {
-            "name": "consultar_estado_pago",
-            "description": "Consulta si el alumno está al día con el pago del mes actual o si debe",
+            "name": "cancelar_clase_suelta",
+            "description": (
+                "Cancela una clase particular que el alumno ya tenía agendada. "
+                "Si tiene más de una, indicá el día."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "dia": {"type": "string", "description": "Opcional. Día de la clase a cancelar."},
+                },
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_estado_pago",
+            "description": "Consulta si el alumno está al día con el pago del mes actual o si debe",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -55,9 +70,8 @@ TOOLS_ALUMNO = [
             "name": "resolver_cambio_pendiente",
             "description": (
                 "Se llama cuando el alumno responde sobre una propuesta de cambio pendiente. "
-                "Si el alumno dice que sí, dale, acepto, está bien, o cualquier confirmación "
-                "positiva, usá decision='si_acepto'. Si dice que no, prefiere que no, o "
-                "cualquier negativa, usá decision='no_rechazo'."
+                "Si dice que sí, dale, acepto, está bien, o cualquier confirmación positiva, "
+                "usá decision='si_acepto'. Si dice que no o prefiere que no, usá decision='no_rechazo'."
             ),
             "parameters": {
                 "type": "object",
@@ -65,7 +79,7 @@ TOOLS_ALUMNO = [
                     "decision": {
                         "type": "string",
                         "enum": ["si_acepto", "no_rechazo"],
-                        "description": "si_acepto = el alumno confirmó que sí quiere el cambio. no_rechazo = el alumno no quiere el cambio.",
+                        "description": "si_acepto = confirmó que sí quiere el cambio. no_rechazo = no lo quiere.",
                     },
                 },
                 "required": ["decision"],
@@ -86,9 +100,24 @@ TOOLS_ALUMNO = [
                 "type": "object",
                 "properties": {
                     "nombre": {"type": "string", "description": "Nombre real del alumno, tal como te lo dijo"},
-                    "categoria": {"type": "string", "description": "Nivel de juego ya mencionado en la charla"},
+                    "categoria": {"type": "string", "description": "Nivel de juego ya mencionado en la charla (ej: 5ta, 1era)"},
                 },
                 "required": ["nombre", "categoria"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reprogramar_clase",
+            "description": "Reprograma (recupera) una clase del alumno a otro día y horario. Solo 1 recuperación por mes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dia_nuevo": {"type": "string"},
+                    "horario_nuevo": {"type": "string"},
+                },
+                "required": ["dia_nuevo", "horario_nuevo"],
             },
         },
     },
@@ -99,9 +128,7 @@ TOOLS_ALUMNO = [
             "description": "Da de baja al alumno de la academia, cuando confirma que quiere dejar. Preguntale el motivo antes de llamarla.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "motivo": {"type": "string", "enum": ["horario", "lesion", "otro"]},
-                },
+                "properties": {"motivo": {"type": "string", "enum": ["horario", "lesion", "otro"]}},
                 "required": ["motivo"],
             },
         },
@@ -128,10 +155,7 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
         "type": "function",
         "function": {
             "name": "crear_cambio_pendiente",
-            "description": (
-                "Inicia una propuesta que depende de la confirmación de un alumno "
-                "(ej: reasignar de día u horario)."
-            ),
+            "description": "Inicia una propuesta que depende de la confirmación de un alumno (ej: reasignar de día u horario).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -149,9 +173,7 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
             "description": "Pausa al bot en la conversación de un alumno puntual, para que el encargado responda a mano por un rato.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "alumno_nombre": {"type": "string"},
-                },
+                "properties": {"alumno_nombre": {"type": "string"}},
                 "required": ["alumno_nombre"],
             },
         },
@@ -163,9 +185,7 @@ TOOLS_JEFE = TOOLS_ALUMNO + [
             "description": "Reactiva al bot en la conversación de un alumno, para que vuelva a responder automáticamente.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "alumno_nombre": {"type": "string"},
-                },
+                "properties": {"alumno_nombre": {"type": "string"}},
                 "required": ["alumno_nombre"],
             },
         },
