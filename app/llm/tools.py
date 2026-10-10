@@ -27,6 +27,41 @@ TOOLS_ALUMNO = [
     {
         "type": "function",
         "function": {
+            "name": "consultar_precio",
+            "description": (
+                "Devuelve el precio mensual de las clases. Usala SIEMPRE que pregunten "
+                "cuánto sale algo. Si no sabés algún dato, preguntalo antes de llamarla."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tipo": {
+                        "type": "string",
+                        "enum": [
+                            "modo_academia",
+                            "particular_manana",
+                            "particular_manana_2x1",
+                            "particular_tarde",
+                            "particular_head_coach",
+                            "sabado_modo_academia",
+                            "sabado_particular",
+                        ],
+                        "description": (
+                            "modo_academia = grupos armados por los profes (mañana). "
+                            "particular_* = el alumno arma su grupo. "
+                            "particular_manana_2x1 = promo lunes, miércoles y viernes 9, 10 y 11 hs."
+                        ),
+                    },
+                    "personas": {"type": "integer", "description": "Cuántas personas van a la clase (1 a 4). No aplica a modo_academia."},
+                    "veces_por_semana": {"type": "integer", "description": "1 a 4 según el tipo. No aplica a los del sábado."},
+                },
+                "required": ["tipo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "agendar_clase_suelta",
             "description": "Agenda una clase particular puntual, cuando ya se sabe el día, horario y opcionalmente el profe pedido",
             "parameters": {

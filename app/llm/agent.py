@@ -12,10 +12,10 @@ from app.models import (
 MAX_HISTORIAL = 10
 SESION_HORAS = 24
 
-# Completar cuando tengas los datos reales. Ejemplo:
-# "Alias: arena.padel | Titular: Gabriela X | Se acepta Mercado Pago, transferencia y efectivo. "
-# "Después de pagar, mandá el comprobante por acá."
-DATOS_DE_PAGO = ""
+DATOS_DE_PAGO = (
+    "Alias: academiaarenapadel. Se paga por transferencia a ese alias y "
+    "después se le avisa al encargado con el comprobante."
+)
 
 # ---------------------------------------------------------------- niveles
 # Forma canónica -> todas las formas que aceptamos (1ra y 1era son lo mismo).
@@ -47,6 +47,68 @@ def _variantes_nivel(texto: str) -> list[str]:
     return _NIVELES[canonico]
 
 
+
+# ---------------------------------------------------------------- precios
+# Precios mensuales. Actualizar acá cuando cambien los flyers.
+INSCRIPCION = 25000
+
+# tipo -> {(personas, veces_por_semana): precio}. "por_persona" indica si es c/u.
+PRECIOS = {
+    "modo_academia": {
+        "descripcion": "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel.",
+        "por_persona": False,
+        "tabla": {(None, 1): 55000, (None, 2): 92000, (None, 3): 140000, (None, 4): 180000},
+    },
+    "particular_manana": {
+        "descripcion": "Clases particulares de mañana (7 a 12 hs). El alumno decide cómo formar el grupo.",
+        "por_persona": True,
+        "tabla": {
+            (1, 1): 110000, (1, 2): 220000,
+            (2, 1): 72000, (2, 2): 145000,
+            (3, 1): 50000, (3, 2): 100000,
+        },
+    },
+    "particular_manana_2x1": {
+        "descripcion": "Promo 2x1 de mañana, lunes, miércoles y viernes a las 9, 10 y 11 hs.",
+        "por_persona": True,
+        "tabla": {(None, 1): 55000, (None, 2): 110000},
+    },
+    "particular_tarde": {
+        "descripcion": "Clases particulares de tarde (14:30, 15:30, 16:30 y 17:30 hs).",
+        "por_persona": True,
+        "tabla": {
+            (1, 1): 160000, (1, 2): 320000,
+            (2, 1): 107000, (2, 2): 186000,
+            (3, 1): 80000, (3, 2): 140000,
+        },
+    },
+    "particular_head_coach": {
+        "descripcion": "Clases particulares con el head coach (7 a 12 hs).",
+        "por_persona": True,
+        "tabla": {
+            (1, 1): 140000, (1, 2): 280000,
+            (2, 1): 100000, (2, 2): 200000,
+            (3, 1): 80000, (3, 2): 160000,
+        },
+    },
+    "sabado_modo_academia": {
+        "descripcion": "Modo Academia del sábado a la mañana (8, 9, 10 y 11 hs).",
+        "por_persona": True,
+        "tabla": {(None, None): 75000},
+    },
+    "sabado_particular": {
+        "descripcion": "Particular del sábado a la mañana (8, 9, 10 y 11 hs).",
+        "por_persona": True,
+        "tabla": {(2, None): 80000, (3, None): 65000},
+    },
+}
+
+POLITICAS = (
+    "Las clases se pagan por mes adelantado. Hay que avisar con al menos 24 hs "
+    "de anticipación si no se puede ir, si no se pierde la clase. Se puede "
+    "recuperar 1 clase por mes."
+)
+
 # ---------------------------------------------------------------- prompts
 PROMPT_ALUMNO_PARTE_1 = (
     "Sos el asistente de WhatsApp de Academia Arena Pádel. Hablás como un profe "
@@ -70,6 +132,14 @@ PROMPT_ALUMNO_PARTE_1 = (
     "- Si piden clase particular, preguntá día y hora, y si quieren algún profe "
     "en particular, ANTES de usar agendar_clase_suelta. No agendes con datos que "
     "no te dieron.\n\n"
+    "Precios:\n"
+    "- Para CUALQUIER precio usá la tool consultar_precio. Nunca digas un precio "
+    "de memoria ni lo calcules vos.\n"
+    "- Si falta algún dato (si prefiere mañana, tarde o sábado, cuántas personas "
+    "van a ser, cuántas veces por semana), preguntalo antes, de a uno por mensaje.\n"
+    "- Los precios son mensuales. Si la tool dice que es 'por persona', aclaralo.\n"
+    "- La inscripción es de $25.000, pago único. Mencionala solo si preguntan o si "
+    "se están anotando.\n\n"
     "Confirmaciones:\n"
     "- Nunca digas que una clase quedó agendada, cancelada o que alguien quedó "
     "registrado si no llamaste a la tool correspondiente y devolvió ok.\n"
@@ -212,6 +282,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
 
         if nombre == "buscar_grupo_disponible":
             resultado = _buscar_grupo_disponible(args)
+        elif nombre == "consultar_precio":
+            resultado = _consultar_precio(args)
         elif nombre == "agendar_clase_suelta":
             resultado = _agendar_clase_suelta(telefono, args)
         elif nombre == "cancelar_clase_suelta":
@@ -305,6 +377,44 @@ def _buscar_grupo_disponible(args: dict) -> dict:
             for g in grupos
         ]
     }
+
+
+def _consultar_precio(args: dict) -> dict:
+    tipo = (args.get("tipo") or "").strip()
+    info = PRECIOS.get(tipo)
+    if not info:
+        return {"error": f"Tipo de clase desconocido. Opciones: {', '.join(PRECIOS)}"}
+
+    personas = args.get("personas")
+    veces = args.get("veces_por_semana")
+    if isinstance(personas, int) and personas >= 3:
+        personas = 3  # 3 y 4 personas pagan igual
+
+    tabla = info["tabla"]
+    clave_personas = personas if any(k[0] is not None for k in tabla) else None
+    clave_veces = veces if any(k[1] is not None for k in tabla) else None
+
+    faltan = []
+    if any(k[0] is not None for k in tabla) and clave_personas is None:
+        faltan.append("personas")
+    if any(k[1] is not None for k in tabla) and clave_veces is None:
+        faltan.append("veces_por_semana")
+    if faltan:
+        return {"error": "Faltan datos para dar el precio. Preguntale al alumno: " + ", ".join(faltan)}
+
+    precio = tabla.get((clave_personas, clave_veces))
+    if precio is None:
+        opciones = sorted(f"{p or '-'} personas, {v or '-'} veces por semana" for p, v in tabla)
+        return {"error": "Esa combinación no existe.", "combinaciones_validas": opciones}
+
+    return {
+        "descripcion": info["descripcion"],
+        "precio_mensual": precio,
+        "por_persona": info["por_persona"],
+        "inscripcion_pago_unico": INSCRIPCION,
+        "politicas": POLITICAS,
+    }
+
 
 
 def _agendar_clase_suelta(telefono: str, args: dict) -> dict:
