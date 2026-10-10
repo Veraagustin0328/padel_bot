@@ -29,8 +29,10 @@ TOOLS_ALUMNO = [
         "function": {
             "name": "consultar_precio",
             "description": (
-                "Devuelve el precio mensual de las clases. Usala SIEMPRE que pregunten "
-                "cuánto sale algo. Si no sabés algún dato, preguntalo antes de llamarla."
+                "Devuelve el precio mensual de las clases. Llamala SOLO cuando el alumno ya "
+                "te dijo el tipo de clase, el turno y cuántas veces por semana (y cuántas "
+                "personas si es particular). NUNCA inventes ni asumas esos datos: si "
+                "falta alguno, preguntalo y no llames la tool."
             ),
             "parameters": {
                 "type": "object",
@@ -52,8 +54,8 @@ TOOLS_ALUMNO = [
                             "particular_manana_2x1 = promo lunes, miércoles y viernes 9, 10 y 11 hs."
                         ),
                     },
-                    "personas": {"type": "integer", "description": "Cuántas personas van a la clase (1 a 4). No aplica a modo_academia."},
-                    "veces_por_semana": {"type": "integer", "description": "1 a 4 según el tipo. No aplica a los del sábado."},
+                    "personas": {"type": "integer", "description": "Cuántas personas van a la clase (1 a 4), SOLO si el alumno lo dijo. No aplica a modo_academia."},
+                    "veces_por_semana": {"type": "integer", "description": "1 a 4 según el tipo, SOLO si el alumno lo dijo. No aplica a los del sábado."},
                 },
                 "required": ["tipo"],
             },

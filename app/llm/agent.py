@@ -56,7 +56,7 @@ INSCRIPCION = 25000
 PRECIOS = {
     "modo_academia": {
         "descripcion": "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel.",
-        "por_persona": False,
+        "por_persona": True,
         "tabla": {(None, 1): 55000, (None, 2): 92000, (None, 3): 140000, (None, 4): 180000},
     },
     "particular_manana": {
@@ -135,9 +135,15 @@ PROMPT_ALUMNO_PARTE_1 = (
     "Precios:\n"
     "- Para CUALQUIER precio usá la tool consultar_precio. Nunca digas un precio "
     "de memoria ni lo calcules vos.\n"
-    "- Si falta algún dato (si prefiere mañana, tarde o sábado, cuántas personas "
-    "van a ser, cuántas veces por semana), preguntalo antes, de a uno por mensaje.\n"
-    "- Los precios son mensuales. Si la tool dice que es 'por persona', aclaralo.\n"
+    "- Si el alumno pregunta el precio en general ('cuánto sale', 'qué precio "
+    "tienen las clases'), NO llames la tool todavía y NO des ningún número. "
+    "Primero preguntale, en un solo mensaje corto: si quiere grupo armado por los "
+    "profes (modo academia) o clase particular con su propio grupo, si prefiere "
+    "mañana, tarde o sábado, y cuántas veces por semana.\n"
+    "- Solo llamá consultar_precio cuando el alumno YA te dijo todos los datos. "
+    "Nunca asumas ni inventes un dato que no dijo (ni las veces por semana, ni "
+    "la cantidad de personas, ni el turno).\n"
+    "- Los precios son mensuales y cada alumno paga el suyo (por persona).\n"
     "- La inscripción es de $25.000, pago único. Mencionala solo si preguntan o si "
     "se están anotando.\n\n"
     "Confirmaciones:\n"
