@@ -13,8 +13,9 @@ MAX_HISTORIAL = 10
 SESION_HORAS = 24
 
 DATOS_DE_PAGO = (
-    "Alias: academiaarenapadel. Se paga por transferencia a ese alias y "
-    "después se le avisa al encargado con el comprobante."
+    "Alias: academiaarenapadel. Se paga por transferencia a ese alias. "
+    "Después hay que avisarle al encargado y mostrarle el comprobante "
+    "para que confirme el pago."
 )
 
 # ---------------------------------------------------------------- niveles
@@ -158,8 +159,13 @@ PROMPT_ALUMNO_PARTE_1 = (
 )
 
 BLOQUE_PAGOS_CON_DATOS = (
-    "Pagos: si preguntan cómo o dónde pagar, pasales exactamente estos datos y "
-    "nada más: " + DATOS_DE_PAGO + "\n"
+    "Pagos: si preguntan cómo o dónde pagar, respondé con estos datos y nada más: "
+    + DATOS_DE_PAGO + "\n"
+    "- Escribilo en voseo ('Podés transferir', no 'Podes').\n"
+    "- NO pidas que mande el comprobante por este chat: vos no podés leerlo "
+    "ni registrarlo. Decile que se lo muestre o se lo mande al encargado.\n"
+    "- NUNCA digas que un pago se cobra, se acredita o se confirma solo, ni "
+    "'al instante'. Quien confirma el pago es el encargado.\n"
 )
 BLOQUE_PAGOS_SIN_DATOS = (
     "Pagos: si preguntan cómo o dónde pagar, decí que el encargado les pasa los "
