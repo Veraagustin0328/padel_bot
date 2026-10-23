@@ -330,7 +330,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         elif nombre == "cancelar_clase_suelta":
             resultado = _cancelar_clase_suelta(telefono, args)
         elif nombre in NOMBRES_PLANILLA:
-            resultado = _usar_planilla(nombre, args, telefono, es_jefe)
+            resultado = _usar_planilla(nombre, args, telefono, es_jefe, texto)
         elif nombre == "actualizar_categoria":
             resultado = _actualizar_categoria(args, es_jefe)
         elif nombre == "crear_cambio_pendiente":
@@ -515,9 +515,39 @@ NOMBRES_PLANILLA = {
 SOLO_JEFE = {t["function"]["name"] for t in planilla.TOOLS_PLANILLA_JEFE}
 
 
-def _usar_planilla(nombre: str, args: dict, telefono: str, es_jefe: bool) -> dict:
+def _montos_en(texto: str) -> list[float]:
+    montos = []
+    for m in re.findall(r"\d[\d.,]*", texto or ""):
+        n = planilla._a_numero(m)
+        if n and n >= 1000:
+            montos.append(n)
+    return montos
+
+
+def _monto_confiable(telefono: str, texto: str, propuesto) -> str:
+    """El monto no se lo dejamos al modelo: sale de lo que escribió el alumno."""
+    en_mensaje = _montos_en(texto)
+    if en_mensaje:
+        return str(int(en_mensaje[-1]))  # si corrige, el último número es el bueno
+    # sin número en este mensaje: solo vale si el alumno ya lo dijo antes en la charla
+    n = planilla._a_numero(propuesto)
+    if n:
+        dichos = [m for h in _historial(telefono) if h["role"] == "user"
+                  for m in _montos_en(h["content"])]
+        if n in dichos:
+            return str(int(n))
+    return ""
+
+
+def _usar_planilla(nombre: str, args: dict, telefono: str, es_jefe: bool, texto: str = "") -> dict:
     if nombre in SOLO_JEFE and not es_jefe:
         return {"error": "No autorizado. Solo el encargado puede hacer esto."}
+    if nombre in ("avisar_comprobante", "corregir_comprobante"):
+        args = dict(args or {})
+        elegido = _monto_confiable(telefono, texto, args.get("monto"))
+        if str(args.get("monto") or "") != elegido:
+            print(f"[monto] el modelo mandó {args.get('monto')!r}, uso {elegido!r}", flush=True)
+        args["monto"] = elegido
     try:
         return planilla.ejecutar(nombre, args, telefono)
     except Exception as e:  # la planilla no tiene que tumbar al bot
