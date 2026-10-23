@@ -3,6 +3,8 @@ from flask import Blueprint, request, jsonify
 from app.llm.agent import procesar_mensaje, esta_pausado, _guardar_mensaje
 from app.models import Notificacion
 from app.whatsapp_client import enviar_mensaje_whatsapp
+from app.extensions import db
+from sqlalchemy import text
 
 whatsapp_bp = Blueprint("whatsapp", __name__, url_prefix="/webhook")
 
@@ -32,6 +34,11 @@ def recibir_mensaje():
     if not telefono:
         return jsonify({"status": "ignorado"}), 200
 
+    # Meta reenvía el mismo mensaje si tardamos en contestar: lo procesamos una sola vez
+    if not _primera_vez(_id_mensaje(data)):
+        print("[webhook] mensaje repetido, lo ignoro", flush=True)
+        return jsonify({"status": "duplicado"}), 200
+
     es_jefe = telefono == os.environ.get("ENCARGADO_TELEFONO")
 
     if tipo == "audio":
@@ -49,6 +56,40 @@ def recibir_mensaje():
     enviar_mensaje_whatsapp(telefono, respuesta)
 
     return jsonify({"status": "ok"}), 200
+
+
+_tabla_lista = False
+
+
+def _id_mensaje(data: dict):
+    try:
+        return data["entry"][0]["changes"][0]["value"]["messages"][0].get("id")
+    except (KeyError, IndexError):
+        return None
+
+
+def _primera_vez(wamid) -> bool:
+    """True si es la primera vez que vemos este mensaje de WhatsApp."""
+    global _tabla_lista
+    if not wamid:
+        return True
+    try:
+        if not _tabla_lista:
+            db.session.execute(text(
+                "CREATE TABLE IF NOT EXISTS mensajes_procesados ("
+                "wamid TEXT PRIMARY KEY, creado_en TIMESTAMP DEFAULT NOW())"))
+            db.session.commit()
+            _tabla_lista = True
+        r = db.session.execute(
+            text("INSERT INTO mensajes_procesados (wamid) VALUES (:w) "
+                 "ON CONFLICT (wamid) DO NOTHING"),
+            {"w": wamid})
+        db.session.commit()
+        return r.rowcount == 1
+    except Exception as e:
+        db.session.rollback()
+        print(f"[webhook] no pude chequear duplicados: {e!r}", flush=True)
+        return True
 
 
 def _parsear_mensaje_meta(data: dict):
