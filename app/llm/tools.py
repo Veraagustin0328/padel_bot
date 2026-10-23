@@ -1,6 +1,8 @@
+from app.planilla import TOOLS_PLANILLA_ALUMNO, TOOLS_PLANILLA_JEFE
+
 NIVELES = ["1era", "1ra", "2da", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "principiante"]
 
-TOOLS_ALUMNO = [
+_TOOLS_BASE = [
     {
         "type": "function",
         "function": {
@@ -96,14 +98,6 @@ TOOLS_ALUMNO = [
     {
         "type": "function",
         "function": {
-            "name": "consultar_estado_pago",
-            "description": "Consulta si el alumno está al día con el pago del mes actual o si debe",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "resolver_cambio_pendiente",
             "description": (
                 "Se llama cuando el alumno responde sobre una propuesta de cambio pendiente. "
@@ -172,7 +166,9 @@ TOOLS_ALUMNO = [
     },
 ]
 
-TOOLS_JEFE = TOOLS_ALUMNO + [
+TOOLS_ALUMNO = _TOOLS_BASE + TOOLS_PLANILLA_ALUMNO
+
+TOOLS_JEFE = TOOLS_ALUMNO + TOOLS_PLANILLA_JEFE + [
     {
         "type": "function",
         "function": {

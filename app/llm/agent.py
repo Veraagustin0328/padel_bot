@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
+from app import planilla
 from app.models import (
-    Grupo, ClaseSuelta, Conversacion, Pago, Alumno,
+    Grupo, ClaseSuelta, Conversacion, Alumno,
     CambioPendiente, Recuperacion, Notificacion, EstadoChat,
 )
 
@@ -14,8 +15,8 @@ SESION_HORAS = 24
 
 DATOS_DE_PAGO = (
     "Alias: academiaarenapadel. Se paga por transferencia a ese alias. "
-    "Después hay que avisarle al encargado y mostrarle el comprobante "
-    "para que confirme el pago."
+    "Después el alumno te avisa por acá que transfirió, vos lo anotás y "
+    "el encargado confirma el pago."
 )
 
 # ---------------------------------------------------------------- niveles
@@ -162,8 +163,9 @@ BLOQUE_PAGOS_CON_DATOS = (
     "Pagos: si preguntan cómo o dónde pagar, respondé con estos datos y nada más: "
     + DATOS_DE_PAGO + "\n"
     "- Escribilo en voseo ('Podés transferir', no 'Podes').\n"
-    "- NO pidas que mande el comprobante por este chat: vos no podés leerlo "
-    "ni registrarlo. Decile que se lo muestre o se lo mande al encargado.\n"
+    "- NO le pidas fotos ni imágenes del comprobante: todavía no las podés leer. "
+    "Decile que cuando transfiera te avise y vos lo anotás (usá avisar_comprobante) "
+    "para que el encargado lo confirme.\n"
     "- NUNCA digas que un pago se cobra, se acredita o se confirma solo, ni "
     "'al instante'. Quien confirma el pago es el encargado.\n"
 )
@@ -172,6 +174,25 @@ BLOQUE_PAGOS_SIN_DATOS = (
     "datos de pago. NO inventes alias, CBU, apps, lugares ni medios de pago.\n"
 )
 BLOQUE_PAGOS = BLOQUE_PAGOS_CON_DATOS if DATOS_DE_PAGO else BLOQUE_PAGOS_SIN_DATOS
+
+BLOQUE_PLANILLA = (
+    "\nEstado de pago y número de teléfono:\n"
+    "- Si preguntan cuánto deben, si están al día o a quién pagar, llamá consultar_estado_pago.\n"
+    "- Si la tool dice que el número no está vinculado, pedile nombre y apellido tal "
+    "cual lo tiene anotado la academia y llamá vincular_telefono. Si sale ok, contale "
+    "que el encargado tiene que confirmar el vínculo antes de pasarle datos de pago.\n"
+    "- Si el vínculo está pendiente de confirmación, NO des datos de pago: decile con "
+    "buena onda que el encargado todavía no lo confirmó.\n"
+    "- Si está vinculado y confirmado, decile si está al día o qué meses figuran sin "
+    "pago, y pasale el alias. El monto exacto no lo tenés: decile que el encargado se "
+    "lo confirma. Nunca inventes un monto.\n"
+    "- Si dice que ya pagó o transfirió, llamá avisar_comprobante (con el monto si lo "
+    "dijo) y decile que quedó anotado para que el encargado lo confirme. NUNCA digas "
+    "que el pago ya está acreditado.\n"
+    "- Si una persona nueva, que no es alumna, consulta por clases, apenas te diga su "
+    "nombre llamá registrar_contacto_nuevo con lo que dijo (nombre, nivel y qué "
+    "consulta). Llamala una sola vez por charla, salvo que aporte datos nuevos.\n"
+)
 
 PROMPT_ALUMNO_PARTE_2 = (
     "\nReglas estrictas:\n"
@@ -194,7 +215,7 @@ PROMPT_ALUMNO_PARTE_2 = (
     "preguntale si lo acepta; cuando conteste usá resolver_cambio_pendiente.\n"
 )
 
-SYSTEM_PROMPT_ALUMNO = PROMPT_ALUMNO_PARTE_1 + BLOQUE_PAGOS + PROMPT_ALUMNO_PARTE_2
+SYSTEM_PROMPT_ALUMNO = PROMPT_ALUMNO_PARTE_1 + BLOQUE_PAGOS + BLOQUE_PLANILLA + PROMPT_ALUMNO_PARTE_2
 
 SALUDO_PRIMER_MENSAJE = (
     "Es el primer mensaje de esta conversación (o pasó más de un día desde el "
@@ -211,7 +232,9 @@ SYSTEM_PROMPT_JEFE = (
     "Podés ejecutar cambios administrativos como actualizar la categoría de un "
     "alumno, proponerle un cambio de día/horario (que queda pendiente de que el "
     "alumno lo confirme), o pausar/reanudar al bot en una conversación puntual. "
-    "Sé directo y breve, es un canal de trabajo."
+    "También podés ver los comprobantes de pago pendientes (comprobantes_pendientes) "
+    "y pasar a la planilla los que el encargado marcó como CONFIRMADO "
+    "(aplicar_pagos_confirmados). Sé directo y breve, es un canal de trabajo."
 )
 
 
@@ -300,8 +323,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             resultado = _agendar_clase_suelta(telefono, args)
         elif nombre == "cancelar_clase_suelta":
             resultado = _cancelar_clase_suelta(telefono, args)
-        elif nombre == "consultar_estado_pago":
-            resultado = _consultar_estado_pago(telefono)
+        elif nombre in NOMBRES_PLANILLA:
+            resultado = _usar_planilla(nombre, args, telefono, es_jefe)
         elif nombre == "actualizar_categoria":
             resultado = _actualizar_categoria(args, es_jefe)
         elif nombre == "crear_cambio_pendiente":
@@ -475,11 +498,21 @@ def _cancelar_clase_suelta(telefono: str, args: dict) -> dict:
     return {"status": "cancelada", "dia": clase.dia, "horario": clase.horario}
 
 
-def _consultar_estado_pago(telefono: str) -> dict:
-    pago = Pago.query.filter_by(telefono=telefono).order_by(Pago.id.desc()).first()
-    if not pago:
-        return {"estado": "sin_registro", "detalle": "No hay pagos registrados para este número"}
-    return {"estado": pago.estado, "mes": pago.mes, "monto": float(pago.monto)}
+NOMBRES_PLANILLA = {
+    t["function"]["name"]
+    for t in planilla.TOOLS_PLANILLA_ALUMNO + planilla.TOOLS_PLANILLA_JEFE
+}
+SOLO_JEFE = {t["function"]["name"] for t in planilla.TOOLS_PLANILLA_JEFE}
+
+
+def _usar_planilla(nombre: str, args: dict, telefono: str, es_jefe: bool) -> dict:
+    if nombre in SOLO_JEFE and not es_jefe:
+        return {"error": "No autorizado. Solo el encargado puede hacer esto."}
+    try:
+        return planilla.ejecutar(nombre, args, telefono)
+    except Exception as e:  # la planilla no tiene que tumbar al bot
+        print(f"[planilla] error en {nombre}: {e!r}", flush=True)
+        return {"error": "No pude acceder a la planilla en este momento. Decile que el encargado lo revisa."}
 
 
 def _actualizar_categoria(args: dict, es_jefe: bool) -> dict:
