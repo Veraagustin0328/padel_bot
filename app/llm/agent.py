@@ -307,6 +307,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     mensaje_modelo = respuesta.choices[0].message
 
     if not mensaje_modelo.tool_calls:
+        print(f"[llm] sin tools para: {texto!r}", flush=True)
         texto_final = mensaje_modelo.content or "No entendí eso, ¿podés reformularlo?"
         _guardar_mensaje(telefono, "assistant", texto_final)
         return texto_final
@@ -349,6 +350,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         else:
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
+        print(f"[tool] {nombre} {args} -> {resultado}", flush=True)
         mensajes.append({
             "role": "tool",
             "tool_call_id": tool_call.id,
@@ -360,7 +362,10 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         messages=mensajes,
         temperature=0.2,
     )
-    texto_final = respuesta_final.choices[0].message.content or "Listo, ya está."
+    texto_final = respuesta_final.choices[0].message.content
+    if not texto_final:
+        print("[llm] respuesta final vacía después de usar tools", flush=True)
+        texto_final = "Perdón, tuve un problema para responderte. ¿Me lo repetís?"
     _guardar_mensaje(telefono, "assistant", texto_final)
     return texto_final
 
