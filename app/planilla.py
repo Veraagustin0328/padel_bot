@@ -150,6 +150,20 @@ def avisar_comprobante(telefono, monto=None):
     v = _vinculo(telefono)
     nombre = v.get("ALUMNO") if v else ""
     n = _a_numero(monto)
+    mes_actual = MESES[_ahora().month - 1].capitalize()
+    t = _tel(telefono)
+    # si ya hay uno pendiente de este mes, lo actualizo en vez de duplicar
+    previos = [f for f in leer_pestana(TAB_COMPROBANTES)
+               if _tel(f.get("TELEFONO")) == t and _norm(f.get("ESTADO")) == "pendiente"
+               and _norm(f.get("MES")) == _norm(mes_actual)]
+    if previos:
+        f = previos[-1]
+        if n is not None:
+            pestana(TAB_COMPROBANTES, ENC_COMPROBANTES).update_cell(
+                f["_fila"], ENC_COMPROBANTES.index("MONTO") + 1, n)
+        monto_final = n if n is not None else _a_numero(f.get("MONTO"))
+        return {"ok": True, "monto_anotado": int(monto_final) if monto_final is not None and monto_final == int(monto_final) else monto_final,
+                "mensaje": "Ya había un comprobante pendiente de este mes, lo actualicé en vez de duplicarlo. Repetile el monto al alumno. El encargado lo confirma."}
     pestana(TAB_COMPROBANTES, ENC_COMPROBANTES).append_row(
         [_fecha(), str(telefono), nombre, n if n is not None else "",
          MESES[_ahora().month - 1].capitalize(), "PENDIENTE"],
