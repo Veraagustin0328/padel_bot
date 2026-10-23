@@ -1,4 +1,4 @@
-﻿"""Lógica del bot contra la planilla de Gabi.
+"""Lógica del bot contra la planilla de Gabi.
 
 Reglas de seguridad:
 - Nunca se escribe en la columna AL DIA (es una fórmula).
@@ -154,7 +154,26 @@ def avisar_comprobante(telefono, monto=None):
         [_fecha(), str(telefono), nombre, n if n is not None else "",
          MESES[_ahora().month - 1].capitalize(), "PENDIENTE"],
         value_input_option="USER_ENTERED")
-    return {"ok": True, "mensaje": "Anotado. El encargado revisa el comprobante y confirma el pago. No digas que ya está acreditado."}
+    return {"ok": True, "monto_anotado": int(n) if n is not None and n == int(n) else n,
+            "mensaje": "Anotado. Repetile al alumno el monto anotado (si es null, preguntale cuánto fue). El encargado revisa y confirma el pago. No digas que ya está acreditado."}
+
+
+def corregir_comprobante(telefono, monto):
+    """Cambia el monto de un comprobante que sigue PENDIENTE. Uno ya confirmado no se toca."""
+    n = _a_numero(monto)
+    if n is None:
+        return {"ok": False, "mensaje": "Falta el monto correcto. Preguntaselo al alumno."}
+    t = _tel(telefono)
+    pend = [f for f in leer_pestana(TAB_COMPROBANTES)
+            if _tel(f.get("TELEFONO")) == t and _norm(f.get("ESTADO")) == "pendiente"]
+    if not pend:
+        return {"ok": False, "mensaje": "No hay un comprobante pendiente para corregir. Si ya lo confirmaron, lo cambia el encargado."}
+    f = pend[-1]
+    pestana(TAB_COMPROBANTES, ENC_COMPROBANTES).update_cell(
+        f["_fila"], ENC_COMPROBANTES.index("MONTO") + 1, n)
+    return {"ok": True, "monto_anterior": f.get("MONTO"),
+            "monto_nuevo": int(n) if n == int(n) else n,
+            "mensaje": "Corregido. Repetile al alumno el monto nuevo."}
 
 
 # ---------- herramientas del jefe ----------
@@ -215,6 +234,9 @@ TOOLS_PLANILLA_ALUMNO = [
     _tool("avisar_comprobante",
           "Anota que el alumno dice que ya pagó, para que el encargado lo confirme. Usala cuando diga que transfirió o mande un comprobante.",
           {"monto": {"type": "string", "description": "Monto si lo dijo, si no vacío"}}),
+    _tool("corregir_comprobante",
+          "Corrige el monto de un comprobante que el alumno ya avisó, cuando dice que se equivocó. Solo sirve si el encargado todavía no lo confirmó.",
+          {"monto": {"type": "string", "description": "Monto correcto"}}, ["monto"]),
 ]
 
 TOOLS_PLANILLA_JEFE = [
@@ -235,6 +257,8 @@ def ejecutar(nombre, args, telefono):
         return registrar_contacto_nuevo(telefono, args.get("nombre", ""), args.get("nivel", ""), args.get("consulta", ""))
     if nombre == "avisar_comprobante":
         return avisar_comprobante(telefono, args.get("monto"))
+    if nombre == "corregir_comprobante":
+        return corregir_comprobante(telefono, args.get("monto"))
     if nombre == "comprobantes_pendientes":
         return comprobantes_pendientes()
     if nombre == "aplicar_pagos_confirmados":
