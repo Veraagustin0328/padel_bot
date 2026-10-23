@@ -315,7 +315,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     mensajes.append(mensaje_modelo.model_dump())
 
     for tool_call in mensaje_modelo.tool_calls:
-        nombre = tool_call.function.name
+        nombre = re.sub(r"[^A-Za-z_]", "", tool_call.function.name or "")
         try:
             args = json.loads(tool_call.function.arguments or "{}")
         except json.JSONDecodeError:
@@ -348,6 +348,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         elif nombre == "reanudar_bot":
             resultado = _reanudar_bot(args, es_jefe)
         else:
+            print(f"[tool?] nombre={tool_call.function.name!r} limpio={nombre!r} conocidas={sorted(NOMBRES_PLANILLA)}", flush=True)
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
         print(f"[tool] {nombre} {args} -> {resultado}", flush=True)
