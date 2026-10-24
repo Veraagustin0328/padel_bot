@@ -28,6 +28,7 @@ def create_app():
 
     with app.app_context():
         from app import models
+        from app import models_plataforma  # tablas de la plataforma (planes, cuotas, profes, etc.)
         db.create_all()
 
     return app
