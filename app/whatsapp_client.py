@@ -43,3 +43,31 @@ def enviar_mensaje_whatsapp(telefono: str, texto: str) -> dict:
         print(f"Error al enviar WhatsApp ({respuesta.status_code}): {respuesta.text}", flush=True)
 
     return respuesta.json()
+
+
+def reenviar_archivo_whatsapp(telefono: str, tipo: str, media_id: str,
+                              caption: str = "", filename: str | None = None) -> dict:
+    """Reenvía una imagen o documento que ya recibimos (por su media id) a otro número."""
+    token = os.environ.get("WHATSAPP_TOKEN", "").strip()
+    phone_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+    destino = _normalizar_telefono(telefono)
+
+    cuerpo = {"id": media_id, "caption": caption}
+    if tipo == "document" and filename:
+        cuerpo["filename"] = filename
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": tipo,
+        tipo: cuerpo,
+    }
+
+    respuesta = requests.post(
+        f"https://graph.facebook.com/v21.0/{phone_id}/messages",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    print(f"Reenviando {tipo} a {destino} -> {respuesta.status_code}", flush=True)
+    if not respuesta.ok:
+        print(f"Error al reenviar {tipo} ({respuesta.status_code}): {respuesta.text}", flush=True)
+    return respuesta.json()

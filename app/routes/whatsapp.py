@@ -2,7 +2,8 @@ import os
 from flask import Blueprint, request, jsonify
 from app.llm.agent import procesar_mensaje, esta_pausado, _guardar_mensaje
 from app.models import Notificacion
-from app.whatsapp_client import enviar_mensaje_whatsapp
+from app.whatsapp_client import enviar_mensaje_whatsapp, reenviar_archivo_whatsapp
+from app import planilla
 from app.extensions import db
 from sqlalchemy import text
 
@@ -45,6 +46,11 @@ def recibir_mensaje():
         enviar_mensaje_whatsapp(telefono, MENSAJE_NO_AUDIO)
         return jsonify({"status": "ok"}), 200
 
+    if tipo in ("image", "document"):
+        if es_jefe:
+            return jsonify({"status": "ignorado"}), 200
+        return _recibir_comprobante(telefono, data, tipo)
+
     if not texto:
         return jsonify({"status": "ignorado"}), 200
 
@@ -55,6 +61,40 @@ def recibir_mensaje():
     respuesta = procesar_mensaje(telefono, texto, es_jefe)
     enviar_mensaje_whatsapp(telefono, respuesta)
 
+    return jsonify({"status": "ok"}), 200
+
+
+def _recibir_comprobante(telefono: str, data: dict, tipo: str):
+    """Foto o PDF del comprobante: lo anota como pendiente y se lo reenvía al encargado."""
+    mensaje = data["entry"][0]["changes"][0]["value"]["messages"][0]
+    archivo = mensaje.get(tipo, {})
+    media_id = archivo.get("id")
+
+    nombre = ""
+    sin_monto = True
+    try:
+        vinculo = planilla._vinculo(telefono)
+        nombre = (vinculo or {}).get("ALUMNO", "")
+        r = planilla.avisar_comprobante(telefono, None)  # si no había uno pendiente, lo deja creado
+        sin_monto = r.get("monto_anotado") is None
+    except Exception as e:
+        print(f"[comprobante] error con la planilla: {e!r}", flush=True)
+
+    encargado = os.environ.get("ENCARGADO_TELEFONO", "").strip()
+    if encargado and media_id:
+        try:
+            reenviar_archivo_whatsapp(
+                encargado, tipo, media_id,
+                f"Comprobante de {nombre or telefono}", archivo.get("filename"))
+        except Exception as e:
+            print(f"[comprobante] no pude reenviar al encargado: {e!r}", flush=True)
+
+    respuesta = "Recibí tu comprobante, gracias. El encargado lo revisa y te confirma el pago."
+    if sin_monto:
+        respuesta += " Decime también cuánto fue así lo anoto."
+    _guardar_mensaje(telefono, "user", "[envió el comprobante de pago]")
+    _guardar_mensaje(telefono, "assistant", respuesta)
+    enviar_mensaje_whatsapp(telefono, respuesta)
     return jsonify({"status": "ok"}), 200
 
 

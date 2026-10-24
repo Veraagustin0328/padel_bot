@@ -163,9 +163,9 @@ BLOQUE_PAGOS_CON_DATOS = (
     "Pagos: si preguntan cómo o dónde pagar, respondé con estos datos y nada más: "
     + DATOS_DE_PAGO + "\n"
     "- Escribilo en voseo ('Podés transferir', no 'Podes').\n"
-    "- NO le pidas fotos ni imágenes del comprobante: todavía no las podés leer. "
-    "Decile que cuando transfiera te avise y vos lo anotás (usá avisar_comprobante) "
-    "para que el encargado lo confirme.\n"
+    "- Decile que cuando transfiera te avise con el monto y mande la foto o el PDF "
+    "del comprobante por este chat: vos no lo leés, pero se lo pasás al encargado, "
+    "que lo revisa y confirma el pago.\n"
     "- NUNCA digas que un pago se cobra, se acredita o se confirma solo, ni "
     "'al instante'. Quien confirma el pago es el encargado.\n"
 )
@@ -260,6 +260,13 @@ def _nota_registro(telefono: str) -> str:
 
 def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     _guardar_mensaje(telefono, "user", texto)
+
+    # Avisos de pago: los resuelve el código, no el modelo (es plata)
+    if not es_jefe:
+        respuesta_pago = _responder_pago(telefono, texto)
+        if respuesta_pago:
+            _guardar_mensaje(telefono, "assistant", respuesta_pago)
+            return respuesta_pago
 
     system_prompt = SYSTEM_PROMPT_JEFE if es_jefe else SYSTEM_PROMPT_ALUMNO
     tools = tools_para_rol(es_jefe)
@@ -514,6 +521,43 @@ NOMBRES_PLANILLA = {
     for t in planilla.TOOLS_PLANILLA_ALUMNO + planilla.TOOLS_PLANILLA_JEFE
 }
 SOLO_JEFE = {t["function"]["name"] for t in planilla.TOOLS_PLANILLA_JEFE}
+
+
+_RE_PAGO = re.compile(
+    r"pagu[eé]|\bpag[oó]\b|transfer[ií]|transfiri|deposit[eé]|"
+    r"mand[eé] (la )?(plata|transferencia|comprobante)", re.I)
+_RE_CORRIGE = re.compile(
+    r"equivoq|confund|correg|quise decir|en realidad|me falt[oó]|me sobr[oó]", re.I)
+
+
+def _pesos(n: float) -> str:
+    return "$" + f"{int(n):,}".replace(",", ".")
+
+
+def _responder_pago(telefono: str, texto: str) -> str | None:
+    """Si el mensaje avisa o corrige un pago con monto, lo anota y responde sin pasar por el modelo."""
+    montos = _montos_en(texto)
+    if not montos:
+        return None
+    monto = montos[-1]  # si corrige, el último número es el bueno
+    try:
+        if _RE_CORRIGE.search(texto):
+            r = planilla.ejecutar("corregir_comprobante", {"monto": str(int(monto))}, telefono)
+            print(f"[pago] corregir_comprobante {int(monto)} -> {r}", flush=True)
+            if r and r.get("ok"):
+                return (f"Listo, corregí el monto: quedó anotado {_pesos(monto)}. "
+                        "El encargado lo revisa y te confirma el pago.")
+        if _RE_PAGO.search(texto):
+            r = planilla.ejecutar("avisar_comprobante", {"monto": str(int(monto))}, telefono)
+            print(f"[pago] avisar_comprobante {int(monto)} -> {r}", flush=True)
+            if r and r.get("ok"):
+                return (f"Anoté {_pesos(monto)}. Mandame también la foto o el PDF del "
+                        "comprobante por acá así queda guardado. El encargado lo revisa "
+                        "y te confirma el pago. ¡Gracias!")
+    except Exception as e:
+        print(f"[pago] error: {e!r}", flush=True)
+        return "Perdón, no pude anotarlo en este momento. Avisale al encargado así lo revisa."
+    return None
 
 
 def _montos_en(texto: str) -> list[float]:
