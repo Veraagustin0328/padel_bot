@@ -1,5 +1,6 @@
 import os
 from flask import Flask
+from flask_cors import CORS
 from dotenv import load_dotenv
 from app.extensions import db
 
@@ -23,8 +24,15 @@ def create_app():
 
     db.init_app(app)
 
+    # El panel en React corre en otro puerto mientras desarrollamos (Vite usa 5173).
+    # En produccion se cambia con la variable CORS_ORIGINS (separadas por coma).
+    origenes = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
+    CORS(app, resources={r"/api/*": {"origins": origenes}})
+
     from app.routes.whatsapp import whatsapp_bp
+    from app.routes.auth import auth_bp
     app.register_blueprint(whatsapp_bp)
+    app.register_blueprint(auth_bp)
 
     with app.app_context():
         from app import models
