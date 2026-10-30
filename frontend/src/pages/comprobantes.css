@@ -1,0 +1,24 @@
+.cmp-barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 16px; }
+.cmp-filtro { border: 1px solid #cfd6dd; background: #fff; border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
+.cmp-filtro.activo { background: #14532d; border-color: #14532d; color: #fff; }
+.cmp-espacio { flex: 1; }
+.cmp-lista { display: grid; gap: 10px; }
+.cmp-card { background: #fff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
+.cmp-fila { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.cmp-nombre { font-weight: 600; font-size: 1.05rem; }
+.cmp-sub { color: #5b6672; font-size: .9rem; }
+.cmp-monto { font-size: 1.15rem; font-weight: 700; }
+.cmp-acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cmp-input { width: 130px; padding: 7px 10px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+.cmp-estado { font-size: .75rem; font-weight: 700; letter-spacing: .04em; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; }
+.cmp-estado.pendiente { background: #fef3c7; color: #92400e; }
+.cmp-estado.confirmado { background: #dbeafe; color: #1e40af; }
+.cmp-estado.aplicado { background: #dcfce7; color: #166534; }
+.cmp-estado.anulado { background: #f1f5f9; color: #64748b; }
+.cmp-msg { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; }
+.cmp-msg.error { background: #fee2e2; color: #991b1b; }
+.cmp-msg.ok { background: #dcfce7; color: #166534; }
+.cmp-vacio { color: #5b6672; padding: 24px 0; text-align: center; }
+.cmp-resultado { background: #fff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+.cmp-resultado ul { margin: 6px 0 0; padding-left: 20px; }
+@media (max-width: 600px) { .cmp-input { width: 100%; } }

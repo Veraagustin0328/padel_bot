@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "./auth.jsx";
 import Login from "./pages/Login.jsx";
 import Inicio from "./pages/Inicio.jsx";
 import Planes from "./pages/Planes.jsx";
+import Comprobantes from "./pages/Comprobantes.jsx";
 
 const GESTION = ["admin", "encargado"];
 
@@ -10,9 +11,10 @@ const GESTION = ["admin", "encargado"];
 const MENU = [
   { a: "/", t: "Inicio", roles: ["admin", "encargado", "profe", "jugador"] },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
+  { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
 ];
 // lo que viene (se ve apagado para que Gabi sepa que está en camino)
-const PRONTO = ["Alumnos", "Cuotas", "Comprobantes", "Profes y horas", "Planificación", "Agente"];
+const PRONTO = ["Alumnos", "Cuotas", "Profes y horas", "Planificación", "Agente"];
 
 function Layout() {
   const { usuario, salir } = useAuth();
@@ -74,6 +76,7 @@ export default function App() {
           <Route element={<Protegida />}>
             <Route path="/" element={<Inicio />} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
+            <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
