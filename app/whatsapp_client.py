@@ -10,7 +10,16 @@ def _normalizar_telefono(telefono: str) -> str:
         return telefono
 
     resto = telefono[3:]  # área + número (10 dígitos)
-    largo_area = 2 if resto.startswith("11") else 3  # 11 = Buenos Aires, el resto 3 (261 = Mendoza)
+    # 11 = Buenos Aires (2 dígitos), 261 = Gran Mendoza (3 dígitos),
+    # el resto de Mendoza (2622, 2634, etc.) tiene 4 dígitos
+    if resto.startswith("11"):
+        largo_area = 2
+    elif resto.startswith("261"):
+        largo_area = 3
+    elif resto.startswith("26"):
+        largo_area = 4
+    else:
+        largo_area = 3
     area = resto[:largo_area]
     numero = resto[largo_area:]
     return f"54{area}15{numero}"
