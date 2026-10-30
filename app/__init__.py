@@ -32,10 +32,12 @@ def create_app():
     from app.routes.whatsapp import whatsapp_bp
     from app.routes.auth import auth_bp
     from app.routes.planes import planes_bp
+    from app.routes.alumnos import alumnos_bp
     from app.routes.comprobantes import comprobantes_bp
     app.register_blueprint(whatsapp_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(planes_bp)
+    app.register_blueprint(alumnos_bp)
     app.register_blueprint(comprobantes_bp)
 
     with app.app_context():
