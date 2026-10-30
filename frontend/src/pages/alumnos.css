@@ -1,0 +1,29 @@
+.alu-resumen { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.alu-dato { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); padding: 10px 18px; cursor: pointer; font: inherit; color: var(--tinta); text-align: left; min-width: 130px; }
+.alu-dato.activo { border-color: var(--verde-2); box-shadow: 0 0 0 2px var(--verde-2); }
+.alu-dato b { display: block; font-size: 1.5rem; }
+.alu-dato span { color: var(--suave); font-size: .85rem; }
+.alu-dato.debe b { color: var(--mal); }
+.alu-dato.ok b { color: var(--ok); }
+.alu-filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.alu-filtros input, .alu-filtros select { padding: 8px 12px; border: 1px solid var(--linea); border-radius: 8px; font: inherit; background: var(--tarjeta); color: var(--tinta); }
+.alu-filtros input { flex: 1; min-width: 200px; }
+.alu-scroll { overflow: auto; max-height: 68vh; border: 1px solid var(--linea); border-radius: var(--radio); background: var(--tarjeta); }
+.alu-tabla { border-collapse: collapse; width: 100%; font-size: .9rem; white-space: nowrap; }
+.alu-tabla th { position: sticky; top: 0; background: var(--verde-2); color: #fff; text-align: left; padding: 9px 12px; z-index: 2; font-weight: 600; }
+.alu-tabla td { padding: 7px 12px; border-top: 1px solid var(--linea); }
+.alu-tabla tr:hover td { background: var(--fondo); }
+.alu-tabla .nombre { position: sticky; left: 0; background: var(--tarjeta); font-weight: 600; z-index: 1; }
+.alu-tabla th.nombre { background: var(--verde-2); z-index: 3; }
+.alu-tabla tr:hover td.nombre { background: var(--fondo); }
+.alu-tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+.alu-tabla th.actual { background: var(--verde); box-shadow: inset 0 -3px 0 var(--pelota); }
+.alu-tabla .cero { color: var(--suave); }
+.alu-tabla .raro { color: var(--suave); font-size: .8rem; }
+.alu-tabla .baja td { color: var(--suave); }
+.alu-badge { font-size: .72rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+.alu-badge.ok { background: var(--ok-fondo); color: var(--ok); }
+.alu-badge.debe { background: var(--mal-fondo); color: var(--mal); }
+.alu-badge.nada { background: var(--fondo); color: var(--suave); }
+.alu-msg { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; background: var(--mal-fondo); color: var(--mal); }
+.alu-vacio { color: var(--suave); padding: 24px 0; text-align: center; }

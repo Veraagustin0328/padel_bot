@@ -1,20 +1,24 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth.jsx";
+import { MARCA } from "./marca.js";
 import Login from "./pages/Login.jsx";
 import Inicio from "./pages/Inicio.jsx";
 import Planes from "./pages/Planes.jsx";
 import Comprobantes from "./pages/Comprobantes.jsx";
+import Alumnos from "./pages/Alumnos.jsx";
 
 const GESTION = ["admin", "encargado"];
 
 // lo que ya está hecho
 const MENU = [
   { a: "/", t: "Inicio", roles: ["admin", "encargado", "profe", "jugador"] },
-  { a: "/planes", t: "Planes y precios", roles: GESTION },
+  { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
+  { a: "/planes", t: "Planes y precios", roles: GESTION },
 ];
 // lo que viene (se ve apagado para que Gabi sepa que está en camino)
-const PRONTO = ["Alumnos", "Cuotas", "Profes y horas", "Planificación", "Agente"];
+const PRONTO = ["Cuotas", "Profes y horas", "Planificación", "Agente"];
 
 function Layout() {
   const { usuario, salir } = useAuth();
@@ -25,7 +29,7 @@ function Layout() {
       <nav className="lateral" aria-label="Principal">
         <div className="marca">
           <span className="pelota" />
-          Academia Arena Pádel
+          {MARCA.nombre}
         </div>
         {MENU.filter((m) => m.roles.includes(usuario.rol)).map((m) => (
           <NavLink key={m.a} to={m.a} end={m.a === "/"} className={({ isActive }) => "item" + (isActive ? " activo" : "")}>
@@ -68,6 +72,11 @@ function SoloGestion({ children }) {
 }
 
 export default function App() {
+  // el título de la pestaña sale de la marca
+  useEffect(() => {
+    document.title = MARCA.nombre;
+  }, []);
+
   return (
     <AuthProvider>
       <BrowserRouter>
@@ -75,8 +84,9 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<Protegida />}>
             <Route path="/" element={<Inicio />} />
-            <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
+            <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
+            <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

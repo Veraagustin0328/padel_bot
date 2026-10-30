@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
+import { MARCA } from "../marca.js";
 
 export default function Login() {
   const { usuario, entrar } = useAuth();
@@ -31,7 +32,7 @@ export default function Login() {
       <form onSubmit={enviar} className="tarjeta">
         <div className="marca">
           <span className="pelota" />
-          Academia Arena Pádel
+          {MARCA.nombre}
         </div>
         <h2>Entrá a tu cuenta</h2>
         <div className="campo">
