@@ -7,6 +7,7 @@ import Inicio from "./pages/Inicio.jsx";
 import Planes from "./pages/Planes.jsx";
 import Comprobantes from "./pages/Comprobantes.jsx";
 import Alumnos from "./pages/Alumnos.jsx";
+import Clases from "./pages/Clases.jsx";
 
 const GESTION = ["admin", "encargado"];
 
@@ -14,6 +15,7 @@ const GESTION = ["admin", "encargado"];
 const MENU = [
   { a: "/", t: "Inicio", roles: ["admin", "encargado", "profe", "jugador"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
+  { a: "/clases", t: "Clases", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
 ];
@@ -85,6 +87,7 @@ export default function App() {
           <Route element={<Protegida />}>
             <Route path="/" element={<Inicio />} />
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
+            <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
           </Route>

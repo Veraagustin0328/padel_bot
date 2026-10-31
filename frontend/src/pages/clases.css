@@ -1,0 +1,61 @@
+.cla-msg { background: #fdecea; color: #8a1c13; padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+
+.cla-tabs { display: flex; gap: 8px; margin: 16px 0 12px; flex-wrap: wrap; }
+.cla-tab { border: 1px solid #cfd6dd; background: #fff; border-radius: 999px; padding: 8px 16px; cursor: pointer; font: inherit; }
+.cla-tab.activo { background: var(--verde, #1e6b3a); border-color: var(--verde, #1e6b3a); color: #fff; }
+
+.cla-resumen { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.cla-dato { background: #fff; border: 1px solid #e1e6ea; border-radius: 10px; padding: 10px 18px; min-width: 110px; display: flex; flex-direction: column; }
+.cla-dato b { font-size: 1.5rem; line-height: 1.2; }
+.cla-dato span { color: #5b6672; font-size: .85rem; }
+.cla-dato.aviso b { color: #b45309; }
+
+.cla-filtros { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.cla-filtros input, .cla-filtros select { padding: 8px 10px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+.cla-filtros input { min-width: 220px; }
+.cla-hallazgo { color: #5b6672; font-size: .9rem; }
+.cla-vacio { padding: 30px; text-align: center; color: #5b6672; background: #fff; border-radius: 10px; }
+
+.cla-cuerpo { display: flex; gap: 16px; align-items: flex-start; }
+.cla-scroll { flex: 1; min-width: 0; overflow-x: auto; background: #fff; border: 1px solid #e1e6ea; border-radius: 10px; }
+.cla-grilla { border-collapse: collapse; width: 100%; }
+.cla-grilla th { background: #f4f6f8; padding: 10px; text-align: left; font-size: .85rem; position: sticky; top: 0; }
+.cla-grilla td { border-top: 1px solid #eef1f4; padding: 8px; vertical-align: top; min-width: 150px; }
+.cla-grilla th.hora, .cla-grilla td.hora { min-width: 60px; width: 60px; font-weight: 600; color: #3a4651; }
+
+.cla-chip { display: block; width: 100%; text-align: left; border: 1px solid #d6dde3; background: #f9fbfc; border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; font: inherit; }
+.cla-chip:hover { border-color: var(--verde, #1e6b3a); }
+.cla-chip.dudosa { border-style: dashed; border-color: #d99a2b; background: #fffaf0; }
+.cla-chip.llena { background: #eef7f0; }
+.cla-chip.pasada { background: #fdecea; border-color: #e0786f; }
+.cla-chip.abierta { outline: 2px solid var(--verde, #1e6b3a); }
+.cla-chip.hit { outline: 2px solid #2563eb; background: #eaf1ff; }
+.cla-chip.opaco { opacity: .35; }
+.cla-arriba { display: flex; align-items: center; gap: 6px; }
+.cla-arriba b { flex: 1; font-size: .9rem; }
+.cla-arriba i { font-style: normal; font-size: .75rem; background: #e6ebef; border-radius: 4px; padding: 1px 6px; }
+.cla-abajo { display: block; font-size: .78rem; color: #5b6672; margin-top: 2px; }
+.cla-punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; margin-right: 2px; }
+
+.cla-detalle { width: 300px; flex: none; background: #fff; border: 1px solid #e1e6ea; border-radius: 10px; padding: 16px; position: sticky; top: 16px; }
+.cla-detalle h2 { margin: 0 0 4px; }
+.cla-detalle h3 { margin: 16px 0 6px; font-size: 1rem; }
+.cla-cerrar { float: right; border: 0; background: none; font-size: 1.5rem; cursor: pointer; line-height: 1; }
+.cla-sub { color: #5b6672; margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
+.cla-tags { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.cla-tag { background: #e6ebef; border-radius: 999px; padding: 3px 10px; font-size: .8rem; }
+.cla-alerta { background: #fffaf0; border: 1px solid #f0d49b; color: #7a4b05; border-radius: 8px; padding: 8px 10px; font-size: .85rem; margin-bottom: 8px; }
+.cla-nota { background: #f4f6f8; border-radius: 8px; padding: 8px 10px; font-size: .85rem; margin-bottom: 8px; }
+.cla-lista { margin: 0; padding-left: 20px; }
+.cla-lista li { padding: 3px 0; }
+
+@media (max-width: 900px) {
+  .cla-cuerpo { flex-direction: column; }
+  .cla-detalle { width: auto; position: static; }
+}
+.cla-leyenda { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: #fff; border: 1px solid #e1e6ea; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: .85rem; color: #3a4651; }
+.cla-ley { display: inline-flex; align-items: center; gap: 6px; }
+.cla-muestra { display: inline-block; width: 18px; height: 12px; border-radius: 3px; border: 1px solid #d6dde3; background: #f9fbfc; }
+.cla-muestra.dudosa { border-style: dashed; border-color: #d99a2b; background: #fffaf0; }
+.cla-muestra.llena { background: #eef7f0; }
+.cla-muestra.pasada { background: #fdecea; border-color: #e0786f; }
