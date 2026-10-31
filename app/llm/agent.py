@@ -365,14 +365,20 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
             "content": json.dumps(resultado, ensure_ascii=False),
         })
 
-    respuesta_final = client.chat.completions.create(
-        model=MODEL,
-        messages=mensajes,
-        temperature=0.2,
-    )
-    texto_final = respuesta_final.choices[0].message.content
-    if not texto_final:
-        print("[llm] respuesta final vacía después de usar tools", flush=True)
+    texto_final = None
+    for intento in range(3):
+        respuesta_final = client.chat.completions.create(
+            model=MODEL,
+            messages=mensajes,
+            temperature=0.2 + 0.3 * intento,  # si vino vacía, la próxima vez varía un poco
+        )
+        eleccion = respuesta_final.choices[0]
+        texto_final = eleccion.message.content
+        if texto_final and texto_final.strip():
+            break
+        print(f"[llm] respuesta final vacía después de usar tools "
+              f"(intento {intento + 1}/3, finish_reason={eleccion.finish_reason})", flush=True)
+    if not texto_final or not texto_final.strip():
         texto_final = "Perdón, tuve un problema para responderte. ¿Me lo repetís?"
     _guardar_mensaje(telefono, "assistant", texto_final)
     return texto_final
