@@ -59,3 +59,56 @@
 .cla-muestra.dudosa { border-style: dashed; border-color: #d99a2b; background: #fffaf0; }
 .cla-muestra.llena { background: #eef7f0; }
 .cla-muestra.pasada { background: #fdecea; border-color: #e0786f; }
+
+.cla-aviso { background: #eef7f0; color: #14532d; padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+.cla-msg { cursor: pointer; }
+.cla-acciones { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.cla-check { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; color: #3a4651; }
+.cla-chip.apagada { opacity: .5; text-decoration: line-through; }
+
+.cla-alerta { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.cla-form { display: grid; gap: 10px; margin: 12px 0; }
+.cla-form label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: #3a4651; }
+.cla-form input, .cla-form select { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+
+.cla-lista { list-style-position: inside; padding-left: 0; }
+.cla-lista li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cla-quitar { border: 0; background: none; color: #b42318; font-size: 1.2rem; cursor: pointer; line-height: 1; }
+
+.cla-agregar { margin-top: 10px; position: relative; }
+.cla-agregar input { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+.cla-resultados { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid #e1e6ea; border-radius: 8px; background: #fff; max-height: 220px; overflow-y: auto; }
+.cla-resultados button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; cursor: pointer; font: inherit; }
+.cla-resultados button:hover:not(:disabled) { background: #f4f6f8; }
+.cla-resultados button:disabled { color: #98a2ac; cursor: default; }
+
+.cla-peligro { margin-top: 18px; width: 100%; border: 1px solid #e0786f; background: #fff; color: #b42318; border-radius: 8px; padding: 8px; cursor: pointer; font: inherit; }
+.cla-peligro:hover { background: #fdecea; }
+
+.cla-aviso { background: #eef7f0; color: #14532d; padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+.cla-msg { cursor: pointer; }
+.cla-acciones { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.cla-check { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; color: #3a4651; }
+.cla-chip.apagada { opacity: .5; text-decoration: line-through; }
+
+.cla-alerta { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.cla-form { display: grid; gap: 10px; margin: 12px 0; }
+.cla-form label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: #3a4651; }
+.cla-form input, .cla-form select { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+
+.cla-lista { list-style-position: inside; padding-left: 0; }
+.cla-lista li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cla-quitar { border: 0; background: none; color: #b42318; font-size: 1.2rem; cursor: pointer; line-height: 1; }
+
+.cla-agregar { margin-top: 10px; position: relative; }
+.cla-agregar input { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+.cla-resultados { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid #e1e6ea; border-radius: 8px; background: #fff; max-height: 220px; overflow-y: auto; }
+.cla-resultados button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; cursor: pointer; font: inherit; }
+.cla-resultados button:hover:not(:disabled) { background: #f4f6f8; }
+.cla-resultados button:disabled { color: #98a2ac; cursor: default; }
+
+.cla-peligro { margin-top: 18px; width: 100%; border: 1px solid #e0786f; background: #fff; color: #b42318; border-radius: 8px; padding: 8px; cursor: pointer; font: inherit; }
+.cla-peligro:hover { background: #fdecea; }
+
+.cla-filtros .cla-check input { min-width: 0; width: auto; }
+.cla-detalle { max-height: calc(100vh - 32px); overflow-y: auto; }

@@ -49,13 +49,18 @@ function Leyenda({ colores }) {
 export default function Clases() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
+  const [aviso, setAviso] = useState("");
   const [ambito, setAmbito] = useState("adultos");
   const [profe, setProfe] = useState("todos");
   const [buscar, setBuscar] = useState("");
   const [abierta, setAbierta] = useState(null);
+  const [verInactivas, setVerInactivas] = useState(false);
+  const [listaProfes, setListaProfes] = useState([]);
+  const [form, setForm] = useState(null);
+  const [qAlu, setQAlu] = useState("");
+  const [resultados, setResultados] = useState([]);
 
   async function cargar() {
-    setError("");
     try {
       setDatos(await api("/api/clases"));
     } catch (e) {
@@ -64,13 +69,36 @@ export default function Clases() {
     }
   }
   useEffect(() => { cargar(); }, []);
+  useEffect(() => {
+    api("/api/clases/profes").then(setListaProfes).catch(() => {});
+  }, []);
 
-  const clases = datos?.clases || [];
+  function avisar(texto) {
+    setAviso(texto);
+    setTimeout(() => setAviso(""), 4000);
+  }
+
+  // hace un cambio en el servidor y vuelve a cargar todo
+  async function hacer(fn, ok) {
+    setError("");
+    try {
+      const r = await fn();
+      if (ok) avisar(typeof ok === "function" ? ok(r) : ok);
+      await cargar();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  const clases = useMemo(
+    () => (datos?.clases || []).filter((c) => verInactivas || c.activa),
+    [datos, verInactivas]
+  );
   const colores = datos?.colores_nivel || {};
 
   const ambitos = Object.keys(AMBITOS).filter((a) => clases.some((c) => c.ambito === a));
   const delAmbito = useMemo(() => clases.filter((c) => c.ambito === ambito), [clases, ambito]);
-  const profes = useMemo(() => [...new Set(delAmbito.map((c) => c.profe).filter(Boolean))].sort(), [delAmbito]);
+  const profesFiltro = useMemo(() => [...new Set(delAmbito.map((c) => c.profe).filter(Boolean))].sort(), [delAmbito]);
   const filtradas = useMemo(
     () => delAmbito.filter((c) => profe === "todos" || c.profe === profe),
     [delAmbito, profe]
@@ -89,15 +117,89 @@ export default function Clases() {
   const alumnosUnicos = new Set(filtradas.flatMap((c) => c.alumnos.map((a) => a.id))).size;
   const porConfirmar = filtradas.filter((c) => c.estimado).length;
   const vacias = filtradas.filter((c) => c.alumnos.length === 0).length;
+  const grupalesObvias = clases.filter((c) => c.estimado && c.activa && c.tipo === "grupal" && c.alumnos.length >= 3).length;
 
   const sel = clases.find((c) => c.id === abierta);
+
+  // el formulario del panel arranca con lo que tiene la clase
+  useEffect(() => {
+    if (sel) setForm({ tipo: sel.tipo, nivel: sel.nivel, cupo: sel.cupo, profesor_id: sel.profe_id ?? "" });
+    else setForm(null);
+  }, [sel?.id, datos]);
+
+  useEffect(() => { setQAlu(""); setResultados([]); }, [abierta]);
+
+  // buscador de alumnos para anotar en la clase
+  useEffect(() => {
+    if (qAlu.trim().length < 2) { setResultados([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        setResultados(await api(`/api/clases/buscar-alumnos?q=${encodeURIComponent(qAlu.trim())}`));
+      } catch {
+        setResultados([]);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [qAlu]);
+
+  const hayCambios =
+    sel && form &&
+    (form.tipo !== sel.tipo ||
+      form.nivel.trim().toUpperCase() !== sel.nivel ||
+      Number(form.cupo) !== sel.cupo ||
+      String(form.profesor_id) !== String(sel.profe_id ?? ""));
+
+  function guardar() {
+    const cambios = {};
+    if (form.tipo !== sel.tipo) cambios.tipo = form.tipo;
+    if (form.nivel.trim().toUpperCase() !== sel.nivel) cambios.nivel = form.nivel;
+    if (Number(form.cupo) !== sel.cupo) cambios.cupo = Number(form.cupo);
+    if (String(form.profesor_id) !== String(sel.profe_id ?? "")) {
+      cambios.profesor_id = form.profesor_id === "" ? null : Number(form.profesor_id);
+    }
+    hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: cambios }), "Cambios guardados.");
+  }
+
+  function confirmarTipo() {
+    hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { confirmar_tipo: true } }), "Tipo confirmado.");
+  }
+
+  function alternarActiva() {
+    if (sel.activa && !window.confirm("¿Desactivar esta clase? Deja de contar, pero no se borra nada.")) return;
+    hacer(
+      () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { activa: !sel.activa } }),
+      sel.activa ? "Clase desactivada." : "Clase reactivada."
+    );
+  }
+
+  function sacar(a) {
+    if (!window.confirm(`¿Sacar a ${a.nombre} de esta clase?`)) return;
+    hacer(() => api(`/api/clases/${sel.id}/alumnos/${a.id}`, { metodo: "DELETE" }), `${a.nombre} salió de la clase.`);
+  }
+
+  function anotar(a) {
+    setQAlu("");
+    setResultados([]);
+    hacer(
+      () => api(`/api/clases/${sel.id}/alumnos`, { metodo: "POST", cuerpo: { alumno_id: a.id } }),
+      `${a.nombre} quedó anotado.`
+    );
+  }
+
+  function confirmarGrupales() {
+    hacer(
+      () => api("/api/clases/confirmar-grupales", { metodo: "POST" }),
+      (r) => `${r.confirmadas} clases confirmadas como grupales.`
+    );
+  }
 
   return (
     <div>
       <h1>Clases</h1>
-      <p style={{ color: "#5b6672" }}>El horario fijo de la academia. Por ahora es solo para mirar.</p>
+      <p style={{ color: "#5b6672" }}>El horario fijo de la academia. Tocá una clase para editarla.</p>
 
-      {error && <div className="cla-msg">{error}</div>}
+      {error && <div className="cla-msg" onClick={() => setError("")}>{error}</div>}
+      {aviso && <div className="cla-aviso">{aviso}</div>}
 
       <div className="cla-tabs">
         {ambitos.map((a) => (
@@ -118,13 +220,26 @@ export default function Clases() {
         <div className="cla-dato"><b>{vacias}</b><span>Sin alumnos</span></div>
       </div>
 
+      {grupalesObvias > 0 && (
+        <div className="cla-acciones">
+          <button className="boton chico" onClick={confirmarGrupales}>
+            Confirmar las {grupalesObvias} grupales de 3 o 4 alumnos
+          </button>
+          <span className="cla-sub">Son las que casi seguro son grupales. Las de 1 o 2 alumnos las confirmás una por una.</span>
+        </div>
+      )}
+
       <div className="cla-filtros">
         <select value={profe} onChange={(e) => setProfe(e.target.value)}>
           <option value="todos">Todos los profes</option>
-          {profes.map((p) => <option key={p} value={p}>{capital(p)}</option>)}
+          {profesFiltro.map((p) => <option key={p} value={p}>{capital(p)}</option>)}
         </select>
         <input placeholder="Buscar un alumno…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
         {hayBusqueda && <span className="cla-hallazgo">{aciertos} {aciertos === 1 ? "clase" : "clases"}</span>}
+        <label className="cla-check">
+          <input type="checkbox" checked={verInactivas} onChange={(e) => setVerInactivas(e.target.checked)} />
+          Mostrar desactivadas
+        </label>
         <button className="boton chico claro" onClick={cargar}>Actualizar</button>
       </div>
 
@@ -156,6 +271,7 @@ export default function Clases() {
                             "cla-chip" +
                             (c.estimado ? " dudosa" : "") +
                             (n > c.cupo ? " pasada" : n === c.cupo ? " llena" : "") +
+                            (!c.activa ? " apagada" : "") +
                             (c.id === abierta ? " abierta" : "") +
                             (hayBusqueda ? (coincide(c) ? " hit" : " opaco") : "");
                           return (
@@ -177,33 +293,83 @@ export default function Clases() {
             </table>
           </div>
 
-          {sel && (
+          {sel && form && (
             <aside className="cla-detalle">
               <button className="cla-cerrar" onClick={() => setAbierta(null)} aria-label="Cerrar">×</button>
               <h2>{DIAS[sel.dia]} {sel.hora}</h2>
               <p className="cla-sub">
                 <Punto nivel={sel.nivel} colores={colores} />
                 {sel.profe ? capital(sel.profe) : "Sin profe"} · {sel.nivel || "Sin nivel"}
+                {!sel.activa && " · desactivada"}
               </p>
-              <div className="cla-tags">
-                <span className="cla-tag">{TIPOS[sel.tipo] || sel.tipo}</span>
-                <span className="cla-tag">Cupo {sel.cupo}</span>
-              </div>
+
               {sel.estimado && (
-                <div className="cla-alerta">El tipo de clase se estimó por la cantidad de alumnos. Falta que Gabi lo confirme.</div>
+                <div className="cla-alerta">
+                  El tipo ({TIPOS[sel.tipo]}) se estimó por la cantidad de alumnos.
+                  <button className="boton chico" onClick={confirmarTipo}>Confirmar tipo</button>
+                </div>
               )}
               {sel.alumnos.length > sel.cupo && (
                 <div className="cla-alerta">Hay más alumnos que cupo. Puede ser que la planilla tenga varias clases mezcladas.</div>
               )}
               {sel.nota && <div className="cla-nota"><b>Nota de la planilla:</b> {sel.nota}</div>}
+
+              <div className="cla-form">
+                <label>Tipo
+                  <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
+                    {Object.entries(TIPOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </label>
+                <label>Nivel
+                  <input value={form.nivel} placeholder="Ej. 6TA o 6TA/7MA" onChange={(e) => setForm({ ...form, nivel: e.target.value })} />
+                </label>
+                <label>Cupo
+                  <input type="number" min="1" max="20" value={form.cupo} onChange={(e) => setForm({ ...form, cupo: e.target.value })} />
+                </label>
+                <label>Profe
+                  <select value={form.profesor_id} onChange={(e) => setForm({ ...form, profesor_id: e.target.value })}>
+                    <option value="">Sin profe</option>
+                    {listaProfes.map((p) => <option key={p.id} value={p.id}>{capital(p.nombre)}</option>)}
+                  </select>
+                </label>
+                <button className="boton chico" disabled={!hayCambios} onClick={guardar}>Guardar cambios</button>
+              </div>
+
               <h3>Alumnos ({sel.alumnos.length})</h3>
               {sel.alumnos.length === 0 ? (
                 <p className="cla-sub">Nadie anotado todavía.</p>
               ) : (
                 <ol className="cla-lista">
-                  {sel.alumnos.map((a) => <li key={a.id}>{a.nombre}</li>)}
+                  {sel.alumnos.map((a) => (
+                    <li key={a.id}>
+                      <span>{a.nombre}</span>
+                      <button className="cla-quitar" onClick={() => sacar(a)} aria-label={`Sacar a ${a.nombre}`}>×</button>
+                    </li>
+                  ))}
                 </ol>
               )}
+
+              <div className="cla-agregar">
+                <input placeholder="Anotar un alumno (mín. 2 letras)…" value={qAlu} onChange={(e) => setQAlu(e.target.value)} />
+                {resultados.length > 0 && (
+                  <ul className="cla-resultados">
+                    {resultados.map((a) => {
+                      const ya = sel.alumnos.some((x) => x.id === a.id);
+                      return (
+                        <li key={a.id}>
+                          <button disabled={ya} onClick={() => anotar(a)}>
+                            {a.nombre}{ya ? " (ya está)" : ""}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              <button className="cla-peligro" onClick={alternarActiva}>
+                {sel.activa ? "Desactivar clase" : "Reactivar clase"}
+              </button>
             </aside>
           )}
         </div>
