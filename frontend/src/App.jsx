@@ -9,6 +9,7 @@ import Planes from "./pages/Planes.jsx";
 import Comprobantes from "./pages/Comprobantes.jsx";
 import Alumnos from "./pages/Alumnos.jsx";
 import Clases from "./pages/Clases.jsx";
+import Cuotas from "./pages/Cuotas.jsx";
 
 const GESTION = ["admin", "encargado"];
 
@@ -17,11 +18,12 @@ const MENU = [
   { a: "/", t: "Inicio", roles: ["admin", "encargado", "profe", "jugador"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
+  { a: "/cuotas", t: "Cuotas", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
 ];
 // lo que viene (se ve apagado para que Gabi sepa que está en camino)
-const PRONTO = ["Cuotas", "Profes y horas", "Planificación", "Agente"];
+const PRONTO = ["Profes y horas", "Planificación", "Agente"];
 
 function Layout() {
   const { usuario, salir } = useAuth();
@@ -89,6 +91,7 @@ export default function App() {
             <Route path="/" element={<Inicio />} />
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
+            <Route path="/cuotas" element={<SoloGestion><Cuotas /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
           </Route>
