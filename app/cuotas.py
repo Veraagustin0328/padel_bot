@@ -9,8 +9,18 @@ FRANJA_POR_AMBITO = {
     "kids_pro": "kids",
 }
 
-# desde esta hora, la particular de 2 de la mañana se cobra como promo 2x1 (así lo cobra Gabi hoy)
-HORA_PROMO_2X1 = 9
+# Promo 2x1: solo en los horarios muertos que Gabi quiere llenar (lunes, miércoles y viernes de 9 a 12).
+# dia_semana: 0 = lunes ... 5 = sábado
+DIAS_PROMO_2X1 = (0, 2, 4)
+HORA_PROMO_DESDE = 9
+HORA_PROMO_HASTA = 12
+
+
+def _es_promo(clase):
+    return (
+        clase.dia_semana in DIAS_PROMO_2X1
+        and HORA_PROMO_DESDE <= clase.hora_inicio.hour < HORA_PROMO_HASTA
+    )
 
 
 def bucket_de(clase):
@@ -23,7 +33,7 @@ def bucket_de(clase):
             return (franja, "particular", 3)   # la tarde no tiene Modo Academia
         return (franja, "academia", 0)
     if clase.tipo == "particular_2":
-        if franja == "manana" and clase.hora_inicio.hour >= HORA_PROMO_2X1:
+        if franja == "manana" and _es_promo(clase):
             return (franja, "promo_2x1", 0)
         return (franja, "particular", 2)
     if clase.tipo == "particular":

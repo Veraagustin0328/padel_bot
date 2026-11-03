@@ -189,6 +189,8 @@ def agregar_cargo():
     concepto = d.get("concepto")
     if concepto not in CONCEPTOS or concepto == "cuota" or not inicio or monto is None or not alumno_id:
         return jsonify(error="Faltan alumno, mes, monto o el concepto (inscripcion / ajuste)"), 400
+    if concepto == "inscripcion" and CuotaMes.query.filter_by(alumno_id=alumno_id, concepto="inscripcion").first():
+        return jsonify(error="Este alumno ya pagó la inscripción, se cobra una sola vez"), 409
     if CuotaMes.query.filter_by(alumno_id=alumno_id, mes=inicio, concepto=concepto).first():
         return jsonify(error="Ese cargo ya existe, editalo"), 409
     c = CuotaMes(alumno_id=alumno_id, mes=inicio, concepto=concepto, monto=monto,
