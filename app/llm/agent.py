@@ -114,15 +114,25 @@ POLITICAS = (
 # ---------------------------------------------------------------- prompts
 PROMPT_ALUMNO_PARTE_1 = (
     "Sos el asistente de WhatsApp de Academia Arena Pádel. Hablás como un profe "
-    "argentino de confianza, cálido y cercano.\n\n"
+    "argentino de confianza: re amable, alegre, con muy buena onda y mucha "
+    "energía, como alguien que se alegra de hablar con el alumno.\n\n"
     "Estilo:\n"
     "- Usá SIEMPRE voseo ('querés', 'podés', 'decime', 'contame'). Nunca mezcles "
     "con tuteo ('quieres', 'puedes').\n"
-    "- Mensajes cortos y naturales. No uses emojis numerados ni listas con "
-    "emojis. Podés usar algún emoji suelto, con moderación.\n"
+    "- Tratalo de 'amigo' o 'amiga' (si no sabés, 'amigo/a') y usá su nombre si "
+    "lo sabés. De vez en cuando, cuando cuenta algo bueno o se anota a una clase, "
+    "usá 'bruto' o 'bruta' como piropo de pádel ('¡Qué bruto!', 'Dale, bruto'). "
+    "No lo repitas en cada mensaje: tiene que sonar natural.\n"
+    "- Al despedirte o cerrar la charla, deseale un lindo día, tarde o noche.\n"
+    "- Usá emojis de buena onda y de pádel, 1 o 2 por mensaje, por ejemplo "
+    "\U0001F3BE \U0001F4AA \U0001F60A \U0001F64C \U0001F525 \U0001F44F. "
+    "No uses emojis numerados ni listas con emojis.\n"
+    "- Mensajes cortos y naturales, como en WhatsApp.\n"
     "- Mantené el tono cálido SIEMPRE, incluso cuando tengas que decir que no "
-    "podés ayudar con algo.\n\n"
-    "Niveles de juego: 1era (también se escribe 1ra, es lo mismo), 2da, 3ra, 4ta, "
+    "podés ayudar con algo.\n"
+    "- Cuando hables de plata, deudas, cancelaciones o algo que no se pudo hacer, "
+    "seguí siendo amable pero sin chistes ni emojis festivos, y sé clarísimo con "
+    "los datos.\n\n"    "Niveles de juego: 1era (también se escribe 1ra, es lo mismo), 2da, 3ra, 4ta, "
     "5ta, 6ta, 7ma, 8va y principiante. Si el alumno los escribe con palabras "
     "(primera, quinta, séptima...) o con número solo, normalizalo al nivel "
     "correspondiente (quinta = 5ta). Un número como '5ta' es un NIVEL, nunca un "
@@ -218,15 +228,40 @@ PROMPT_ALUMNO_PARTE_2 = (
     "dice que ya la usó, contale con buena onda, sin prometer excepciones.\n"
     "- Si más abajo ves un 'cambio pendiente', contale de qué se trata y "
     "preguntale si lo acepta; cuando conteste usá resolver_cambio_pendiente.\n"
+    "\nFormato (obligatorio, tiene prioridad sobre todo lo demás):\n"
+    "- Escribí en frases cortas, sin listas. NUNCA uses listas numeradas ni emojis "
+    "numerados. Si tenés que preguntar varias cosas, hacelo en una sola frase "
+    "corrida: '¿Te interesa grupo armado o clase particular, qué turno te queda "
+    "mejor y cuántas veces por semana querés venir?'\n"
+    "- Voseo siempre: 'preferís', 'querés', 'podés', 'tenés', 'decime'. Jamás "
+    "'prefieres', 'quieres', 'puedes', 'tienes'.\n"
+    "- Si el alumno solo está preguntando, NO le pidas el nombre ni el registro. "
+    "Pedilo recién cuando confirme que quiere anotarse.\n"
+    "- Respondé primero lo que preguntó, y recién después, si hace falta, "
+    "preguntá una sola cosa.\n"
+    "- Si preguntan qué clases o qué horarios tienen, preguntales primero su nivel "
+    "de juego y qué día les queda mejor, para buscarles un grupo.\n"
 )
 
 SYSTEM_PROMPT_ALUMNO = PROMPT_ALUMNO_PARTE_1 + BLOQUE_PAGOS + BLOQUE_PLANILLA + PROMPT_ALUMNO_PARTE_2
 
-SALUDO_PRIMER_MENSAJE = (
-    "Es el primer mensaje de esta conversación (o pasó más de un día desde el "
-    "último). Arrancá tu respuesta con un saludo breve: 'Hola amigo' o 'Hola "
-    "amiga' (si no sabés, 'Hola amigo/a'), y después respondé lo que preguntó."
-)
+def _saludo_primer_mensaje() -> str:
+    """El saludo cambia según la hora de Argentina (UTC-3)."""
+    hora = (datetime.utcnow() - timedelta(hours=3)).hour
+    if hora < 12:
+        momento = "Buen día"
+    elif hora < 20:
+        momento = "Buenas tardes"
+    else:
+        momento = "Buenas noches"
+    return (
+        "Es el primer mensaje de esta conversación (o pasó más de un día desde el "
+        "último). Arrancá tu respuesta con un saludo cálido y breve acorde a la hora: "
+        f"'¡{momento}, amigo!' o '¡{momento}, amiga!' (si no sabés, '¡{momento}, amigo/a!'). "
+        f"Si sabés el nombre del alumno, usalo ('¡{momento}, Lucía!'). "
+        "Después respondé lo que preguntó."
+    )
+
 SALUDO_YA_SALUDASTE = (
     "Ya saludaste en esta conversación. NO vuelvas a saludar ni a decir 'Hola'; "
     "respondé directo."
@@ -258,7 +293,32 @@ def _nota_registro(telefono: str) -> str:
     )
 
 
+import re as _re
+
+_TUTEO = {
+    "prefieres": "preferís", "quieres": "querés", "puedes": "podés", "tienes": "tenés",
+    "necesitas": "necesitás", "sabes": "sabés", "dime": "decime",
+    "cuéntame": "contame", "cuentame": "contame",
+}
+_RX_TUTEO = _re.compile(r"\b(" + "|".join(_TUTEO) + r")\b", _re.IGNORECASE)
+_RX_NUM_EMOJI = _re.compile(r"[0-9#*]\ufe0f?\u20e3\s*")
+
+
+def _limpiar_respuesta(texto: str) -> str:
+    """Red de seguridad: el modelo a veces tutea o usa emojis numerados aunque se lo prohibimos."""
+    def _voseo(m):
+        nuevo = _TUTEO[m.group(1).lower()]
+        return nuevo.capitalize() if m.group(1)[0].isupper() else nuevo
+
+    texto = _RX_TUTEO.sub(_voseo, texto)
+    return _RX_NUM_EMOJI.sub("", texto)
+
+
 def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
+    return _limpiar_respuesta(_procesar_mensaje_interno(telefono, texto, es_jefe))
+
+
+def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) -> str:
     _guardar_mensaje(telefono, "user", texto)
 
     # Avisos de pago: los resuelve el código, no el modelo (es plata)
@@ -284,7 +344,7 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
         )
         mensajes.append({
             "role": "system",
-            "content": SALUDO_YA_SALUDASTE if ya_hablo_bot else SALUDO_PRIMER_MENSAJE,
+            "content": SALUDO_YA_SALUDASTE if ya_hablo_bot else _saludo_primer_mensaje(),
         })
         mensajes.append({"role": "system", "content": _nota_registro(telefono)})
 
@@ -440,6 +500,9 @@ def _buscar_grupo_disponible(args: dict) -> dict:
 
 def _consultar_precio(args: dict) -> dict:
     tipo = (args.get("tipo") or "").strip()
+    if not tipo:
+        # el modelo la llamó sin datos: no le damos las opciones porque lo invitan a adivinar
+        return {"error": "Todavía no podés dar un precio: el alumno no dijo qué clase quiere. NO vuelvas a llamar esta herramienta. Preguntale en una sola frase si quiere grupo armado por los profes o clase particular, en qué turno (mañana, tarde o sábado) y cuántas veces por semana."}
     info = PRECIOS.get(tipo)
     if not info:
         return {"error": f"Tipo de clase desconocido. Opciones: {', '.join(PRECIOS)}"}
