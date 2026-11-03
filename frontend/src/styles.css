@@ -1,16 +1,17 @@
 :root {
-  --fondo: #f3f5f1;
+  --fondo: #f5f6ef;
   --tarjeta: #ffffff;
-  --tinta: #14201c;
-  --suave: #5b6b64;
-  --linea: #e1e6e0;
-  --verde: #12312b;
-  --verde-2: #1f4a41;
-  --pelota: #d4f04a;
-  --ok: #1f6b4a;
-  --ok-fondo: #e3f3ea;
-  --mal: #b4412e;
-  --mal-fondo: #fbe9e5;
+  --tinta: #2a2c28;
+  --suave: #5f645a;
+  --linea: #dde0d2;
+  --verde: #434343;
+  --verde-2: #575757;
+  --pelota: #cbdf5b;
+  --azul: #3667b8;
+  --ok: #2e7d4f;
+  --ok-fondo: #e3f3e8;
+  --mal: #c62828;
+  --mal-fondo: #fde8e6;
   --radio: 12px;
 }
 
@@ -40,20 +41,21 @@ h2 { margin: 0; font-size: 18px; font-weight: 700; }
   display: flex; align-items: center; gap: 10px;
   padding: 0 8px 24px; font-weight: 700; font-size: 15px; line-height: 1.2; color: #fff;
 }
+.marca .logo { display: flex; flex: none; color: var(--pelota); }
 .pelota { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; background: var(--pelota); }
 .item {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 12px; border-radius: 8px;
-  color: #c9d8d1; text-decoration: none; font-weight: 500;
+  color: #d4d7c9; text-decoration: none; font-weight: 500;
 }
 .item:hover { background: var(--verde-2); }
-.item.activo { background: var(--verde-2); color: #fff; font-weight: 600; }
+.item.activo { background: var(--pelota); color: #2a2c28; font-weight: 700; }
 .item.apagado { opacity: 0.55; cursor: default; }
 .item.apagado:hover { background: none; }
 .item small { font-size: 11px; color: var(--pelota); }
 .usuario { margin-top: auto; padding: 16px 8px 0; border-top: 1px solid var(--verde-2); color: #fff; }
 .usuario-nombre { font-weight: 600; }
-.usuario-rol { color: #c9d8d1; font-size: 12px; margin-bottom: 10px; text-transform: capitalize; }
+.usuario-rol { color: #d4d7c9; font-size: 12px; margin-bottom: 10px; text-transform: capitalize; }
 .contenido {
   flex: 999 1 560px; min-width: 0;
   padding: 32px 40px;
@@ -76,12 +78,14 @@ h2 { margin: 0; font-size: 18px; font-weight: 700; }
 .fila .num.fuerte { font-weight: 700; }
 .fila .num.suave { color: var(--suave); }
 .programado { color: #8a5a00; font-size: 12px; }
+/* lo que se debe, bien visible */
+.deuda { color: var(--mal); font-weight: 700; }
 
 .campos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
 .campo { display: flex; flex-direction: column; gap: 6px; }
 .campo label { font-size: 12px; color: var(--suave); font-weight: 600; }
 .campo input {
-  border: 1px solid #c9d3cc; border-radius: 8px; padding: 10px; min-height: 44px;
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 10px; min-height: 44px;
   font: 600 14px "Plus Jakarta Sans", system-ui, sans-serif; width: 100%;
 }
 
@@ -91,7 +95,7 @@ h2 { margin: 0; font-size: 18px; font-weight: 700; }
   font: 600 14px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
 }
 .boton:disabled { opacity: 0.5; cursor: not-allowed; }
-.boton.claro { background: #fff; color: var(--tinta); border: 1px solid #c9d3cc; }
+.boton.claro { background: #fff; color: var(--tinta); border: 1px solid #c4c8b8; }
 .boton.chico { min-height: 36px; padding: 6px 14px; font-size: 13px; }
 .botones { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 
@@ -105,8 +109,8 @@ h2 { margin: 0; font-size: 18px; font-weight: 700; }
 /* ---- login ---- */
 .login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .login form { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 16px; }
-.login .marca { color: var(--tinta); padding: 0; }
+.login .marca { color: var(--tinta); padding: 0; flex-direction: column; align-items: flex-start; gap: 12px; font-size: 17px; }
 .login input {
-  border: 1px solid #c9d3cc; border-radius: 8px; padding: 12px; min-height: 44px; width: 100%;
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 12px; min-height: 44px; width: 100%;
   font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif;
 }

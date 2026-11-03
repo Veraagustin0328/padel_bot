@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth.jsx";
 import { MARCA } from "./marca.js";
+import Logo from "./Logo.jsx";
 import Login from "./pages/Login.jsx";
 import Inicio from "./pages/Inicio.jsx";
 import Planes from "./pages/Planes.jsx";
@@ -30,7 +31,7 @@ function Layout() {
     <div className="app">
       <nav className="lateral" aria-label="Principal">
         <div className="marca">
-          <span className="pelota" />
+          <span className="logo"><Logo tam={34} /></span>
           {MARCA.nombre}
         </div>
         {MENU.filter((m) => m.roles.includes(usuario.rol)).map((m) => (

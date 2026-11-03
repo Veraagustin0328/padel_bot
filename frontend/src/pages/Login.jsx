@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 import { MARCA } from "../marca.js";
+import Logo from "../Logo.jsx";
 
 export default function Login() {
   const { usuario, entrar } = useAuth();
@@ -31,7 +32,7 @@ export default function Login() {
     <div className="login">
       <form onSubmit={enviar} className="tarjeta">
         <div className="marca">
-          <span className="pelota" />
+          <span className="logo"><Logo tam={72} pelota="#3667b8" /></span>
           {MARCA.nombre}
         </div>
         <h2>Entrá a tu cuenta</h2>
