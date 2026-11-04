@@ -5,6 +5,8 @@ from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
 from app import planilla
+from app.cuotas import DIAS_PROMO_2X1, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket
+from app.models_academia import ConfigAcademia
 from app.models import (
     Grupo, ClaseSuelta, Conversacion, Alumno,
     CambioPendiente, Recuperacion, Notificacion, EstadoChat,
@@ -51,58 +53,26 @@ def _variantes_nivel(texto: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- precios
-# Precios mensuales. Actualizar acá cuando cambien los flyers.
-INSCRIPCION = 25000
+# Los precios salen de la tabla tarifas (la misma que usa el panel para las cuotas).
+# Acá solo está cómo se traduce cada tipo que pide el agente a franja + tipo de tarifa.
+INSCRIPCION_DEFAULT = 25000  # si no está en config_academia; se cobra una sola vez
 
-# tipo -> {(personas, veces_por_semana): precio}. "por_persona" indica si es c/u.
-PRECIOS = {
-    "modo_academia": {
-        "descripcion": "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel.",
-        "por_persona": True,
-        "tabla": {(None, 1): 55000, (None, 2): 92000, (None, 3): 140000, (None, 4): 180000},
-    },
-    "particular_manana": {
-        "descripcion": "Clases particulares de mañana (7 a 12 hs). El alumno decide cómo formar el grupo.",
-        "por_persona": True,
-        "tabla": {
-            (1, 1): 110000, (1, 2): 220000,
-            (2, 1): 72000, (2, 2): 145000,
-            (3, 1): 50000, (3, 2): 100000,
-        },
-    },
-    "particular_manana_2x1": {
-        "descripcion": "Promo 2x1 de mañana, lunes, miércoles y viernes a las 9, 10 y 11 hs.",
-        "por_persona": True,
-        "tabla": {(None, 1): 55000, (None, 2): 110000},
-    },
-    "particular_tarde": {
-        "descripcion": "Clases particulares de tarde (14:30, 15:30, 16:30 y 17:30 hs).",
-        "por_persona": True,
-        "tabla": {
-            (1, 1): 160000, (1, 2): 320000,
-            (2, 1): 107000, (2, 2): 186000,
-            (3, 1): 80000, (3, 2): 140000,
-        },
-    },
-    "particular_head_coach": {
-        "descripcion": "Clases particulares con el head coach (7 a 12 hs).",
-        "por_persona": True,
-        "tabla": {
-            (1, 1): 140000, (1, 2): 280000,
-            (2, 1): 100000, (2, 2): 200000,
-            (3, 1): 80000, (3, 2): 160000,
-        },
-    },
-    "sabado_modo_academia": {
-        "descripcion": "Modo Academia del sábado a la mañana (8, 9, 10 y 11 hs).",
-        "por_persona": True,
-        "tabla": {(None, None): 75000},
-    },
-    "sabado_particular": {
-        "descripcion": "Particular del sábado a la mañana (8, 9, 10 y 11 hs).",
-        "por_persona": True,
-        "tabla": {(2, None): 80000, (3, None): 65000},
-    },
+# tipo del agente -> (franja, tipo de tarifa, pide personas, pide veces, descripción)
+TIPOS_PRECIO = {
+    "modo_academia": ("manana", "academia", False, True,
+                      "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel."),
+    "particular_manana": ("manana", "particular", True, True,
+                          "Clases particulares de mañana (7 a 12 hs). El alumno decide cómo formar el grupo."),
+    "particular_manana_2x1": ("manana", "promo_2x1", False, True,
+                              "Promo 2x1 de mañana, solo lunes, miércoles y viernes de 9 a 12 hs."),
+    "particular_tarde": ("tarde", "particular", True, True,
+                         "Clases particulares de tarde (14:30, 15:30, 16:30 y 17:30 hs)."),
+    "particular_head_coach": (None, None, True, True,
+                              "Clases particulares con el head coach (7 a 12 hs)."),
+    "sabado_modo_academia": ("sabado", "academia", False, False,
+                             "Modo Academia del sábado a la mañana (8, 9, 10 y 11 hs)."),
+    "sabado_particular": ("sabado", "particular", True, False,
+                          "Particular del sábado a la mañana (8, 9, 10 y 11 hs)."),
 }
 
 POLITICAS = (
@@ -498,45 +468,77 @@ def _buscar_grupo_disponible(args: dict) -> dict:
     }
 
 
+def _inscripcion() -> int:
+    cfg = db.session.get(ConfigAcademia, "inscripcion")
+    try:
+        return int(json.loads(cfg.valor)) if cfg else INSCRIPCION_DEFAULT
+    except (TypeError, ValueError):
+        return INSCRIPCION_DEFAULT
+
+
+_DIAS = {"lunes": 0, "martes": 1, "miercoles": 2, "miércoles": 2, "jueves": 3,
+         "viernes": 4, "sabado": 5, "sábado": 5, "domingo": 6}
+
+
+def _fuera_de_promo(args: dict) -> bool:
+    """True solo si el alumno dijo un día u hora que NO entra en el 2x1."""
+    dia = (args.get("dia") or "").strip().lower()
+    if dia and _DIAS.get(dia) not in DIAS_PROMO_2X1:
+        return True
+    m = re.match(r"\s*(\d{1,2})", str(args.get("hora") or ""))
+    return bool(m) and not (HORA_PROMO_DESDE <= int(m.group(1)) < HORA_PROMO_HASTA)
+
+
+def _al_encargado(motivo: str) -> dict:
+    # nunca inventar: si no está en la base, lo ve el encargado
+    return {"error": f"{motivo} NO des ningún número ni estimes. Decile al alumno con buena onda "
+                     "que ese precio lo consultás con el encargado y que te lo confirma."}
+
+
 def _consultar_precio(args: dict) -> dict:
     tipo = (args.get("tipo") or "").strip()
     if not tipo:
         # el modelo la llamó sin datos: no le damos las opciones porque lo invitan a adivinar
         return {"error": "Todavía no podés dar un precio: el alumno no dijo qué clase quiere. NO vuelvas a llamar esta herramienta. Preguntale en una sola frase si quiere grupo armado por los profes o clase particular, en qué turno (mañana, tarde o sábado) y cuántas veces por semana."}
-    info = PRECIOS.get(tipo)
+    info = TIPOS_PRECIO.get(tipo)
     if not info:
-        return {"error": f"Tipo de clase desconocido. Opciones: {', '.join(PRECIOS)}"}
+        return {"error": f"Tipo de clase desconocido. Opciones: {', '.join(TIPOS_PRECIO)}"}
+    franja, tipo_tarifa, pide_personas, pide_veces, descripcion = info
 
-    personas = args.get("personas")
-    veces = args.get("veces_por_semana")
-    if isinstance(personas, int) and personas >= 3:
-        personas = 3  # 3 y 4 personas pagan igual
+    if tipo == "particular_manana_2x1" and _fuera_de_promo(args):
+        return {"error": "La promo 2x1 es solo lunes, miércoles y viernes de 9 a 12 hs, y lo que pidió "
+                         "el alumno no entra. Contale eso y, si quiere ese horario igual, consultá "
+                         "particular_manana con 2 personas."}
 
-    tabla = info["tabla"]
-    clave_personas = personas if any(k[0] is not None for k in tabla) else None
-    clave_veces = veces if any(k[1] is not None for k in tabla) else None
-
+    personas = args.get("personas") if pide_personas else 0
+    veces = args.get("veces_por_semana") if pide_veces else 1
     faltan = []
-    if any(k[0] is not None for k in tabla) and clave_personas is None:
+    if pide_personas and not (isinstance(personas, int) and personas >= 1):
         faltan.append("personas")
-    if any(k[1] is not None for k in tabla) and clave_veces is None:
+    if pide_veces and not (isinstance(veces, int) and veces >= 1):
         faltan.append("veces_por_semana")
     if faltan:
         return {"error": "Faltan datos para dar el precio. Preguntale al alumno: " + ", ".join(faltan)}
+    if personas >= 3:
+        personas = 3  # 3 y 4 personas pagan igual
 
-    precio = tabla.get((clave_personas, clave_veces))
+    if franja is None:
+        return _al_encargado("Ese tipo de clase no tiene tarifa cargada.")
+    tarifas = cargar_tarifas()
+    precio, nota = precio_bucket(tarifas, franja, tipo_tarifa, personas, veces)
     if precio is None:
-        opciones = sorted(f"{p or '-'} personas, {v or '-'} veces por semana" for p, v in tabla)
-        return {"error": "Esa combinación no existe.", "combinaciones_validas": opciones}
+        return _al_encargado("Esa combinación no tiene tarifa cargada.")
 
-    return {
-        "descripcion": info["descripcion"],
+    resultado = {
+        "descripcion": descripcion,
         "precio_mensual": precio,
-        "por_persona": info["por_persona"],
-        "inscripcion_pago_unico": INSCRIPCION,
+        "por_persona": True,
+        "inscripcion_pago_unico": _inscripcion(),
         "politicas": POLITICAS,
     }
-
+    if nota:
+        resultado["aclaracion"] = "Ese precio se armó sumando tarifas de la tabla; aclarale que el encargado se lo confirma."
+    return resultado
 
 
 def _agendar_clase_suelta(telefono: str, args: dict) -> dict:

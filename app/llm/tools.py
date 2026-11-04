@@ -58,6 +58,8 @@ _TOOLS_BASE = [
                     },
                     "personas": {"type": "integer", "description": "Cuántas personas van a la clase (1 a 4), SOLO si el alumno lo dijo. No aplica a modo_academia."},
                     "veces_por_semana": {"type": "integer", "description": "1 a 4 según el tipo, SOLO si el alumno lo dijo. No aplica a los del sábado."},
+                    "dia": {"type": "string", "description": "Opcional. Día que pidió el alumno (ej. 'martes'), SOLO si lo dijo. Sirve para chequear la promo 2x1."},
+                    "hora": {"type": "string", "description": "Opcional. Hora que pidió el alumno (ej. '10' o '18:30'), SOLO si la dijo. Sirve para chequear la promo 2x1."},
                 },
                 "required": ["tipo"],
             },
