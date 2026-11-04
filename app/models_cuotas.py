@@ -32,10 +32,12 @@ class PagoCuota(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id", ondelete="CASCADE"), nullable=False, index=True)
     mes = db.Column(db.Date, nullable=False, index=True)          # a qué mes se aplica
+    concepto = db.Column(db.String(20), nullable=False, default="cuota", server_default="cuota")
     monto = db.Column(db.Integer, nullable=False)
     fecha = db.Column(db.Date, nullable=False, default=date.today)
     medio = db.Column(db.String(20), nullable=False, default="efectivo")
-    comprobante_id = db.Column(db.Integer, nullable=True)          # si vino de un comprobante aprobado
+    # fila del comprobante en la planilla si vino de ahí; único así un comprobante no paga dos veces
+    comprobante_id = db.Column(db.Integer, nullable=True, unique=True)
     nota = db.Column(db.String(200), nullable=True)
     creado_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     creado = db.Column(db.DateTime, default=datetime.utcnow)

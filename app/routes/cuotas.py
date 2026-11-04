@@ -105,7 +105,9 @@ def listar():
         it = items[p.alumno_id]
         it["pagado"] += p.monto
         it["pagos"].append({"id": p.id, "monto": p.monto, "fecha": p.fecha.isoformat(),
-                            "medio": p.medio, "nota": p.nota})
+                            "medio": p.medio, "nota": p.nota, "concepto": p.concepto,
+                            "comprobante_id": p.comprobante_id,
+                            "origen": f"Comprobante #{p.comprobante_id}" if p.comprobante_id else "Manual"})
 
     lista = []
     for it in items.values():
@@ -143,7 +145,8 @@ def registrar_pago():
     if not db.session.get(Alumno, alumno_id):
         return jsonify(error="No existe ese alumno"), 404
     medio = d.get("medio") if d.get("medio") in MEDIOS_PAGO else "efectivo"
-    p = PagoCuota(alumno_id=alumno_id, mes=inicio, monto=monto, medio=medio,
+    concepto = d.get("concepto") if d.get("concepto") in CONCEPTOS else "cuota"
+    p = PagoCuota(alumno_id=alumno_id, mes=inicio, concepto=concepto, monto=monto, medio=medio,
              nota=(d.get("nota") or "")[:200] or None, creado_por=_quien())
     db.session.add(p)
     db.session.commit()
@@ -156,6 +159,9 @@ def borrar_pago(pago_id):
     p = db.session.get(PagoCuota, pago_id)
     if not p:
         return jsonify(error="No existe ese pago"), 404
+    if p.comprobante_id:
+        # si lo borro acá el comprobante queda confirmado sin pago
+        return jsonify(error=f"Este pago viene del comprobante #{p.comprobante_id}: rechazalo o volvelo a pendiente desde Comprobantes"), 409
     db.session.delete(p)
     db.session.commit()
     return jsonify(ok=True)

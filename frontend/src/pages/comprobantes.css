@@ -21,4 +21,6 @@
 .cmp-vacio { color: var(--suave); padding: 24px 0; text-align: center; }
 .cmp-resultado { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); padding: 14px 16px; margin-bottom: 14px; }
 .cmp-resultado ul { margin: 6px 0 0; padding-left: 20px; }
-@media (max-width: 600px) { .cmp-input { width: 100%; } }
+@media (max-width: 600px) { .cmp-input { width: 100%; } }.cmp-select { padding: 7px 10px; border: 1px solid var(--linea); border-radius: 8px; font: inherit; background: var(--tarjeta); max-width: 100%; }
+.cmp-falta { color: var(--mal); font-size: .85rem; font-weight: 600; }
+.cmp-origen { color: var(--suave); font-size: .85rem; }

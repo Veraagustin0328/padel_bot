@@ -80,8 +80,13 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
                 <b>{plata(p.monto)}</b>
                 <span>{p.fecha}</span>
                 <span>{p.medio}</span>
-                {p.nota && <span className="cu-chico">{p.nota}</span>}
-                <button className="cu-borrar" onClick={() => hacer(() => api("/api/cuotas/pago/" + p.id, { metodo: "DELETE" }))}>Borrar</button>
+                {p.concepto && p.concepto !== "cuota" && <span>{NOMBRE_CARGO[p.concepto] || p.concepto}</span>}
+                <span className={"cu-origen" + (p.comprobante_id ? " comp" : "")}>{p.origen}</span>
+                {p.nota && !p.comprobante_id && <span className="cu-chico">{p.nota}</span>}
+                {/* los de comprobante se sacan desde Comprobantes */}
+                {!p.comprobante_id && (
+                  <button className="cu-borrar" onClick={() => hacer(() => api("/api/cuotas/pago/" + p.id, { metodo: "DELETE" }))}>Borrar</button>
+                )}
               </div>
             ))}
             <div className="cu-form" style={{ marginTop: 10 }}>
