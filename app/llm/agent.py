@@ -302,6 +302,14 @@ def _limpiar_respuesta(texto: str) -> str:
     return _RX_NUM_EMOJI.sub("", texto)
 
 
+def _respuesta_vacia(mensaje) -> bool:
+    """Sin tools y sin texto útil: vacía o el modelo mismo dijo 'No entendí eso'."""
+    if mensaje.tool_calls:
+        return False
+    contenido = (mensaje.content or "").strip()
+    return not contenido or contenido.lower().startswith("no entendí eso")
+
+
 def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
     return _limpiar_respuesta(_procesar_mensaje_interno(telefono, texto, es_jefe))
 
@@ -352,14 +360,19 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
                 ),
             })
 
-    respuesta = client.chat.completions.create(
-        model=MODEL,
-        messages=mensajes,
-        tools=tools,
-        tool_choice="auto",
-        temperature=0.2,
-    )
-    mensaje_modelo = respuesta.choices[0].message
+    # si vuelve vacía o con el "No entendí eso", pruebo una vez más variando un poco
+    for intento in range(2):
+        respuesta = client.chat.completions.create(
+            model=MODEL,
+            messages=mensajes,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.2 + 0.3 * intento,
+        )
+        mensaje_modelo = respuesta.choices[0].message
+        if not _respuesta_vacia(mensaje_modelo):
+            break
+        print(f"[llm] respuesta vacía o 'no entendí' (intento {intento + 1}/2)", flush=True)
 
     if not mensaje_modelo.tool_calls:
         print(f"[llm] sin tools para: {texto!r}", flush=True)
