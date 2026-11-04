@@ -5,8 +5,11 @@ from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
 from app import planilla
-from app.cuotas import DIAS_PROMO_2X1, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket
-from app.models_academia import ConfigAcademia
+from app.cuotas import (
+    DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
+)
+from app.models_academia import Clase, ConfigAcademia, Inscripcion
+from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
     Grupo, ClaseSuelta, Conversacion, Alumno,
     CambioPendiente, Recuperacion, Notificacion, EstadoChat,
@@ -113,7 +116,9 @@ PROMPT_ALUMNO_PARTE_1 = (
     "de torneo'): eso no existe.\n"
     "- Si piden clase particular, preguntá día y hora, y si quieren algún profe "
     "en particular, ANTES de usar agendar_clase_suelta. No agendes con datos que "
-    "no te dieron.\n\n"
+    "no te dieron.\n"
+    "- Si preguntan si hay lugar o cupo en una clase, usá consultar_cupos con el día y el "
+    "turno (y el nivel si lo dijo). Que haya lugar no lo anota.\n\n"
     "Precios:\n"
     "- Para CUALQUIER precio usá la tool consultar_precio. Nunca digas un precio "
     "de memoria ni lo calcules vos.\n"
@@ -157,15 +162,17 @@ BLOQUE_PAGOS = BLOQUE_PAGOS_CON_DATOS if DATOS_DE_PAGO else BLOQUE_PAGOS_SIN_DAT
 
 BLOQUE_PLANILLA = (
     "\nEstado de pago y número de teléfono:\n"
-    "- Si preguntan cuánto deben, si están al día o a quién pagar, llamá consultar_estado_pago.\n"
+    "- Si preguntan cuánto deben o cuánto es su cuota de este mes, llamá estado_cuota. "
+    "Si dice que no lo encuentra, decile que no lo ubicás y ofrecele pasarle la consulta al encargado.\n"
+    "- Si preguntan si están al día, qué meses deben o a quién pagar, llamá consultar_estado_pago.\n"
     "- Si la tool dice que el número no está vinculado, pedile nombre y apellido tal "
     "cual lo tiene anotado la academia y llamá vincular_telefono. Si sale ok, contale "
     "que el encargado tiene que confirmar el vínculo antes de pasarle datos de pago.\n"
     "- Si el vínculo está pendiente de confirmación, NO des datos de pago: decile con "
     "buena onda que el encargado todavía no lo confirmó.\n"
     "- Si está vinculado y confirmado, decile si está al día o qué meses figuran sin "
-    "pago, y pasale el alias. El monto exacto no lo tenés: decile que el encargado se "
-    "lo confirma. Nunca inventes un monto.\n"
+    "pago, y pasale el alias. El monto sacalo de estado_cuota; si no está, decile que el "
+    "encargado se lo confirma. Nunca inventes un monto.\n"
     "- Si dice que ya pagó o transfirió, llamá avisar_comprobante (con el monto si lo "
     "dijo) y decile que quedó anotado para que el encargado lo confirme. NUNCA digas "
     "que el pago ya está acreditado.\n"
@@ -253,8 +260,18 @@ def _inicio_sesion() -> datetime:
     return datetime.utcnow() - timedelta(hours=SESION_HORAS)
 
 
+def _alumno_por_telefono(telefono: str) -> Alumno | None:
+    """Por los últimos 10 dígitos: WhatsApp manda 549... y en la base puede estar sin el 549.
+    Si matchea más de uno, no devuelvo ninguno (mejor no mostrar datos de otro)."""
+    t = planilla._tel(telefono)
+    if not t:
+        return None
+    alumnos = [a for a in Alumno.query.all() if planilla._tel(a.telefono) == t]
+    return alumnos[0] if len(alumnos) == 1 else None
+
+
 def _nota_registro(telefono: str) -> str:
-    alumno = Alumno.query.filter_by(telefono=telefono).first()
+    alumno = _alumno_por_telefono(telefono)
     if alumno:
         return f"Este número YA está registrado como alumno: {alumno.nombre}. No hace falta registrarlo."
     return (
@@ -269,6 +286,7 @@ _TUTEO = {
     "prefieres": "preferís", "quieres": "querés", "puedes": "podés", "tienes": "tenés",
     "necesitas": "necesitás", "sabes": "sabés", "dime": "decime",
     "cuéntame": "contame", "cuentame": "contame",
+    "debes": "debés", "avísame": "avisame",
 }
 _RX_TUTEO = _re.compile(r"\b(" + "|".join(_TUTEO) + r")\b", _re.IGNORECASE)
 _RX_NUM_EMOJI = _re.compile(r"[0-9#*]\ufe0f?\u20e3\s*")
@@ -362,6 +380,10 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             resultado = _buscar_grupo_disponible(args)
         elif nombre == "consultar_precio":
             resultado = _consultar_precio(args)
+        elif nombre == "consultar_cupos":
+            resultado = _consultar_cupos(args)
+        elif nombre == "estado_cuota":
+            resultado = _estado_cuota(telefono)  # nunca con args: solo el que escribe
         elif nombre == "agendar_clase_suelta":
             resultado = _agendar_clase_suelta(telefono, args)
         elif nombre == "cancelar_clase_suelta":
@@ -528,17 +550,91 @@ def _consultar_precio(args: dict) -> dict:
     precio, nota = precio_bucket(tarifas, franja, tipo_tarifa, personas, veces)
     if precio is None:
         return _al_encargado("Esa combinación no tiene tarifa cargada.")
+    if nota:
+        # salió de sumar tarifas, no hay una exacta: no damos el número
+        return _al_encargado("Esa combinación no tiene una tarifa exacta cargada.")
 
-    resultado = {
+    return {
         "descripcion": descripcion,
         "precio_mensual": precio,
         "por_persona": True,
         "inscripcion_pago_unico": _inscripcion(),
         "politicas": POLITICAS,
     }
-    if nota:
-        resultado["aclaracion"] = "Ese precio se armó sumando tarifas de la tabla; aclarale que el encargado se lo confirma."
-    return resultado
+
+
+# ---------------------------------------------------------------- cupos y cuota (solo lectura)
+_NOMBRE_DIA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _nivel_de_clase(nivel_clase: str, canonico: str) -> bool:
+    """'6TA/7MA' sirve para 6ta y para 7ma; 'PRINCIPIANTES' para principiante."""
+    partes = re.split(r"[/,\s-]+", (nivel_clase or "").lower())
+    return any(_nivel_canonico(p) == canonico for p in partes if p)
+
+
+def _consultar_cupos(args: dict) -> dict:
+    dia = _DIAS.get((args.get("dia") or "").strip().lower())
+    franja = (args.get("franja") or "").strip().lower()
+    if dia is None or not franja:
+        return {"error": "Falta el día o el turno. Preguntaselo al alumno antes de buscar."}
+    if dia == 5:
+        franja = "sabado"
+    ambitos = [a for a, f in FRANJA_POR_AMBITO.items() if f == franja]
+    nivel = _nivel_canonico(args.get("nivel") or "")
+
+    hoy = planilla._ahora().date()
+    clases = Clase.query.filter(
+        Clase.activa.is_(True), Clase.tipo == "grupal",
+        Clase.dia_semana == dia, Clase.ambito.in_(ambitos),
+    ).order_by(Clase.hora_inicio).all()
+    if nivel:
+        clases = [c for c in clases if _nivel_de_clase(c.nivel, nivel)]
+    if not clases:
+        return {"clases_con_lugar": [], "mensaje": "No hay clases grupales ese día y turno"
+                + (" para ese nivel" if nivel else "") + ". Ofrecé buscar otro día."}
+
+    # anotados hoy: desde <= hoy y (sin hasta o hasta >= hoy)
+    anotados = dict(
+        db.session.query(Inscripcion.clase_id, db.func.count(Inscripcion.id))
+        .filter(Inscripcion.clase_id.in_([c.id for c in clases]),
+                Inscripcion.desde <= hoy,
+                db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta >= hoy))
+        .group_by(Inscripcion.clase_id).all()
+    )
+    con_lugar = []
+    for c in clases:
+        libres = c.cupo - anotados.get(c.id, 0)
+        if libres > 0:
+            # sin profe ni alumnos: solo lo que el alumno necesita
+            con_lugar.append({"dia": _NOMBRE_DIA[c.dia_semana], "hora": c.hora_inicio.strftime("%H:%M"),
+                              "nivel": c.nivel or "sin nivel", "lugares_libres": libres})
+    if not con_lugar:
+        return {"clases_con_lugar": [], "mensaje": f"Las {len(clases)} clases de ese día y turno están llenas. Ofrecé buscar otro día."}
+    return {"clases_con_lugar": con_lugar,
+            "mensaje": "Pasale las opciones. Que haya lugar no lo anota: no digas que quedó reservado."}
+
+
+def _estado_cuota(telefono: str) -> dict:
+    """Siempre con el número que escribe, nunca con uno que diga el modelo."""
+    a = _alumno_por_telefono(telefono)
+    if not a:
+        return {"encontrado": False,
+                "mensaje": "No encuentro a ningún alumno con este número. Decile con buena onda que no lo "
+                           "ubicás y ofrecele pasarle la consulta al encargado. No des montos ni datos de nadie."}
+    mes = planilla._ahora().date().replace(day=1)
+    cuota = db.session.query(db.func.coalesce(db.func.sum(CuotaMes.monto), 0)).filter(
+        CuotaMes.alumno_id == a.id, CuotaMes.mes == mes).scalar()
+    pagado = db.session.query(db.func.coalesce(db.func.sum(PagoCuota.monto), 0)).filter(
+        PagoCuota.alumno_id == a.id, PagoCuota.mes == mes).scalar()
+    nombre_mes = planilla.MESES[mes.month - 1].capitalize()
+    if not cuota:
+        return {"encontrado": True, "alumno": a.nombre, "mes": nombre_mes, "cuota_generada": False,
+                "pagado": int(pagado),
+                "mensaje": "La cuota de este mes todavía no está cargada. No inventes un monto: decile que el encargado se la confirma."}
+    return {"encontrado": True, "alumno": a.nombre, "mes": nombre_mes, "cuota_generada": True,
+            "cuota": int(cuota), "pagado": int(pagado), "debe": max(int(cuota) - int(pagado), 0),
+            "a_favor": max(int(pagado) - int(cuota), 0)}
 
 
 def _agendar_clase_suelta(telefono: str, args: dict) -> dict:

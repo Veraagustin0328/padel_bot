@@ -166,6 +166,51 @@ _TOOLS_BASE = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_cupos",
+            "description": (
+                "Solo lectura. Devuelve las clases GRUPALES de un día y turno que todavía "
+                "tienen lugar (cupo menos alumnos anotados hoy). Usala cuando pregunten si "
+                "hay lugar, cupo o vacante en un día. No anota a nadie."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dia": {
+                        "type": "string",
+                        "enum": ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"],
+                        "description": "Día que pidió el alumno.",
+                    },
+                    "franja": {
+                        "type": "string",
+                        "enum": ["manana", "tarde", "kids"],
+                        "description": "Turno: manana, tarde o kids. Si el día es sábado, poné manana.",
+                    },
+                    "nivel": {
+                        "type": "string",
+                        "enum": NIVELES,
+                        "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo.",
+                    },
+                },
+                "required": ["dia", "franja"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "estado_cuota",
+            "description": (
+                "Solo lectura. Devuelve la cuota de este mes del alumno que está escribiendo "
+                "(lo busca por su número de WhatsApp): cuánto es, cuánto pagó y cuánto debe. "
+                "Usala cuando pregunte cuánto debe o cuánto es su cuota. No recibe datos: "
+                "nunca sirve para consultar a otra persona."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 TOOLS_ALUMNO = _TOOLS_BASE + TOOLS_PLANILLA_ALUMNO
