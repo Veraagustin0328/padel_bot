@@ -531,7 +531,8 @@ def _al_encargado(motivo: str) -> dict:
 
 
 def _consultar_precio(args: dict) -> dict:
-    tipo = (args.get("tipo") or "").strip()
+    # el modelo a veces manda "particular_mañana": sin tildes ni ñ
+    tipo = planilla._norm(args.get("tipo")).replace(" ", "_")
     if not tipo:
         # el modelo la llamó sin datos: no le damos las opciones porque lo invitan a adivinar
         return {"error": "Todavía no podés dar un precio: el alumno no dijo qué clase quiere. NO vuelvas a llamar esta herramienta. Preguntale en una sola frase si quiere grupo armado por los profes o clase particular, en qué turno (mañana, tarde o sábado) y cuántas veces por semana."}
