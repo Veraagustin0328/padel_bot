@@ -1,6 +1,8 @@
 import os
 from flask import Blueprint, request, jsonify
-from app.llm.agent import procesar_mensaje, esta_pausado, _guardar_mensaje
+from app.llm.agent import (
+    procesar_mensaje, esta_pausado, _guardar_mensaje, _montos_en, _pesos, _notificar, _alumno_por_telefono,
+)
 from app.models import Notificacion
 from app.whatsapp_client import enviar_mensaje_whatsapp, reenviar_archivo_whatsapp
 from app import planilla
@@ -64,21 +66,42 @@ def recibir_mensaje():
     return jsonify({"status": "ok"}), 200
 
 
+def _monto_del_texto(texto: str):
+    """El monto que vino escrito con la foto o el PDF. Si hay más de uno no elijo: queda vacío."""
+    montos = _montos_en(texto)
+    return montos[0] if len(montos) == 1 else None
+
+
 def _recibir_comprobante(telefono: str, data: dict, tipo: str):
-    """Foto o PDF del comprobante: lo anota como pendiente y se lo reenvía al encargado."""
+    """Foto o PDF del comprobante: lo anota como PENDIENTE en la pestaña comprobantes
+    (avisar_comprobante no duplica si ya hay uno pendiente del mes) y se lo reenvía al encargado."""
     mensaje = data["entry"][0]["changes"][0]["value"]["messages"][0]
     archivo = mensaje.get(tipo, {})
     media_id = archivo.get("id")
+    texto = (archivo.get("caption") or "").strip()
+    monto = _monto_del_texto(texto)
+    varios_montos = monto is None and bool(_montos_en(texto))
 
-    nombre = ""
-    sin_monto = True
+    alumno = _alumno_por_telefono(telefono)
+    nombre = alumno.nombre if alumno else ""
+    anotado = None  # monto que quedó en la planilla
+    planilla_ok = False
     try:
         vinculo = planilla._vinculo(telefono)
-        nombre = (vinculo or {}).get("ALUMNO", "")
-        r = planilla.avisar_comprobante(telefono, None)  # si no había uno pendiente, lo deja creado
-        sin_monto = r.get("monto_anotado") is None
+        nombre = (vinculo or {}).get("ALUMNO", "") or nombre
+        # como texto entero, igual que _responder_pago: _a_numero lee "45000.0" como 450000
+        r = planilla.avisar_comprobante(telefono, str(int(monto)) if monto else None)
+        anotado = r.get("monto_anotado")
+        planilla_ok = bool(r.get("ok"))
     except Exception as e:
         print(f"[comprobante] error con la planilla: {e!r}", flush=True)
+
+    if not planilla_ok:
+        # que no se pierda: le queda el aviso al encargado en el panel
+        mes = planilla.MESES[planilla._ahora().month - 1].capitalize()
+        _notificar(f"Comprobante de {nombre or telefono} ({telefono}), {mes}, monto: "
+                   f"{_pesos(monto) if monto else 'sin detectar'}. No se pudo anotar en la "
+                   "planilla: cargalo a mano en la pestaña comprobantes.", tipo="comprobante")
 
     encargado = os.environ.get("ENCARGADO_TELEFONO", "").strip()
     if encargado and media_id:
@@ -90,9 +113,14 @@ def _recibir_comprobante(telefono: str, data: dict, tipo: str):
             print(f"[comprobante] no pude reenviar al encargado: {e!r}", flush=True)
 
     respuesta = "Recibí tu comprobante, gracias. El encargado lo revisa y te confirma el pago."
-    if sin_monto:
+    if varios_montos:
+        respuesta += " Vi más de un monto en tu mensaje: decime cuánto fue lo que transferiste así lo anoto."
+    elif planilla_ok and anotado is not None:
+        respuesta = (f"Recibí tu comprobante, gracias. Anoté {_pesos(anotado)}. "
+                     "El encargado lo revisa y te confirma el pago.")
+    elif planilla_ok:
         respuesta += " Decime también cuánto fue así lo anoto."
-    _guardar_mensaje(telefono, "user", "[envió el comprobante de pago]")
+    _guardar_mensaje(telefono, "user", "[envió el comprobante de pago]" + (f" {texto}" if texto else ""))
     _guardar_mensaje(telefono, "assistant", respuesta)
     enviar_mensaje_whatsapp(telefono, respuesta)
     return jsonify({"status": "ok"}), 200
