@@ -104,6 +104,18 @@ def mis_clases():
     for (cid,) in db.session.query(m.Inscripcion.clase_id).filter(m.Inscripcion.hasta.is_(None)):
         cuentas[cid] = cuentas.get(cid, 0) + 1
 
+    # recuperaciones confirmadas de la última semana (lo que muestra el panel), por clase y fecha
+    hoy = _hoy()
+    recuperan = {}
+    filas = db.session.query(m.RecuperacionClase.clase_id, m.RecuperacionClase.fecha).filter(
+        m.RecuperacionClase.estado == "confirmada",
+        m.RecuperacionClase.fecha >= hoy - timedelta(days=6),
+        m.RecuperacionClase.fecha <= hoy,
+    )
+    for cid, fecha in filas:
+        dia = recuperan.setdefault(cid, {})
+        dia[fecha.isoformat()] = dia.get(fecha.isoformat(), 0) + 1
+
     salida = [{
         "id": c.id,
         "dia": c.dia_semana,
@@ -114,9 +126,10 @@ def mis_clases():
         "nivel": c.nivel or "",
         "ambito": c.ambito,
         "alumnos": cuentas.get(c.id, 0),
+        "recuperan": recuperan.get(c.id, {}),
     } for c, profe in consulta]
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
-    return jsonify({"hoy": _hoy().isoformat(), "clases": salida})
+    return jsonify({"hoy": hoy.isoformat(), "clases": salida})
 
 
 @asistencia_bp.get("/api/mis-clases/<int:clase_id>/asistencia")

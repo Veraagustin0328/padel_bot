@@ -16,6 +16,8 @@ const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Parti
 const iso = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const diaSemana = (d) => (d.getDay() + 6) % 7; // 0 = lunes, como en el backend
+// los que recuperan en esa clase esa fecha
+const recuperanEn = (clase, fecha) => (clase.recuperan && clase.recuperan[fecha]) || 0;
 
 // hoy primero y después los 6 días anteriores, para marcar lo que quedó colgado.
 // Los días sin clases del club (ej: domingo) no se muestran.
@@ -87,7 +89,8 @@ function Clase({ clase, fecha, verProfe }) {
             {verProfe && clase.profe ? `${clase.profe} · ` : ""}
             {datos
               ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
-              : `${clase.alumnos} ${clase.alumnos === 1 ? "alumno" : "alumnos"}`}
+              : `${clase.alumnos} ${clase.alumnos === 1 ? "alumno" : "alumnos"}` +
+                (recuperanEn(clase, fecha) ? ` + ${recuperanEn(clase, fecha)} recupera${recuperanEn(clase, fecha) === 1 ? "" : "n"}` : "")}
           </span>
         </span>
         <span className="mc-flecha">{abierta ? "▲" : "▼"}</span>
@@ -159,9 +162,10 @@ export default function MisClases() {
 
   const dia = dias.find((d) => d.fecha === elegido);
   const delDia = (clases || []).filter((c) => c.dia === dia.dia);
-  // las clases sin alumnos anotados se esconden salvo que pidan verlas
-  const vacias = delDia.filter((c) => c.alumnos === 0).length;
-  const visibles = verVacias ? delDia : delDia.filter((c) => c.alumnos > 0);
+  // se esconden las que no tienen nadie ese día (ni fijos ni recuperando), salvo que pidan verlas
+  const conGente = (c) => c.alumnos + recuperanEn(c, elegido) > 0;
+  const vacias = delDia.filter((c) => !conGente(c)).length;
+  const visibles = verVacias ? delDia : delDia.filter(conGente);
 
   return (
     <div className="mc">
