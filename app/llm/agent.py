@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime, timedelta
+from sqlalchemy.exc import IntegrityError
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
@@ -133,7 +134,10 @@ PROMPT_ALUMNO_PARTE_1 = (
     "en particular, ANTES de usar agendar_clase_suelta. No agendes con datos que "
     "no te dieron.\n"
     "- Si preguntan si hay lugar o cupo en una clase, usá consultar_cupos con el día y el "
-    "turno (y el nivel si lo dijo). Que haya lugar no lo anota.\n\n"
+    "turno (y el nivel si lo dijo). Que haya lugar no lo anota.\n"
+    "- Si confirma que quiere anotarse a una clase grupal, usá anotar_en_clase con el "
+    "clase_id que te dio consultar_cupos (o con el día y la hora). Solo decile que quedó "
+    "anotado si la tool devolvió status 'anotado' o 'ya_anotado'.\n\n"
     "Precios:\n"
     "- Para CUALQUIER precio usá la tool consultar_precio. Nunca digas un precio "
     "de memoria ni lo calcules vos.\n"
@@ -151,8 +155,8 @@ PROMPT_ALUMNO_PARTE_1 = (
     "registrado si no llamaste a la tool correspondiente y devolvió ok.\n"
     "- Si un alumno confirma que quiere anotarse a un grupo y NO está registrado "
     "(más abajo te aviso si lo está), NO le repitas día ni hora: preguntale SOLO "
-    "el nombre y apenas te lo diga llamá registrar_alumno con ese nombre y el "
-    "nivel que ya mencionó.\n"
+    "el nombre y apenas te lo diga llamá anotar_en_clase con la clase y ese nombre "
+    "(y el nivel si lo mencionó).\n"
     "- Si quiere cancelar una clase particular que ya tenía, usá "
     "cancelar_clase_suelta (con el día si tiene más de una).\n"
 )
@@ -273,13 +277,17 @@ def _inicio_sesion() -> datetime:
     return datetime.utcnow() - timedelta(hours=SESION_HORAS)
 
 
-def _alumno_por_telefono(telefono: str) -> Alumno | None:
-    """Por los últimos 10 dígitos: WhatsApp manda 549... y en la base puede estar sin el 549.
-    Si matchea más de uno, no devuelvo ninguno (mejor no mostrar datos de otro)."""
+def _alumnos_con_telefono(telefono: str) -> list[Alumno]:
+    """Todos los que matchean por los últimos 10 dígitos (WhatsApp manda 549..., la base puede no tenerlo)."""
     t = planilla._tel(telefono)
     if not t:
-        return None
-    alumnos = [a for a in Alumno.query.all() if planilla._tel(a.telefono) == t]
+        return []
+    return [a for a in Alumno.query.all() if planilla._tel(a.telefono) == t]
+
+
+def _alumno_por_telefono(telefono: str) -> Alumno | None:
+    """Si matchea más de uno, no devuelvo ninguno (mejor no mostrar datos de otro)."""
+    alumnos = _alumnos_con_telefono(telefono)
     return alumnos[0] if len(alumnos) == 1 else None
 
 
@@ -289,7 +297,7 @@ def _nota_registro(telefono: str) -> str:
         return f"Este número YA está registrado como alumno: {alumno.nombre}. No hace falta registrarlo."
     return (
         "Este número NO está registrado todavía como alumno. Si quiere anotarse "
-        "a un grupo, primero hay que registrarlo con registrar_alumno."
+        "a una clase, pedile el nombre y pasáselo a anotar_en_clase, que lo registra y lo anota."
     )
 
 
@@ -408,6 +416,8 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             resultado = _consultar_precio(args)
         elif nombre == "consultar_cupos":
             resultado = _consultar_cupos(args)
+        elif nombre == "anotar_en_clase":
+            resultado = _anotar_en_clase(telefono, args)  # el alumno sale del número, nunca de args
         elif nombre == "estado_cuota":
             resultado = _estado_cuota(telefono)  # nunca con args: solo el que escribe
         elif nombre == "agendar_clase_suelta":
@@ -660,6 +670,22 @@ def _nivel_de_clase(nivel_clase: str, canonico: str) -> bool:
     return any(_nivel_canonico(p) == canonico for p in partes if p)
 
 
+def _vigente(hoy):
+    # inscripción vigente hoy: desde <= hoy y (sin hasta o hasta >= hoy)
+    return db.and_(Inscripcion.desde <= hoy,
+                   db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta >= hoy))
+
+
+def _anotados_hoy(clase_ids: list[int], hoy) -> dict[int, int]:
+    if not clase_ids:
+        return {}
+    return dict(
+        db.session.query(Inscripcion.clase_id, db.func.count(Inscripcion.id))
+        .filter(Inscripcion.clase_id.in_(clase_ids), _vigente(hoy))
+        .group_by(Inscripcion.clase_id).all()
+    )
+
+
 def _consultar_cupos(args: dict) -> dict:
     dia = _DIAS.get((args.get("dia") or "").strip().lower())
     franja = (args.get("franja") or "").strip().lower()
@@ -681,20 +707,14 @@ def _consultar_cupos(args: dict) -> dict:
         return {"clases_con_lugar": [], "mensaje": "No hay clases grupales ese día y turno"
                 + (" para ese nivel" if nivel else "") + ". Ofrecé buscar otro día."}
 
-    # anotados hoy: desde <= hoy y (sin hasta o hasta >= hoy)
-    anotados = dict(
-        db.session.query(Inscripcion.clase_id, db.func.count(Inscripcion.id))
-        .filter(Inscripcion.clase_id.in_([c.id for c in clases]),
-                Inscripcion.desde <= hoy,
-                db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta >= hoy))
-        .group_by(Inscripcion.clase_id).all()
-    )
+    anotados = _anotados_hoy([c.id for c in clases], hoy)
     con_lugar = []
     for c in clases:
         libres = c.cupo - anotados.get(c.id, 0)
         if libres > 0:
-            # sin profe ni alumnos: solo lo que el alumno necesita
-            con_lugar.append({"dia": _NOMBRE_DIA[c.dia_semana], "hora": c.hora_inicio.strftime("%H:%M"),
+            # sin profe ni alumnos: solo lo que el alumno necesita (el id es para anotar_en_clase)
+            con_lugar.append({"clase_id": c.id, "dia": _NOMBRE_DIA[c.dia_semana],
+                              "hora": c.hora_inicio.strftime("%H:%M"),
                               "nivel": c.nivel or "sin nivel", "lugares_libres": libres})
     if not con_lugar:
         return {"clases_con_lugar": [], "mensaje": f"Las {len(clases)} clases de ese día y turno están llenas. Ofrecé buscar otro día."}
@@ -722,6 +742,143 @@ def _estado_cuota(telefono: str) -> dict:
     return {"encontrado": True, "alumno": a.nombre, "mes": nombre_mes, "cuota_generada": True,
             "cuota": int(cuota), "pagado": int(pagado), "debe": max(int(cuota) - int(pagado), 0),
             "a_favor": max(int(pagado) - int(cuota), 0)}
+
+
+# ---------------------------------------------------------------- anotar en clase (escribe en Neon)
+_RX_HORA = re.compile(r"(\d{1,2})(?:\s*[:.h]\s*(\d{2}))?")
+
+
+def _parsear_hora(texto) -> tuple[int, int | None] | None:
+    """'18:30' -> (18, 30), '10' o '10hs' -> (10, None)."""
+    m = _RX_HORA.search(str(texto or ""))
+    if not m:
+        return None
+    h, mi = int(m.group(1)), (int(m.group(2)) if m.group(2) else None)
+    if h > 23 or (mi is not None and mi > 59):
+        return None
+    return h, mi
+
+
+def _datos_clase(c: Clase) -> dict:
+    return {"clase_id": c.id, "dia": _NOMBRE_DIA[c.dia_semana],
+            "hora": c.hora_inicio.strftime("%H:%M"), "nivel": c.nivel or "sin nivel"}
+
+
+def _buscar_clase(args: dict, nivel: str) -> tuple[Clase | None, dict | None]:
+    """Devuelve (clase, None) o (None, error para el modelo). Solo grupales activas."""
+    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal")
+    clase_id = _entero(args.get("clase_id"))
+    if clase_id:
+        clase = base.filter(Clase.id == clase_id).first()
+        if clase:
+            return clase, None
+        # id inventado o de otra cosa: pruebo con día y hora si vinieron
+
+    dia = _DIAS.get(planilla._norm(args.get("dia")))
+    hora = _parsear_hora(args.get("hora"))
+    if dia is None or not hora:
+        return None, {"error": "No sé a qué clase anotarlo. Preguntale día y hora (o buscá con "
+                               "consultar_cupos) y volvé a llamar. NO le digas que quedó anotado."}
+
+    candidatas = base.filter(Clase.dia_semana == dia).all()
+    h, mi = hora
+
+    def _de_hora(hh):
+        return [c for c in candidatas
+                if c.hora_inicio.hour == hh and (mi is None or c.hora_inicio.minute == mi)]
+
+    clases = _de_hora(h) or (_de_hora(h + 12) if h < 12 else [])  # "a las 5" puede ser 17
+    canonico = _nivel_canonico(nivel or "")
+    if len(clases) > 1 and canonico:
+        clases = [c for c in clases if _nivel_de_clase(c.nivel, canonico)] or clases
+    if not clases:
+        return None, {"error": "No hay ninguna clase grupal ese día a esa hora. NO lo anotaste. "
+                               "Ofrecele buscar otra con consultar_cupos."}
+    if len(clases) > 1:
+        return None, {"error": "Hay más de una clase ese día y hora. Preguntale cuál (por nivel) y "
+                               "volvé a llamar con el clase_id. NO lo anotaste todavía.",
+                      "opciones": [_datos_clase(c) for c in clases]}
+    return clases[0], None
+
+
+def _esta_llena(clase: Clase, hoy) -> bool:
+    return _anotados_hoy([clase.id], hoy).get(clase.id, 0) >= clase.cupo
+
+
+def _anotar_en_clase(telefono: str, args: dict) -> dict:
+    """Anota al que escribe (sale del número de WhatsApp, nunca de lo que diga el modelo).
+    Idempotente: si ya está anotado no se duplica."""
+    alumnos = _alumnos_con_telefono(telefono)
+    if len(alumnos) > 1:
+        return {"error": "Este número figura en más de un alumno. NO anotes a nadie: decile que "
+                         "se lo pasás al encargado para que lo revise."}
+    alumno = alumnos[0] if alumnos else None
+    nivel = (args.get("nivel") or "").strip() or (alumno.categoria if alumno else "")
+
+    clase, error = _buscar_clase(args, nivel)
+    if error:
+        return error
+    datos = _datos_clase(clase)
+    hoy = planilla._ahora().date()
+
+    def _ya_anotado(a):
+        return Inscripcion.query.filter(
+            Inscripcion.clase_id == clase.id, Inscripcion.alumno_id == a.id,
+            db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta >= hoy),
+        ).first() is not None
+
+    ya_anotado = {"status": "ya_anotado", **datos,
+                  "mensaje": "Ya está anotado en esa clase, no se anotó de nuevo. Si lo acabás de "
+                             "anotar vos en esta charla, confirmale que quedó."}
+    if alumno and _ya_anotado(alumno):
+        return ya_anotado
+
+    # el cupo lo miro antes de pedir el nombre: no tiene sentido registrarlo para una clase llena
+    if _esta_llena(clase, hoy):
+        otras = _consultar_cupos({"dia": datos["dia"], "nivel": nivel,
+                                  "franja": FRANJA_POR_AMBITO.get(clase.ambito, "manana")})
+        return {"status": "sin_cupo", **datos, "otras_opciones": otras.get("clases_con_lugar", []),
+                "mensaje": "Esa clase está llena y NO lo anotaste. Contale con buena onda y ofrecele "
+                           "las otras opciones; si no hay, proponele buscar otro día."}
+
+    nuevo = False
+    if not alumno:
+        nombre = (args.get("nombre") or "").strip()
+        if not nombre:
+            return {"status": "falta_nombre", **datos,
+                    "mensaje": "Este número todavía no es alumno y NO está anotado. Preguntale SOLO el "
+                               "nombre y volvé a llamar anotar_en_clase con la misma clase y el nombre."}
+        reg = _registrar_alumno(telefono, {"nombre": nombre, "categoria": nivel or clase.nivel or ""})
+        if "error" in reg:
+            return reg
+        alumno = _alumno_por_telefono(telefono)
+        if not alumno:
+            return {"error": "No pude registrarlo. Decile que se lo pasás al encargado."}
+        nuevo = reg.get("status") == "registrado"
+        if _ya_anotado(alumno):
+            return ya_anotado
+
+    # bloqueo la clase y vuelvo a contar, por si dos se anotan a la vez (en SQLite no hace nada)
+    db.session.query(Clase).filter(Clase.id == clase.id).with_for_update().first()
+    if _esta_llena(clase, hoy):
+        db.session.rollback()
+        return {"status": "sin_cupo", **datos,
+                "mensaje": "Justo se llenó esa clase y NO lo anotaste. Ofrecele buscar otra con consultar_cupos."}
+    db.session.add(Inscripcion(clase_id=clase.id, alumno_id=alumno.id, desde=hoy))
+    try:
+        db.session.commit()
+    except IntegrityError:  # el índice único de Postgres: otra llamada lo anotó recién
+        db.session.rollback()
+        return ya_anotado
+
+    _notificar(f"{alumno.nombre} ({telefono}) se anotó por WhatsApp en la clase del "
+               f"{datos['dia']} {datos['hora']} ({datos['nivel']})", tipo="inscripcion")
+    resultado = {"status": "anotado", "alumno": alumno.nombre, **datos,
+                 "mensaje": "Quedó anotado. Confirmale día y hora."}
+    if nuevo:
+        resultado["inscripcion_pago_unico"] = _inscripcion()
+        resultado["mensaje"] += " Es alumno nuevo: contale que la inscripción es un pago único."
+    return resultado
 
 
 def _agendar_clase_suelta(telefono: str, args: dict) -> dict:
@@ -894,7 +1051,7 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
     cambio.estado = "aceptado" if args["decision"] == "si_acepto" else "rechazado"
     db.session.commit()
 
-    alumno = Alumno.query.filter_by(telefono=telefono).first()
+    alumno = _alumno_por_telefono(telefono)
     nombre = alumno.nombre if alumno else telefono
     _notificar(f"{nombre} {cambio.estado} el cambio propuesto: {cambio.propuesta}", tipo="cambio_resuelto")
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
@@ -912,9 +1069,12 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
             )
         }
 
-    existente = Alumno.query.filter_by(telefono=telefono).first()
-    if existente:
-        return {"status": "ya_registrado", "alumno": existente.nombre}
+    existentes = _alumnos_con_telefono(telefono)
+    if len(existentes) > 1:
+        return {"error": "Este número ya figura en más de un alumno. No registres a nadie: "
+                         "decile que se lo pasás al encargado."}
+    if existentes:
+        return {"status": "ya_registrado", "alumno": existentes[0].nombre}
 
     categoria_cruda = args.get("categoria", "")
     categoria = _nivel_canonico(categoria_cruda) or categoria_cruda
@@ -959,7 +1119,7 @@ def _reprogramar_clase(telefono: str, args: dict) -> dict:
 
 
 def _dar_de_baja(telefono: str, args: dict) -> dict:
-    alumno = Alumno.query.filter_by(telefono=telefono).first()
+    alumno = _alumno_por_telefono(telefono)
     if not alumno:
         return {"error": "No encontré tu registro como alumno."}
 

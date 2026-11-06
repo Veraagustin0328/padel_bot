@@ -197,6 +197,33 @@ _TOOLS_BASE = [
     {
         "type": "function",
         "function": {
+            "name": "anotar_en_clase",
+            "description": (
+                "Anota en una clase GRUPAL fija al alumno que está escribiendo (lo busca por su "
+                "número de WhatsApp). Usala SOLO cuando confirmó que quiere anotarse. Pasá el "
+                "clase_id que devolvió consultar_cupos, o el día y la hora. Si el número no es "
+                "alumno, la tool te pide el nombre: preguntáselo y volvé a llamarla con el nombre."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "clase_id": {"type": "integer", "description": "Id de la clase que devolvió consultar_cupos."},
+                    "dia": {
+                        "type": "string",
+                        "enum": ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"],
+                        "description": "Día de la clase, si no tenés el clase_id.",
+                    },
+                    "hora": {"type": "string", "description": "Hora de la clase (ej. '10' o '18:30'), si no tenés el clase_id."},
+                    "nombre": {"type": "string", "description": "Nombre real del alumno, SOLO si la tool te lo pidió y él te lo dijo."},
+                    "nivel": {"type": "string", "enum": NIVELES, "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "estado_cuota",
             "description": (
                 "Solo lectura. Devuelve la cuota de este mes del alumno que está escribiendo "
