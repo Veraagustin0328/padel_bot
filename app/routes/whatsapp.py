@@ -7,6 +7,7 @@ from app.models import Notificacion
 from app.whatsapp_client import enviar_mensaje_whatsapp, reenviar_archivo_whatsapp
 from app import planilla
 from app.extensions import db
+from app.routes.auth import requiere_login
 from sqlalchemy import text
 
 whatsapp_bp = Blueprint("whatsapp", __name__, url_prefix="/webhook")
@@ -180,6 +181,7 @@ def _parsear_mensaje_meta(data: dict):
 
 
 @whatsapp_bp.route("/notificaciones", methods=["GET"])
+@requiere_login("encargado")
 def ver_notificaciones():
     notifs = Notificacion.query.order_by(Notificacion.creado_en.desc()).limit(20).all()
     return jsonify([

@@ -46,6 +46,11 @@ def create_app():
     app.register_blueprint(comprobantes_bp)
     app.register_blueprint(asistencia_bp)
 
+    # para pingers y para que Render no se duerma: sin login, no toca la base ni devuelve datos
+    @app.get("/salud")
+    def salud():
+        return {"ok": True}
+
     with app.app_context():
         from app import models
         from app import models_plataforma  # tablas de la plataforma (planes, cuotas, profes, etc.)
