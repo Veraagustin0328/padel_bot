@@ -501,11 +501,16 @@ def _historial(telefono: str) -> list[dict]:
 
 
 def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
-    return (
-        CambioPendiente.query.filter_by(alumno_telefono=telefono, estado="pendiente")
-        .order_by(CambioPendiente.creado_en.desc())
-        .first()
+    """Por los últimos 10 dígitos: se guarda con el teléfono de la base (sin 549) y WhatsApp manda con 549."""
+    t = planilla._tel(telefono)
+    if not t:
+        return None
+    pendientes = (
+        CambioPendiente.query.filter_by(estado="pendiente")
+        .order_by(CambioPendiente.creado_en.desc(), CambioPendiente.id.desc())
+        .all()
     )
+    return next((c for c in pendientes if planilla._tel(c.alumno_telefono) == t), None)
 
 
 # ---------------------------------------------------------------- tools
