@@ -2,21 +2,42 @@
 Login del panel. Devuelve un token (JWT) que el frontend manda en cada pedido:
     Authorization: Bearer <token>
 Las rutas protegidas usan el decorador @requiere_login.
+
+También está el registro por link: la cuenta queda pendiente hasta que el admin
+la aprueba desde Solicitudes (app/routes/solicitudes.py). El estado va en
+usuario_perfil, así la tabla usuarios no se toca.
 """
 import os
+import re
+import logging
+import time
 import datetime
+import threading
+from collections import deque
 
 import jwt
 from flask import Blueprint, request, jsonify, g
 from functools import wraps
-from werkzeug.security import check_password_hash
+from sqlalchemy.exc import IntegrityError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
 from app.models_plataforma import Usuario
+from app.models_academia import UsuarioPerfil
 
 auth_bp = Blueprint("auth", __name__)
+log = logging.getLogger(__name__)
 
 HORAS_DE_SESION = 12
+
+# registro: largo mínimo de la clave y límites para que no lo llenen de basura
+CLAVE_MINIMA = 8
+REGISTROS_POR_IP = 5          # por IP...
+REGISTROS_TOTALES = 30        # ...y en total, por si alguien rota IPs
+VENTANA_SEGUNDOS = 60 * 60    # en una hora
+# la columna rol no acepta vacío; este valor no coincide con ningún rol real
+ROL_PENDIENTE = "pendiente"
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _secreto():
@@ -78,8 +99,19 @@ def login():
     password = datos.get("password") or ""
 
     usuario = Usuario.query.filter_by(email=email).first()
+    clave_ok = bool(usuario) and check_password_hash(usuario.password_hash, password)
+
+    # solo con la clave correcta le contamos que está pendiente, así no se puede
+    # averiguar qué mails se registraron. Los usuarios de siempre no tienen perfil: siguen igual
+    if clave_ok and not usuario.activo:
+        perfil = db.session.get(UsuarioPerfil, usuario.id)
+        if perfil and perfil.estado == "pendiente":
+            return jsonify({"error": "Tu cuenta está pendiente de aprobación"}), 403
+        if perfil and perfil.estado == "rechazado":
+            return jsonify({"error": "Tu solicitud de acceso no fue aprobada"}), 403
+
     # mismo mensaje si falla el mail o la clave, así no se sabe cuál existe
-    if not usuario or not usuario.activo or not check_password_hash(usuario.password_hash, password):
+    if not clave_ok or not usuario.activo:
         return jsonify({"error": "Email o contraseña incorrectos"}), 401
 
     return jsonify({"token": crear_token(usuario), "usuario": _usuario_json(usuario)})
@@ -89,3 +121,86 @@ def login():
 @requiere_login()
 def yo():
     return jsonify(_usuario_json(g.usuario))
+
+
+# ---------- registro por link ----------
+
+# en memoria alcanza: Render free corre un solo proceso. Si se reinicia, se resetea y listo
+_intentos_por_ip = {}
+_intentos_totales = deque()
+_candado = threading.Lock()
+
+
+def _ip_cliente():
+    # detrás del proxy de Render la IP real viene en X-Forwarded-For (la primera)
+    reenviada = request.headers.get("X-Forwarded-For", "")
+    if reenviada:
+        return reenviada.split(",")[0].strip()
+    return request.remote_addr or "?"
+
+
+def _limpiar(cola, ahora):
+    while cola and ahora - cola[0] > VENTANA_SEGUNDOS:
+        cola.popleft()
+
+
+def _pasa_limite(ip):
+    """Anota el intento y dice si todavía está dentro del límite."""
+    ahora = time.monotonic()
+    with _candado:
+        _limpiar(_intentos_totales, ahora)
+        cola = _intentos_por_ip.setdefault(ip, deque())
+        _limpiar(cola, ahora)
+        if len(cola) >= REGISTROS_POR_IP or len(_intentos_totales) >= REGISTROS_TOTALES:
+            return False
+        cola.append(ahora)
+        _intentos_totales.append(ahora)
+        # que el dict no crezca para siempre
+        for otra in [k for k, v in _intentos_por_ip.items() if not v]:
+            del _intentos_por_ip[otra]
+        return True
+
+
+@auth_bp.post("/api/auth/registro")
+def registro():
+    if not _pasa_limite(_ip_cliente()):
+        return jsonify({"error": "Demasiados intentos, probá de nuevo en un rato"}), 429
+
+    datos = request.get_json(silent=True) or {}
+    nombre = (datos.get("nombre") or "").strip()
+    email = (datos.get("email") or "").strip().lower()
+    password = datos.get("password") or datos.get("contraseña") or ""
+
+    if not nombre or len(nombre) > 120:
+        return jsonify({"error": "Poné tu nombre (hasta 120 letras)"}), 400
+    if len(email) > 160 or not EMAIL_RE.match(email):
+        return jsonify({"error": "El email no es válido"}), 400
+    if len(password) < CLAVE_MINIMA:
+        return jsonify({"error": f"La contraseña tiene que tener al menos {CLAVE_MINIMA} caracteres"}), 400
+    if len(password) > 200:
+        return jsonify({"error": "La contraseña es demasiado larga"}), 400
+    if Usuario.query.filter_by(email=email).first():
+        return jsonify({"error": "Ya hay una cuenta con ese email"}), 409
+
+    # sin acceso hasta que lo aprueben: inactivo y con un rol que no abre nada
+    u = Usuario(nombre=nombre, email=email, rol=ROL_PENDIENTE, activo=False,
+                password_hash=generate_password_hash(password))
+    db.session.add(u)
+    try:
+        db.session.flush()
+        db.session.add(UsuarioPerfil(usuario_id=u.id, estado="pendiente", creado_via="registro"))
+        db.session.commit()
+    except IntegrityError:  # dos registros iguales al mismo tiempo
+        db.session.rollback()
+        return jsonify({"error": "Ya hay una cuenta con ese email"}), 409
+
+    # aviso al admin con el mismo sistema de notificaciones del agente
+    # el usuario ya quedó guardado: si el aviso falla, solo se loguea
+    try:
+        from app.llm.agent import _notificar
+        _notificar(f"Nueva solicitud de acceso al panel: {nombre} ({email})", tipo="solicitud_acceso")
+    except Exception:
+        db.session.rollback()
+        log.exception("No pude avisar la solicitud de %s", email)
+
+    return jsonify({"ok": True, "mensaje": "Listo, tu solicitud quedó pendiente de aprobación"}), 201

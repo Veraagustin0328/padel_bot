@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth.jsx";
+import { api } from "./api.js";
 import { MARCA } from "./marca.js";
 import Logo from "./Logo.jsx";
 import Login from "./pages/Login.jsx";
+import Registro from "./pages/Registro.jsx";
+import Solicitudes from "./pages/Solicitudes.jsx";
 import Inicio from "./pages/Inicio.jsx";
 import Planes from "./pages/Planes.jsx";
 import Comprobantes from "./pages/Comprobantes.jsx";
@@ -23,6 +26,7 @@ const MENU = [
   { a: "/cuotas", t: "Cuotas", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
+  { a: "/solicitudes", t: "Solicitudes", roles: ["admin"] },
 ];
 // lo que viene (se ve apagado para que Gabi sepa que está en camino)
 const PRONTO = ["Profes y horas", "Planificación", "Agente"];
@@ -32,6 +36,16 @@ function Layout() {
   const esGestion = GESTION.includes(usuario.rol);
   const [abierto, setAbierto] = useState(false);
   const { pathname } = useLocation();
+
+  // cuántas solicitudes de acceso hay sin resolver (solo le importa al admin)
+  const [pendientes, setPendientes] = useState(0);
+  useEffect(() => {
+    if (usuario.rol !== "admin") return;
+    const contar = () => api("/api/solicitudes").then((l) => setPendientes(l.length)).catch(() => {});
+    contar();
+    window.addEventListener("solicitudes-cambiaron", contar);
+    return () => window.removeEventListener("solicitudes-cambiaron", contar);
+  }, [usuario.rol, pathname]);
 
   // al cambiar de página el cajón se cierra solo
   useEffect(() => setAbierto(false), [pathname]);
@@ -58,6 +72,9 @@ function Layout() {
         {MENU.filter((m) => m.roles.includes(usuario.rol)).map((m) => (
           <NavLink key={m.a} to={m.a} end={m.a === "/"} className={({ isActive }) => "item" + (isActive ? " activo" : "")}>
             {m.t}
+            {m.a === "/solicitudes" && pendientes > 0 && (
+              <span className="contador" aria-label={`${pendientes} pendientes`}>{pendientes}</span>
+            )}
           </NavLink>
         ))}
         {esGestion &&
@@ -132,6 +149,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/registro" element={<Registro />} />
           <Route element={<Protegida />}>
             <Route path="/" element={<PaginaInicial />} />
             <Route path="/mis-clases" element={<SoloRoles roles={["admin", "encargado", "profe"]}><MisClases /></SoloRoles>} />
@@ -140,6 +158,7 @@ export default function App() {
             <Route path="/cuotas" element={<SoloGestion><Cuotas /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
+            <Route path="/solicitudes" element={<SoloRoles roles={["admin"]}><Solicitudes /></SoloRoles>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

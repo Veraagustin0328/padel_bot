@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 import { MARCA } from "../marca.js";
 import Logo from "../Logo.jsx";
@@ -46,6 +46,7 @@ export default function Login() {
         </div>
         {error && <div className="msg-error" role="alert">{error}</div>}
         <button className="boton" disabled={enviando}>{enviando ? "Entrando…" : "Entrar"}</button>
+        <Link to="/registro" className="login-link">¿No tenés cuenta? Pedí acceso</Link>
       </form>
     </div>
   );

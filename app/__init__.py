@@ -37,6 +37,7 @@ def create_app():
     from app.routes.alumnos import alumnos_bp
     from app.routes.comprobantes import comprobantes_bp
     from app.routes.asistencia import asistencia_bp
+    from app.routes.solicitudes import solicitudes_bp
     app.register_blueprint(whatsapp_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(planes_bp)
@@ -45,6 +46,7 @@ def create_app():
     app.register_blueprint(alumnos_bp)
     app.register_blueprint(comprobantes_bp)
     app.register_blueprint(asistencia_bp)
+    app.register_blueprint(solicitudes_bp)
 
     # para pingers y para que Render no se duerma: sin login, no toca la base ni devuelve datos
     @app.get("/salud")
