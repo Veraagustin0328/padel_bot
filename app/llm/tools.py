@@ -31,37 +31,33 @@ _TOOLS_BASE = [
         "function": {
             "name": "consultar_precio",
             "description": (
-                "Devuelve el precio mensual de las clases. Llamala SOLO cuando el alumno ya "
-                "te dijo el tipo de clase, el turno y cuántas veces por semana (y cuántas "
-                "personas si es particular). NUNCA inventes ni asumas esos datos: si "
-                "falta alguno, preguntalo y no llames la tool."
+                "Devuelve el precio mensual de las clases. Mandá solo lo que el alumno "
+                "dijo: si falta algo, la tool te dice qué preguntar. NUNCA inventes datos."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "tipo": {
+                    "modalidad": {
                         "type": "string",
-                        "enum": [
-                            "modo_academia",
-                            "particular_manana",
-                            "particular_manana_2x1",
-                            "particular_tarde",
-                            "particular_head_coach",
-                            "sabado_modo_academia",
-                            "sabado_particular",
-                        ],
+                        "enum": ["academia", "particular"],
                         "description": (
-                            "modo_academia = grupos armados por los profes (mañana). "
-                            "particular_* = el alumno arma su grupo. "
-                            "particular_manana_2x1 = promo lunes, miércoles y viernes 9, 10 y 11 hs."
+                            "academia = grupo armado por los profes según el nivel. "
+                            "particular = el alumno arma su propio grupo. SOLO si lo dijo."
                         ),
                     },
-                    "personas": {"type": "integer", "description": "Cuántas personas van a la clase (1 a 4), SOLO si el alumno lo dijo. No aplica a modo_academia."},
-                    "veces_por_semana": {"type": "integer", "description": "1 a 4 según el tipo, SOLO si el alumno lo dijo. No aplica a los del sábado."},
+                    "turno": {
+                        "type": "string",
+                        "enum": ["mañana", "tarde", "sabado"],
+                        "description": "Turno que pidió el alumno. SOLO si lo dijo.",
+                    },
+                    "personas": {"type": "integer", "description": "Cuántas personas van a la clase (1 a 4), SOLO si el alumno lo dijo. Solo para particular."},
+                    "veces": {"type": "integer", "description": "Veces por semana (1 a 4), SOLO si el alumno lo dijo. No aplica al sábado."},
+                    "promo_2x1": {"type": "boolean", "description": "true SOLO si el alumno pidió la promo 2x1."},
+                    "head_coach": {"type": "boolean", "description": "true SOLO si el alumno pidió clase con el head coach."},
                     "dia": {"type": "string", "description": "Opcional. Día que pidió el alumno (ej. 'martes'), SOLO si lo dijo. Sirve para chequear la promo 2x1."},
                     "hora": {"type": "string", "description": "Opcional. Hora que pidió el alumno (ej. '10' o '18:30'), SOLO si la dijo. Sirve para chequear la promo 2x1."},
                 },
-                "required": ["tipo"],
+                "required": [],
             },
         },
     },

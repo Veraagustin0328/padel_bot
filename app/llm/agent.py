@@ -57,26 +57,41 @@ def _variantes_nivel(texto: str) -> list[str]:
 
 # ---------------------------------------------------------------- precios
 # Los precios salen de la tabla tarifas (la misma que usa el panel para las cuotas).
-# Acá solo está cómo se traduce cada tipo que pide el agente a franja + tipo de tarifa.
+# Acá solo está cómo se traduce modalidad + turno del agente a franja + tipo de tarifa.
 INSCRIPCION_DEFAULT = 25000  # si no está en config_academia; se cobra una sola vez
 
-# tipo del agente -> (franja, tipo de tarifa, pide personas, pide veces, descripción)
-TIPOS_PRECIO = {
-    "modo_academia": ("manana", "academia", False, True,
-                      "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel."),
-    "particular_manana": ("manana", "particular", True, True,
-                          "Clases particulares de mañana (7 a 12 hs). El alumno decide cómo formar el grupo."),
-    "particular_manana_2x1": ("manana", "promo_2x1", False, True,
-                              "Promo 2x1 de mañana, solo lunes, miércoles y viernes de 9 a 12 hs."),
-    "particular_tarde": ("tarde", "particular", True, True,
-                         "Clases particulares de tarde (14:30, 15:30, 16:30 y 17:30 hs)."),
-    "particular_head_coach": (None, None, True, True,
-                              "Clases particulares con el head coach (7 a 12 hs)."),
-    "sabado_modo_academia": ("sabado", "academia", False, False,
+# (modalidad, turno) -> (franja, tipo de tarifa, personas fijas o None si las pide, pide veces, descripción)
+# Igual que bucket_de en app/cuotas.py: la tarde no tiene Modo Academia, el grupal paga como particular de 3.
+BUCKETS_PRECIO = {
+    ("academia", "manana"): ("manana", "academia", 0, True,
+                             "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel."),
+    ("academia", "tarde"): ("tarde", "particular", 3, True,
+                            "Grupo de tarde (14:30, 15:30, 16:30 y 17:30 hs)."),
+    ("academia", "sabado"): ("sabado", "academia", 0, False,
                              "Modo Academia del sábado a la mañana (8, 9, 10 y 11 hs)."),
-    "sabado_particular": ("sabado", "particular", True, False,
-                          "Particular del sábado a la mañana (8, 9, 10 y 11 hs)."),
+    ("particular", "manana"): ("manana", "particular", None, True,
+                               "Clases particulares de mañana (7 a 12 hs). El alumno decide cómo formar el grupo."),
+    ("particular", "tarde"): ("tarde", "particular", None, True,
+                              "Clases particulares de tarde (14:30, 15:30, 16:30 y 17:30 hs)."),
+    ("particular", "sabado"): ("sabado", "particular", None, False,
+                               "Particular del sábado a la mañana (8, 9, 10 y 11 hs)."),
 }
+PROMO_2X1 = ("manana", "promo_2x1", 0, True,
+             "Promo 2x1 de mañana, solo lunes, miércoles y viernes de 9 a 12 hs.")
+
+# el tipo viejo, por si el modelo lo sigue mandando: -> (modalidad, turno, extras)
+TIPOS_VIEJOS = {
+    "modo_academia": ("academia", "manana", {}),
+    "particular_manana": ("particular", "manana", {}),
+    "particular_manana_2x1": ("particular", "manana", {"promo_2x1": True}),
+    "particular_tarde": ("particular", "tarde", {}),
+    "particular_head_coach": ("particular", "manana", {"head_coach": True}),
+    "sabado_modo_academia": ("academia", "sabado", {}),
+    "sabado_particular": ("particular", "sabado", {}),
+}
+
+_TURNOS = {"manana": "manana", "mananas": "manana", "tarde": "tarde", "tardes": "tarde",
+           "sabado": "sabado", "sabados": "sabado"}
 
 POLITICAS = (
     "Las clases se pagan por mes adelantado. Hay que avisar con al menos 24 hs "
@@ -122,14 +137,12 @@ PROMPT_ALUMNO_PARTE_1 = (
     "Precios:\n"
     "- Para CUALQUIER precio usá la tool consultar_precio. Nunca digas un precio "
     "de memoria ni lo calcules vos.\n"
-    "- Si el alumno pregunta el precio en general ('cuánto sale', 'qué precio "
-    "tienen las clases'), NO llames la tool todavía y NO des ningún número. "
-    "Primero preguntale, en un solo mensaje corto: si quiere grupo armado por los "
-    "profes (modo academia) o clase particular con su propio grupo, si prefiere "
-    "mañana, tarde o sábado, y cuántas veces por semana.\n"
-    "- Solo llamá consultar_precio cuando el alumno YA te dijo todos los datos. "
-    "Nunca asumas ni inventes un dato que no dijo (ni las veces por semana, ni "
-    "la cantidad de personas, ni el turno).\n"
+    "- Cuando pregunten un precio, llamá consultar_precio con lo que el alumno "
+    "YA dijo: modalidad (academia o particular), turno (mañana, tarde o sábado), "
+    "personas y veces por semana. Si dijo día y hora, mandalos también. Nunca "
+    "asumas ni inventes un dato que no dijo.\n"
+    "- Si la tool te devuelve 'faltan', NO des ningún número: preguntale todo lo "
+    "que falta en UNA sola frase corta y, cuando te conteste, volvé a llamarla.\n"
     "- Los precios son mensuales y cada alumno paga el suyo (por persona).\n"
     "- La inscripción es de $25.000, pago único. Mencionala solo si preguntan o si "
     "se están anotando.\n\n"
@@ -524,42 +537,102 @@ def _fuera_de_promo(args: dict) -> bool:
     return bool(m) and not (HORA_PROMO_DESDE <= int(m.group(1)) < HORA_PROMO_HASTA)
 
 
+def _en_promo(args: dict) -> bool:
+    """True solo si dijo día Y hora y los dos entran en el 2x1 (igual que el panel)."""
+    return bool((args.get("dia") or "").strip() and re.match(r"\s*\d", str(args.get("hora") or ""))) \
+        and not _fuera_de_promo(args)
+
+
 def _al_encargado(motivo: str) -> dict:
     # nunca inventar: si no está en la base, lo ve el encargado
     return {"error": f"{motivo} NO des ningún número ni estimes. Decile al alumno con buena onda "
                      "que ese precio lo consultás con el encargado y que te lo confirma."}
 
 
-def _consultar_precio(args: dict) -> dict:
-    # el modelo a veces manda "particular_mañana": sin tildes ni ñ
+def _si(valor) -> bool:
+    # el modelo a veces manda "true" como texto
+    return valor is True or planilla._norm(valor) in ("true", "si", "1")
+
+
+def _entero(valor):
+    try:
+        n = int(str(valor).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
+def _modalidad_y_turno(args: dict) -> tuple[str | None, str | None, dict]:
+    """Saca modalidad y turno de lo que mandó el modelo, aceptando el tipo viejo."""
+    extras = {}
+    modalidad = planilla._norm(args.get("modalidad"))
+    turno = _TURNOS.get(planilla._norm(args.get("turno")).replace(" ", ""))
     tipo = planilla._norm(args.get("tipo")).replace(" ", "_")
-    if not tipo:
-        # el modelo la llamó sin datos: no le damos las opciones porque lo invitan a adivinar
-        return {"error": "Todavía no podés dar un precio: el alumno no dijo qué clase quiere. NO vuelvas a llamar esta herramienta. Preguntale en una sola frase si quiere grupo armado por los profes o clase particular, en qué turno (mañana, tarde o sábado) y cuántas veces por semana."}
-    info = TIPOS_PRECIO.get(tipo)
-    if not info:
-        return {"error": f"Tipo de clase desconocido. Opciones: {', '.join(TIPOS_PRECIO)}"}
-    franja, tipo_tarifa, pide_personas, pide_veces, descripcion = info
+    if tipo in TIPOS_VIEJOS:
+        m_vieja, t_vieja, extras = TIPOS_VIEJOS[tipo]
+        modalidad = modalidad or m_vieja
+        turno = turno or t_vieja
+    if "academia" in modalidad or "grupal" in modalidad:
+        modalidad = "academia"
+    elif "particular" in modalidad:
+        modalidad = "particular"
+    else:
+        modalidad = None
+    return modalidad, turno, extras
 
-    if tipo == "particular_manana_2x1" and _fuera_de_promo(args):
-        return {"error": "La promo 2x1 es solo lunes, miércoles y viernes de 9 a 12 hs, y lo que pidió "
-                         "el alumno no entra. Contale eso y, si quiere ese horario igual, consultá "
-                         "particular_manana con 2 personas."}
 
-    personas = args.get("personas") if pide_personas else 0
-    veces = args.get("veces_por_semana") if pide_veces else 1
+def _consultar_precio(args: dict) -> dict:
+    modalidad, turno, extras = _modalidad_y_turno(args)
+    promo = _si(args.get("promo_2x1")) or extras.get("promo_2x1", False)
+    head_coach = _si(args.get("head_coach")) or extras.get("head_coach", False)
+
+    # la promo y el head coach son siempre particulares de mañana
+    if promo or head_coach:
+        modalidad = modalidad or "particular"
+    if promo:
+        turno = turno or "manana"
+        if turno != "manana" or modalidad != "particular" or _fuera_de_promo(args):
+            return {"error": "La promo 2x1 es solo lunes, miércoles y viernes de 9 a 12 hs, y lo que pidió "
+                             "el alumno no entra. Contale eso con buena onda y, si quiere ese horario igual, "
+                             "consultá de nuevo con modalidad particular, turno mañana y 2 personas, sin promo_2x1."}
+
+    if head_coach:
+        return _al_encargado("Las clases con el head coach no tienen tarifa cargada.")
+
+    if modalidad and turno and not promo:
+        franja, tipo_tarifa, personas_fijas, pide_veces, descripcion = BUCKETS_PRECIO[(modalidad, turno)]
+    elif promo:
+        franja, tipo_tarifa, personas_fijas, pide_veces, descripcion = PROMO_2X1
+    else:
+        # falta modalidad o turno: igual juntamos lo demás que falte
+        personas_fijas = None if modalidad == "particular" else 0
+        pide_veces = turno != "sabado"
+
+    personas = personas_fijas if personas_fijas is not None else _entero(args.get("personas"))
+    veces = _entero(args.get("veces") or args.get("veces_por_semana")) if pide_veces else 1
+
+    # todo lo que falta junto, para que lo pregunte en una sola frase
     faltan = []
-    if pide_personas and not (isinstance(personas, int) and personas >= 1):
-        faltan.append("personas")
-    if pide_veces and not (isinstance(veces, int) and veces >= 1):
-        faltan.append("veces_por_semana")
+    if not modalidad:
+        faltan.append("si quiere grupo armado por los profes (modo academia) o clase particular con su propio grupo")
+    if not turno:
+        faltan.append("si prefiere mañana, tarde o sábado")
+    if personas is None:
+        faltan.append("cuántas personas van a la clase")
+    if pide_veces and veces is None:
+        faltan.append("cuántas veces por semana")
     if faltan:
-        return {"error": "Faltan datos para dar el precio. Preguntale al alumno: " + ", ".join(faltan)}
+        return {"faltan": faltan,
+                "error": "Todavía no podés dar un precio. NO des ningún número. Preguntale al alumno, "
+                         "en UNA sola frase corta: " + "; ".join(faltan) + "."}
+
+    # 2 personas de mañana en día y hora de promo: el panel lo cobra como 2x1
+    if (modalidad, turno, personas) == ("particular", "manana", 2) and _en_promo(args):
+        franja, tipo_tarifa, personas, _, descripcion = PROMO_2X1
+
     if personas >= 3:
         personas = 3  # 3 y 4 personas pagan igual
 
-    if franja is None:
-        return _al_encargado("Ese tipo de clase no tiene tarifa cargada.")
     tarifas = cargar_tarifas()
     precio, nota = precio_bucket(tarifas, franja, tipo_tarifa, personas, veces)
     if precio is None:
