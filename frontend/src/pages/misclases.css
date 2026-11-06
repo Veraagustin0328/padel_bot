@@ -14,6 +14,7 @@
 
 .mc-lista { display: grid; gap: 12px; }
 .mc-vacio { color: var(--suave); padding: 24px 0; text-align: center; }
+.mc-ver-todas { align-self: center; }
 
 .mc-clase { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; }
 .mc-cabeza {
@@ -51,13 +52,8 @@
   font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif;
 }
 .mc-agregar-nota {
-  justify-self: start; background: none; border: 0; padding: 4px 0; color: var(--suave);
+  justify-self: start; background: none; border: 0; padding: 4px 0; min-height: 32px; color: var(--suave);
   font: 500 13px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
-}
-
-/* en el celu el panel tiene mucho margen: acá lo achicamos solo para esta página */
-@media (max-width: 600px) {
-  .contenido:has(.mc) { padding: 16px 12px; }
 }
 
 @media (min-width: 900px) {

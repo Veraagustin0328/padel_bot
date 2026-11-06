@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { MARCA } from "../marca.js";
 import "./misclases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
@@ -16,14 +17,16 @@ const iso = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const diaSemana = (d) => (d.getDay() + 6) % 7; // 0 = lunes, como en el backend
 
-// hoy primero y después los 6 días anteriores, para marcar lo que quedó colgado
+// hoy primero y después los 6 días anteriores, para marcar lo que quedó colgado.
+// Los días sin clases del club (ej: domingo) no se muestran.
 function ultimosDias() {
   const hoy = new Date();
+  const sinClases = MARCA.diasSinClases || [];
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - i);
     const titulo = i === 0 ? "Hoy" : i === 1 ? "Ayer" : DIAS[diaSemana(d)].slice(0, 3);
     return { fecha: iso(d), dia: diaSemana(d), titulo, numero: d.getDate() };
-  });
+  }).filter((d) => !sinClases.includes(d.dia));
 }
 
 function Clase({ clase, fecha, verProfe }) {
@@ -143,6 +146,7 @@ export default function MisClases() {
   const [elegido, setElegido] = useState(dias[0].fecha);
   const [clases, setClases] = useState(null);
   const [error, setError] = useState("");
+  const [verVacias, setVerVacias] = useState(false);
 
   useEffect(() => {
     api("/api/mis-clases")
@@ -155,6 +159,9 @@ export default function MisClases() {
 
   const dia = dias.find((d) => d.fecha === elegido);
   const delDia = (clases || []).filter((c) => c.dia === dia.dia);
+  // las clases sin alumnos anotados se esconden salvo que pidan verlas
+  const vacias = delDia.filter((c) => c.alumnos === 0).length;
+  const visibles = verVacias ? delDia : delDia.filter((c) => c.alumnos > 0);
 
   return (
     <div className="mc">
@@ -184,14 +191,25 @@ export default function MisClases() {
 
       {error && <div className="msg-error">{error}</div>}
       {clases === null && <div className="nota">Cargando…</div>}
-      {clases && !error && delDia.length === 0 && (
-        <div className="mc-vacio">{verTodas ? "No hay clases este día." : "No tenés clases este día."}</div>
+      {clases && !error && visibles.length === 0 && (
+        <div className="mc-vacio">
+          {delDia.length > 0
+            ? "No hay clases con alumnos este día."
+            : verTodas
+              ? "No hay clases este día."
+              : "No tenés clases este día."}
+        </div>
       )}
       <div className="mc-lista">
-        {delDia.map((c) => (
+        {visibles.map((c) => (
           <Clase key={c.id} clase={c} fecha={elegido} verProfe={verTodas} />
         ))}
       </div>
+      {vacias > 0 && (
+        <button className="boton claro mc-ver-todas" onClick={() => setVerVacias(!verVacias)}>
+          {verVacias ? "Ocultar las que no tienen alumnos" : `Ver todas (${vacias} sin alumnos)`}
+        </button>
+      )}
     </div>
   );
 }

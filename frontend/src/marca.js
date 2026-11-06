@@ -6,6 +6,8 @@ export const MARCA = {
   // colores: { verde: "#1e3a8a", "verde-2": "#2f55b8", pelota: "#fbbf24" }
   // Los nombres son los de las variables de styles.css, sin los dos guiones.
   colores: {},
+  // días sin clases, que no aparecen en Mis clases (0 = lunes ... 6 = domingo)
+  diasSinClases: [6],
 };
 
 // se aplican apenas carga la página

@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth.jsx";
 import { MARCA } from "./marca.js";
 import Logo from "./Logo.jsx";
@@ -14,9 +14,9 @@ import MisClases from "./pages/MisClases.jsx";
 
 const GESTION = ["admin", "encargado"];
 
-// lo que ya está hecho
+// lo que ya está hecho. El profe ve solo Mis clases (el backend igual le da 403 en lo demás)
 const MENU = [
-  { a: "/", t: "Inicio", roles: ["admin", "encargado", "profe", "jugador"] },
+  { a: "/", t: "Inicio", roles: ["admin", "encargado", "jugador"] },
   { a: "/mis-clases", t: "Mis clases", roles: ["admin", "encargado", "profe"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
@@ -30,10 +30,27 @@ const PRONTO = ["Profes y horas", "Planificación", "Agente"];
 function Layout() {
   const { usuario, salir } = useAuth();
   const esGestion = GESTION.includes(usuario.rol);
+  const [abierto, setAbierto] = useState(false);
+  const { pathname } = useLocation();
+
+  // al cambiar de página el cajón se cierra solo
+  useEffect(() => setAbierto(false), [pathname]);
+
+  // con el cajón abierto: Escape lo cierra y el fondo no scrollea
+  useEffect(() => {
+    if (!abierto) return;
+    const alTeclear = (e) => e.key === "Escape" && setAbierto(false);
+    window.addEventListener("keydown", alTeclear);
+    document.body.classList.add("sin-scroll");
+    return () => {
+      window.removeEventListener("keydown", alTeclear);
+      document.body.classList.remove("sin-scroll");
+    };
+  }, [abierto]);
 
   return (
     <div className="app">
-      <nav className="lateral" aria-label="Principal">
+      <nav id="menu" className={"lateral" + (abierto ? " abierto" : "")} aria-label="Principal">
         <div className="marca">
           <span className="logo"><Logo tam={34} /></span>
           {MARCA.nombre}
@@ -58,6 +75,19 @@ function Layout() {
           </button>
         </div>
       </nav>
+
+      {/* solo en el celu: fondo oscuro detrás del cajón y botón flotante abajo, a mano del pulgar */}
+      {abierto && <div className="velo" onClick={() => setAbierto(false)} aria-hidden="true" />}
+      <button
+        className="hamburguesa"
+        onClick={() => setAbierto(!abierto)}
+        aria-expanded={abierto}
+        aria-controls="menu"
+        aria-label={abierto ? "Cerrar menú" : "Abrir menú"}
+      >
+        {abierto ? "✕" : "☰"}
+      </button>
+
       <main className="contenido">
         <Outlet />
       </main>
@@ -70,6 +100,13 @@ function Protegida() {
   if (cargando) return <div className="cargando">Cargando…</div>;
   if (!usuario) return <Navigate to="/login" replace />;
   return <Layout />;
+}
+
+// el profe arranca directo en Mis clases
+function PaginaInicial() {
+  const { usuario } = useAuth();
+  if (usuario.rol === "profe") return <Navigate to="/mis-clases" replace />;
+  return <Inicio />;
 }
 
 function SoloGestion({ children }) {
@@ -96,7 +133,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route element={<Protegida />}>
-            <Route path="/" element={<Inicio />} />
+            <Route path="/" element={<PaginaInicial />} />
             <Route path="/mis-clases" element={<SoloRoles roles={["admin", "encargado", "profe"]}><MisClases /></SoloRoles>} />
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
