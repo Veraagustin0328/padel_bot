@@ -10,12 +10,14 @@ import Comprobantes from "./pages/Comprobantes.jsx";
 import Alumnos from "./pages/Alumnos.jsx";
 import Clases from "./pages/Clases.jsx";
 import Cuotas from "./pages/Cuotas.jsx";
+import MisClases from "./pages/MisClases.jsx";
 
 const GESTION = ["admin", "encargado"];
 
 // lo que ya está hecho
 const MENU = [
   { a: "/", t: "Inicio", roles: ["admin", "encargado", "profe", "jugador"] },
+  { a: "/mis-clases", t: "Mis clases", roles: ["admin", "encargado", "profe"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
   { a: "/cuotas", t: "Cuotas", roles: GESTION },
@@ -76,6 +78,12 @@ function SoloGestion({ children }) {
   return children;
 }
 
+function SoloRoles({ roles, children }) {
+  const { usuario } = useAuth();
+  if (!roles.includes(usuario.rol)) return <p>No tenés permiso para ver esta sección.</p>;
+  return children;
+}
+
 export default function App() {
   // el título de la pestaña sale de la marca
   useEffect(() => {
@@ -89,6 +97,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<Protegida />}>
             <Route path="/" element={<Inicio />} />
+            <Route path="/mis-clases" element={<SoloRoles roles={["admin", "encargado", "profe"]}><MisClases /></SoloRoles>} />
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
             <Route path="/cuotas" element={<SoloGestion><Cuotas /></SoloGestion>} />

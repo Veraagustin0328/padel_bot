@@ -1,0 +1,65 @@
+/* Mis clases: pensado primero para el celu en la cancha */
+.mc { display: flex; flex-direction: column; gap: 16px; }
+
+/* chips de días: hoy primero, se desliza de costado */
+.mc-dias { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+.mc-dia {
+  flex: 0 0 auto; min-width: 58px; min-height: 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px solid var(--linea); background: var(--tarjeta); color: var(--tinta);
+  border-radius: var(--radio); font: 500 12px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
+}
+.mc-dia strong { font-size: 18px; }
+.mc-dia.activo { background: var(--pelota); border-color: var(--pelota); color: #2a2c28; font-weight: 700; }
+
+.mc-lista { display: grid; gap: 12px; }
+.mc-vacio { color: var(--suave); padding: 24px 0; text-align: center; }
+
+.mc-clase { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; }
+.mc-cabeza {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; min-height: 64px;
+  background: none; border: 0; text-align: left; cursor: pointer; color: var(--tinta);
+  font: inherit;
+}
+.mc-hora {
+  flex: none; background: var(--verde); color: #fff; border-radius: 8px;
+  padding: 6px 10px; font-weight: 700; font-size: 15px;
+}
+.mc-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mc-titulo { font-weight: 700; font-size: 15px; }
+.mc-sub { color: var(--suave); font-size: 13px; }
+.mc-flecha { color: var(--suave); font-size: 12px; }
+
+.mc-cuerpo { padding: 0 16px 12px; display: grid; gap: 4px; }
+.mc-alumno { padding: 12px 0; border-top: 1px solid var(--linea); display: grid; gap: 8px; }
+.mc-nombre { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
+.mc-tag { background: #dbeafe; color: #1e40af; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.mc-guardado { margin-left: auto; color: var(--ok); font-size: 13px; }
+
+/* botones grandes, que se toquen bien con el dedo */
+.mc-botones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mc-estado {
+  min-height: 48px; border-radius: 8px; border: 1px solid #c4c8b8; background: #fff; color: var(--tinta);
+  font: 600 14px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
+}
+.mc-estado.presente.activo { background: var(--ok); border-color: var(--ok); color: #fff; }
+.mc-estado.ausente.activo { background: var(--mal); border-color: var(--mal); color: #fff; }
+.mc-estado.ausente_avisa.activo { background: #fef3c7; border-color: #d97706; color: #92400e; }
+
+.mc-nota {
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 10px; min-height: 44px; width: 100%;
+  font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif;
+}
+.mc-agregar-nota {
+  justify-self: start; background: none; border: 0; padding: 4px 0; color: var(--suave);
+  font: 500 13px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
+}
+
+/* en el celu el panel tiene mucho margen: acá lo achicamos solo para esta página */
+@media (max-width: 600px) {
+  .contenido:has(.mc) { padding: 16px 12px; }
+}
+
+@media (min-width: 900px) {
+  .mc-lista { grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); align-items: start; }
+}

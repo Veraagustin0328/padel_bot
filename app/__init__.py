@@ -36,6 +36,7 @@ def create_app():
     from app.routes.clases import clases_bp
     from app.routes.alumnos import alumnos_bp
     from app.routes.comprobantes import comprobantes_bp
+    from app.routes.asistencia import asistencia_bp
     app.register_blueprint(whatsapp_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(planes_bp)
@@ -43,6 +44,7 @@ def create_app():
     app.register_blueprint(clases_bp)
     app.register_blueprint(alumnos_bp)
     app.register_blueprint(comprobantes_bp)
+    app.register_blueprint(asistencia_bp)
 
     with app.app_context():
         from app import models
