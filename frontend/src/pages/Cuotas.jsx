@@ -8,7 +8,7 @@ const mesActual = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 const NOMBRE_CARGO = { cuota: "Cuota", inscripcion: "Inscripción", ajuste: "Ajuste" };
-const ETIQUETA = { pago: "Pagó", debe: "Debe", parcial: "Parcial" };
+const ETIQUETA = { pago: "Pagó", debe: "Debe", parcial: "Parcial", a_favor: "A favor" };
 
 function Fila({ it, mes, abierta, alAbrir, hacer }) {
   const [monto, setMonto] = useState(String(it.debe || ""));

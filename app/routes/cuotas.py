@@ -113,7 +113,9 @@ def listar():
     for it in items.values():
         it["debe"] = max(it["cuota"] - it["pagado"], 0)
         it["a_favor"] = max(it["pagado"] - it["cuota"], 0)
-        if it["cuota"] > 0 and it["debe"] == 0:
+        if it["a_favor"] > 0:
+            it["estado"] = "a_favor"  # pagó de más: no es parcial
+        elif it["cuota"] > 0 and it["debe"] == 0:
             it["estado"] = "pago"
         elif it["pagado"] > 0:
             it["estado"] = "parcial"

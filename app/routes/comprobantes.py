@@ -24,22 +24,24 @@ ENC = planilla.ENC_COMPROBANTES
 # ---------- a quién y a qué mes corresponde ----------
 
 def _indices_alumnos():
-    """Teléfono (últimos 10) -> id y nombre normalizado -> [ids], para no consultar por cada fila."""
+    """Teléfono (últimos 10) -> [ids] y nombre normalizado -> [ids], para no consultar por cada fila."""
     por_tel, por_nombre = {}, {}
     for a in Alumno.query.all():
         t = planilla._tel(a.telefono)
         if t:
-            por_tel[t] = a.id
+            por_tel.setdefault(t, []).append(a.id)  # lista: papás con varios hijos comparten tel
         por_nombre.setdefault(planilla._norm(a.nombre), []).append(a.id)
     return por_tel, por_nombre
 
 
 def _alumno_de(f, indices):
-    """Primero por teléfono; si no, por nombre exacto y solo si hay uno."""
+    """Primero por teléfono; si no, por nombre exacto y solo si hay uno.
+    Si el tel es de varios alumnos devuelvo None: que elijan a mano."""
     por_tel, por_nombre = indices
     t = planilla._tel(f.get("TELEFONO"))
     if t and t in por_tel:
-        return por_tel[t]
+        ids_tel = por_tel[t]
+        return ids_tel[0] if len(ids_tel) == 1 else None
     ids = por_nombre.get(planilla._norm(f.get("ALUMNO")), [])
     return ids[0] if len(ids) == 1 else None
 

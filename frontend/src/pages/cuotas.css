@@ -31,6 +31,7 @@
 .cu-tag.pago { background: var(--ok-fondo); color: var(--ok); }
 .cu-tag.debe { background: var(--mal-fondo); color: var(--mal); }
 .cu-tag.parcial { background: #fff3d1; color: #8a5a00; }
+.cu-tag.a_favor { background: color-mix(in srgb, var(--azul) 14%, white); color: var(--azul); }
 
 .cu-detalle { padding: 16px; background: var(--fondo); border-top: 1px solid var(--linea); display: grid; gap: 16px; }
 .cu-detalle h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--suave); }
