@@ -10,6 +10,7 @@ usuario_perfil, así la tabla usuarios no se toca.
 import os
 import re
 import logging
+import secrets
 import time
 import datetime
 import threading
@@ -38,6 +39,13 @@ VENTANA_SEGUNDOS = 60 * 60    # en una hora
 # la columna rol no acepta vacío; este valor no coincide con ningún rol real
 ROL_PENDIENTE = "pendiente"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# cambio de clave: cuántas veces puede errarle a la actual antes de frenarlo
+FALLOS_CLAVE_POR_USUARIO = 5
+VENTANA_FALLOS_SEGUNDOS = 15 * 60
+# clave que genera el reset: sin letras que se confunden (0/O, 1/l/I)
+ALFABETO_CLAVE = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+LARGO_CLAVE_RESET = 12
 
 
 def _secreto():
@@ -204,3 +212,94 @@ def registro():
         log.exception("No pude avisar la solicitud de %s", email)
 
     return jsonify({"ok": True, "mensaje": "Listo, tu solicitud quedó pendiente de aprobación"}), 201
+
+
+# ---------- cambio y reset de contraseña ----------
+
+# mismo esquema que el registro: en memoria, se resetea si reinicia el proceso
+_fallos_clave = {}
+
+
+def _bloqueado_por_fallos(usuario_id):
+    ahora = time.monotonic()
+    with _candado:
+        cola = _fallos_clave.get(usuario_id)
+        if not cola:
+            return False
+        while cola and ahora - cola[0] > VENTANA_FALLOS_SEGUNDOS:
+            cola.popleft()
+        if not cola:
+            del _fallos_clave[usuario_id]
+            return False
+        return len(cola) >= FALLOS_CLAVE_POR_USUARIO
+
+
+def _anotar_fallo(usuario_id):
+    with _candado:
+        _fallos_clave.setdefault(usuario_id, deque()).append(time.monotonic())
+
+
+def _validar_clave_nueva(clave):
+    """Devuelve el texto del error o None si está bien."""
+    if len(clave) < CLAVE_MINIMA:
+        return f"La contraseña nueva tiene que tener al menos {CLAVE_MINIMA} caracteres"
+    if len(clave) > 200:
+        return "La contraseña es demasiado larga"
+    return None
+
+
+@auth_bp.post("/api/auth/cambiar-password")
+@requiere_login()
+def cambiar_password():
+    u = g.usuario
+    if _bloqueado_por_fallos(u.id):
+        return jsonify({"error": "Demasiados intentos, probá de nuevo en un rato"}), 429
+
+    datos = request.get_json(silent=True) or {}
+    actual = datos.get("actual") or ""
+    nueva = datos.get("nueva") or ""
+
+    # 400 y no 401: el panel cierra la sesión con cualquier 401
+    if not actual or not check_password_hash(u.password_hash, actual):
+        _anotar_fallo(u.id)
+        return jsonify({"error": "La contraseña actual no es correcta"}), 400
+
+    error = _validar_clave_nueva(nueva)
+    if error:
+        return jsonify({"error": error}), 400
+    if nueva == actual:
+        return jsonify({"error": "La contraseña nueva tiene que ser distinta a la actual"}), 400
+
+    u.password_hash = generate_password_hash(nueva)
+    db.session.commit()
+    with _candado:
+        _fallos_clave.pop(u.id, None)
+    return jsonify({"ok": True, "mensaje": "Listo, cambiaste tu contraseña"})
+
+
+@auth_bp.get("/api/auth/usuarios")
+@requiere_login("admin")
+def listar_usuarios():
+    """Para la pantalla de Usuarios: los que ya tienen rol (sin solicitudes pendientes)."""
+    filas = (Usuario.query.filter(Usuario.rol != ROL_PENDIENTE)
+             .order_by(Usuario.nombre).all())
+    return jsonify([{**_usuario_json(u), "activo": bool(u.activo)} for u in filas])
+
+
+@auth_bp.post("/api/auth/usuarios/<int:id_>/resetear-password")
+@requiere_login("admin")
+def resetear_password(id_):
+    u = db.session.get(Usuario, id_)
+    if not u or u.rol == ROL_PENDIENTE:
+        return jsonify({"error": "No encontré ese usuario"}), 404
+    if u.id == g.usuario.id:
+        return jsonify({"error": "Para tu propia cuenta usá Cambiar contraseña"}), 400
+
+    clave = "".join(secrets.choice(ALFABETO_CLAVE) for _ in range(LARGO_CLAVE_RESET))
+    u.password_hash = generate_password_hash(clave)
+    db.session.commit()
+    with _candado:
+        _fallos_clave.pop(u.id, None)
+    log.info("El admin %s reseteó la contraseña del usuario %s", g.usuario.id, u.id)
+    # se devuelve una sola vez; no queda guardada en ningún lado
+    return jsonify({"ok": True, "id": u.id, "password": clave})

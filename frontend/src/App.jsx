@@ -15,6 +15,8 @@ import Clases from "./pages/Clases.jsx";
 import Cuotas from "./pages/Cuotas.jsx";
 import MisClases from "./pages/MisClases.jsx";
 import Novedades from "./pages/Novedades.jsx";
+import CambiarPassword from "./pages/CambiarPassword.jsx";
+import Usuarios from "./pages/Usuarios.jsx";
 
 const GESTION = ["admin", "encargado"];
 
@@ -29,6 +31,7 @@ const MENU = [
   { a: "/planes", t: "Planes y precios", roles: GESTION },
   { a: "/novedades", t: "Novedades", roles: GESTION },
   { a: "/solicitudes", t: "Solicitudes", roles: ["admin"] },
+  { a: "/usuarios", t: "Usuarios", roles: ["admin"] },
 ];
 // lo que viene (se ve apagado para que Gabi sepa que está en camino)
 const PRONTO = ["Profes y horas", "Planificación", "Agente"];
@@ -89,9 +92,15 @@ function Layout() {
         <div className="usuario">
           <div className="usuario-nombre">{usuario.nombre}</div>
           <div className="usuario-rol">{usuario.rol}</div>
-          <button className="boton chico claro" onClick={salir}>
-            Salir
-          </button>
+          <div className="botones">
+            {/* es un link: al navegar el cajón del celu se cierra solo */}
+            <NavLink to="/cambiar-password" className="boton chico claro">
+              Cambiar contraseña
+            </NavLink>
+            <button className="boton chico claro" onClick={salir}>
+              Salir
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -162,6 +171,8 @@ export default function App() {
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
             <Route path="/novedades" element={<SoloGestion><Novedades /></SoloGestion>} />
             <Route path="/solicitudes" element={<SoloRoles roles={["admin"]}><Solicitudes /></SoloRoles>} />
+            <Route path="/usuarios" element={<SoloRoles roles={["admin"]}><Usuarios /></SoloRoles>} />
+            <Route path="/cambiar-password" element={<CambiarPassword />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

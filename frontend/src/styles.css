@@ -154,3 +154,11 @@ body.sin-scroll { overflow: hidden; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .item.activo .contador { background: #2a2c28; color: var(--pelota); }
+
+/* ---- contraseña y usuarios ---- */
+.usuario .botones { margin-top: 0; }
+.form-clave { max-width: 420px; display: flex; flex-direction: column; gap: 16px; }
+.clave-nueva { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.clave-nueva code { font-size: 18px; font-weight: 700; letter-spacing: 1px; user-select: all; }
+.usuario-fila { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+a.boton { display: inline-flex; align-items: center; text-decoration: none; }
