@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { MARCA } from "../marca.js";
 import "./misclases.css";
+import { NovedadesVigentes } from "./Novedades.jsx";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const ESTADOS = [
@@ -177,6 +178,9 @@ export default function MisClases() {
           </div>
         </div>
       </div>
+
+      {/* el profe no pasa por el Inicio, así que las novedades las ve acá */}
+      {usuario.rol === "profe" && <NovedadesVigentes />}
 
       <div className="mc-dias" role="tablist">
         {dias.map((d) => (

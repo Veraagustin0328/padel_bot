@@ -14,18 +14,20 @@ import Alumnos from "./pages/Alumnos.jsx";
 import Clases from "./pages/Clases.jsx";
 import Cuotas from "./pages/Cuotas.jsx";
 import MisClases from "./pages/MisClases.jsx";
+import Novedades from "./pages/Novedades.jsx";
 
 const GESTION = ["admin", "encargado"];
 
 // lo que ya está hecho. El profe ve solo Mis clases (el backend igual le da 403 en lo demás)
 const MENU = [
-  { a: "/", t: "Inicio", roles: ["admin", "encargado", "jugador"] },
+  { a: "/", t: "Inicio", roles: ["admin", "encargado", "jugador", "tutor"] },
   { a: "/mis-clases", t: "Mis clases", roles: ["admin", "encargado", "profe"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
   { a: "/cuotas", t: "Cuotas", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
+  { a: "/novedades", t: "Novedades", roles: GESTION },
   { a: "/solicitudes", t: "Solicitudes", roles: ["admin"] },
 ];
 // lo que viene (se ve apagado para que Gabi sepa que está en camino)
@@ -158,6 +160,7 @@ export default function App() {
             <Route path="/cuotas" element={<SoloGestion><Cuotas /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
+            <Route path="/novedades" element={<SoloGestion><Novedades /></SoloGestion>} />
             <Route path="/solicitudes" element={<SoloRoles roles={["admin"]}><Solicitudes /></SoloRoles>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

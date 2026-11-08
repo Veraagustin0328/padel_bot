@@ -1,5 +1,6 @@
 import { useAuth } from "../auth.jsx";
 import { MARCA } from "../marca.js";
+import { NovedadesVigentes } from "./Novedades.jsx";
 
 export default function Inicio() {
   const { usuario } = useAuth();
@@ -11,6 +12,8 @@ export default function Inicio() {
           <div className="sub">Bienvenido al panel de {MARCA.nombre}</div>
         </div>
       </div>
+      {/* si no hay vigentes no aparece nada */}
+      <NovedadesVigentes />
       <section className="tarjeta">
         <h2>Lo que ya funciona</h2>
         <p className="nota">

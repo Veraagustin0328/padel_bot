@@ -1,0 +1,30 @@
+/* novedades: primero celu, en pantalla grande se acomoda solo */
+.nov { display: flex; flex-direction: column; gap: 16px; }
+.nov-form { display: flex; flex-direction: column; gap: 12px; }
+.nov-form textarea {
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 10px; width: 100%; resize: vertical;
+  font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif;
+}
+.nov-form .botones { margin-top: 4px; }
+.nov-form .boton { width: 100%; }
+.nov-par { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+.nov-lista { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.nov-item { border: 1px solid var(--linea); border-left: 4px solid var(--suave); border-radius: 8px; padding: 12px 14px; }
+.nov-item.tipo-evento { border-left-color: var(--azul); }
+.nov-item.tipo-promo { border-left-color: var(--pelota); }
+.nov-item.tipo-importante { border-left-color: var(--mal); }
+.nov-item.vencida { opacity: 0.6; }
+.nov-arriba { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nov-arriba strong { overflow-wrap: anywhere; }
+.nov-tipo {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  background: var(--fondo); color: var(--suave); border-radius: 6px; padding: 2px 8px;
+}
+.nov-texto { margin: 6px 0; white-space: pre-line; overflow-wrap: anywhere; }
+.nov-pie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+
+@media (min-width: 821px) {
+  .nov-par { grid-template-columns: 1fr 1fr; }
+  .nov-form .boton { width: auto; }
+}

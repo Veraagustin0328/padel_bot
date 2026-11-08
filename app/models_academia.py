@@ -229,3 +229,20 @@ class Auditoria(db.Model):
     despues = db.Column(db.Text, nullable=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     en = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+# ---------- novedades del panel ----------
+
+TIPOS_NOVEDAD = ("aviso", "evento", "promo", "importante")
+
+
+class Novedad(db.Model):
+    """Novedad que se ve en el Inicio. Las vencidas no se muestran, pero quedan en la base."""
+    __tablename__ = "novedades"
+
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(120), nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    tipo = db.Column(db.String(20), nullable=False, default="aviso")
+    publicada_desde = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    visible_hasta = db.Column(db.Date, nullable=True, index=True)  # inclusive; vacío = sin vencimiento
+    creada_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
