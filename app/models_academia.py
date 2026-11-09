@@ -158,7 +158,26 @@ class Ausencia(db.Model):
     fecha = db.Column(db.Date, nullable=False, index=True)
     origen = db.Column(db.String(12), nullable=False)             # alumno / profe / encargado / agente
     motivo = db.Column(db.String(255), nullable=True)
+    avisada_en = db.Column(db.DateTime, nullable=True)            # cuándo avisó (UTC); vacío = la marcó el profe
+    a_tiempo = db.Column(db.Boolean, nullable=True)               # avisó con la anticipación de la regla
     creada_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class AusenciaLapso(db.Model):
+    """Alumno que no viene un rango de fechas (viaje). Si hay reemplazo, ocupa su lugar solo en ese rango."""
+    __tablename__ = "ausencias_lapso"
+
+    id = db.Column(db.Integer, primary_key=True)
+    alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id"), nullable=False, index=True)
+    clase_id = db.Column(db.Integer, db.ForeignKey("clases.id"), nullable=True)   # vacío = todas sus clases
+    desde = db.Column(db.Date, nullable=False, index=True)
+    hasta = db.Column(db.Date, nullable=False, index=True)        # inclusive
+    motivo = db.Column(db.String(255), nullable=True)
+    reemplazo_alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id"), nullable=True)
+    estado = db.Column(db.String(12), nullable=False, default="confirmado")  # confirmado / pendiente / cancelado
+    origen = db.Column(db.String(12), nullable=False, default="encargado")   # encargado / agente
+    creado_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class RecuperacionClase(db.Model):

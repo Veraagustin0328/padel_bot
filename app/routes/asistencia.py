@@ -10,6 +10,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from app import models_academia as m
+from app import recuperaciones
 from app.extensions import db
 from app.models import Alumno
 from app.models_plataforma import Profesor
@@ -215,4 +216,6 @@ def _guardar(clase, fecha, alumno_id, estado, datos):
     if not ya_marcado:
         db.session.add(fila)
     db.session.flush()
+    # 'Avisó' / 'Ausente' deja la falta cargada para recuperar (solo alumnos fijos)
+    recuperaciones.sincronizar_asistencia(clase, fecha, alumno_id, estado)
     return jsonify({"ok": True, "alumno_id": alumno_id, "estado": fila.estado, "nota": fila.nota or ""})
