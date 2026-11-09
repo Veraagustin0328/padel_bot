@@ -1,0 +1,63 @@
+/* faltas y recuperaciones: primero celu */
+.fr { display: flex; flex-direction: column; gap: 16px; }
+.fr-col { display: flex; flex-direction: column; gap: 10px; }
+
+/* solapas que se deslizan de costado si no entran */
+.fr-solapas { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+.fr-solapa {
+  flex: 0 0 auto; min-height: 44px; padding: 8px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--linea); background: var(--tarjeta); color: var(--tinta);
+  font: 600 14px "Plus Jakarta Sans", system-ui, sans-serif;
+}
+.fr-solapa.activo { background: var(--pelota); border-color: var(--pelota); color: #2a2c28; font-weight: 700; }
+
+.fr-titulo { font-size: 16px; margin: 8px 0 0; }
+.fr-vacio { color: var(--suave); padding: 24px 0; text-align: center; }
+
+.fr-item {
+  background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere;
+}
+.fr-arriba { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
+.fr-arriba strong { font-size: 15px; }
+.fr-motivo { background: #fef3c7; color: #92400e; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 4px; }
+.fr-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.fr-acciones .boton { min-height: 44px; }
+.fr-acciones .boton:only-child { grid-column: 1 / -1; }
+
+.fr-chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.fr-chip.pendiente { background: #fef3c7; color: #92400e; }
+.fr-chip.a-tiempo { background: var(--ok-fondo); color: var(--ok); }
+.fr-chip.tarde { background: var(--mal-fondo); color: var(--mal); }
+.fr-chip.recuperada { background: #dbeafe; color: #1e40af; }
+
+.fr-mes { max-width: 220px; }
+.fr-resumen { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--suave); font-size: 13px; }
+.fr-resumen b { color: var(--tinta); font-size: 15px; }
+
+.fr-form { display: flex; flex-direction: column; gap: 12px; }
+.fr-form h2 { margin: 0; }
+.fr-form .botones { margin-top: 4px; }
+.fr-form .boton { width: 100%; }
+.fr-par { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+.fr-buscar { position: relative; }
+.fr-opciones {
+  list-style: none; margin: 4px 0 0; padding: 4px; position: absolute; left: 0; right: 0; z-index: 5;
+  background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, .08);
+}
+.fr-opciones button {
+  width: 100%; text-align: left; min-height: 44px; padding: 8px 10px; border: 0; background: none; border-radius: 6px;
+  font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif; color: var(--tinta); cursor: pointer;
+}
+.fr-opciones button:hover { background: var(--fondo); }
+.fr-elegido {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px;
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 4px 4px 4px 10px;
+}
+
+@media (min-width: 821px) {
+  .fr-par { grid-template-columns: 1fr 1fr; }
+  .fr-form .boton { width: auto; }
+  .fr-acciones { display: flex; }
+}

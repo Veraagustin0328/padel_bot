@@ -17,8 +17,18 @@ const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Parti
 const iso = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const diaSemana = (d) => (d.getDay() + 6) % 7; // 0 = lunes, como en el backend
-// los que recuperan en esa clase esa fecha
-const recuperanEn = (clase, fecha) => (clase.recuperan && clase.recuperan[fecha]) || 0;
+const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+// etiqueta de la lista del día -> clase de color
+const TAGS = { recupera: "", reemplaza: "", "avisó": " aviso", "de viaje": " viaje" };
+
+// resumen de la clase ese día: el número ya viene con faltas, viajes, reemplazos y recuperaciones
+function resumen(c) {
+  const extra = [];
+  if (c.recuperan) extra.push(plural(c.recuperan, "recupera", "recuperan"));
+  if (c.reemplazos) extra.push(plural(c.reemplazos, "reemplazo", "reemplazos"));
+  if (c.no_vienen) extra.push(plural(c.no_vienen, "no viene", "no vienen"));
+  return [plural(c.alumnos, "alumno", "alumnos"), ...extra].join(" · ");
+}
 
 // hoy primero y después los 6 días anteriores, para marcar lo que quedó colgado.
 // Los días sin clases del club (ej: domingo) no se muestran.
@@ -90,8 +100,7 @@ function Clase({ clase, fecha, verProfe }) {
             {verProfe && clase.profe ? `${clase.profe} · ` : ""}
             {datos
               ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
-              : `${clase.alumnos} ${clase.alumnos === 1 ? "alumno" : "alumnos"}` +
-                (recuperanEn(clase, fecha) ? ` + ${recuperanEn(clase, fecha)} recupera${recuperanEn(clase, fecha) === 1 ? "" : "n"}` : "")}
+              : resumen(clase)}
           </span>
         </span>
         <span className="mc-flecha">{abierta ? "▲" : "▼"}</span>
@@ -103,10 +112,10 @@ function Clase({ clase, fecha, verProfe }) {
           {!datos && !error && <div className="nota">Cargando…</div>}
           {datos && datos.alumnos.length === 0 && <div className="nota">No hay alumnos anotados ese día.</div>}
           {datos?.alumnos.map((a) => (
-            <div key={a.id} className="mc-alumno">
+            <div key={a.id} className={"mc-alumno" + (a.viene === false ? " no-viene" : "")}>
               <div className="mc-nombre">
                 <span>{a.nombre}</span>
-                {a.recupera && <span className="mc-tag">recupera</span>}
+                {a.etiqueta && <span className={"mc-tag" + (TAGS[a.etiqueta] || "")}>{a.etiqueta}</span>}
                 <span className="mc-guardado">{guardando[a.id]}</span>
               </div>
               <div className="mc-botones">
@@ -152,19 +161,27 @@ export default function MisClases() {
   const [error, setError] = useState("");
   const [verVacias, setVerVacias] = useState(false);
 
+  // el conteo depende del día, así que se pide de nuevo al cambiar de chip
   useEffect(() => {
-    api("/api/mis-clases")
-      .then((d) => setClases(d.clases))
+    let vigente = true;
+    setClases(null);
+    setError("");
+    api(`/api/mis-clases?fecha=${elegido}`)
+      .then((d) => vigente && setClases(d.clases))
       .catch((e) => {
+        if (!vigente) return;
         setError(e.message);
         setClases([]);
       });
-  }, []);
+    return () => {
+      vigente = false;
+    };
+  }, [elegido]);
 
   const dia = dias.find((d) => d.fecha === elegido);
   const delDia = (clases || []).filter((c) => c.dia === dia.dia);
-  // se esconden las que no tienen nadie ese día (ni fijos ni recuperando), salvo que pidan verlas
-  const conGente = (c) => c.alumnos + recuperanEn(c, elegido) > 0;
+  // se esconden las que no tienen nadie ese día, salvo que pidan verlas
+  const conGente = (c) => c.alumnos > 0;
   const vacias = delDia.filter((c) => !conGente(c)).length;
   const visibles = verVacias ? delDia : delDia.filter(conGente);
 

@@ -35,6 +35,9 @@
 .mc-alumno { padding: 12px 0; border-top: 1px solid var(--linea); display: grid; gap: 8px; }
 .mc-nombre { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
 .mc-tag { background: #dbeafe; color: #1e40af; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.mc-tag.aviso { background: #fef3c7; color: #92400e; }
+.mc-tag.viaje { background: var(--fondo); color: var(--suave); border: 1px solid var(--linea); }
+.mc-alumno.no-viene .mc-nombre > span:first-child { color: var(--suave); }
 .mc-guardado { margin-left: auto; color: var(--ok); font-size: 13px; }
 
 /* botones grandes, que se toquen bien con el dedo */

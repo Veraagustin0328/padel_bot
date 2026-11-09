@@ -6,7 +6,6 @@ un alumno deja registrada la clase de ese día.
 from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from app import models_academia as m
@@ -66,21 +65,11 @@ def _leer_fecha(texto, clase):
 
 
 def _alumnos_del_dia(clase, fecha):
-    """Anotados ese día + los que recuperan ahí. {alumno_id: recupera}"""
-    ids = {}
-    anotados = db.session.query(m.Inscripcion.alumno_id).filter(
-        m.Inscripcion.clase_id == clase.id,
-        m.Inscripcion.desde <= fecha,
-        or_(m.Inscripcion.hasta.is_(None), m.Inscripcion.hasta > fecha),
-    )
-    for (aid,) in anotados:
-        ids[aid] = False
-    recuperan = db.session.query(m.RecuperacionClase.alumno_id).filter_by(
-        clase_id=clase.id, fecha=fecha, estado="confirmada"
-    )
-    for (aid,) in recuperan:
-        ids.setdefault(aid, True)
-    return ids
+    """Todos los que tienen que ver con la clase ese día, con su etiqueta:
+    fijo / reemplazo / recupera (vienen) y viaje / falta (fijos que no vienen).
+    Los que no vienen igual se listan, por si aparecen."""
+    vienen, no_vienen = recuperaciones.alumnos_del_dia(clase, fecha)
+    return {**no_vienen, **vienen}
 
 
 def _dictada(clase, fecha):
@@ -101,36 +90,35 @@ def mis_clases():
     if g.usuario.rol not in GESTION:
         consulta = consulta.filter(m.Clase.profesor_id == g.usuario.profesor_id)
 
-    cuentas = {}
-    for (cid,) in db.session.query(m.Inscripcion.clase_id).filter(m.Inscripcion.hasta.is_(None)):
-        cuentas[cid] = cuentas.get(cid, 0) + 1
-
-    # recuperaciones confirmadas de la última semana (lo que muestra el panel), por clase y fecha
+    # el conteo es por fecha: fijos - faltas - viajes + reemplazos + recuperaciones
     hoy = _hoy()
-    recuperan = {}
-    filas = db.session.query(m.RecuperacionClase.clase_id, m.RecuperacionClase.fecha).filter(
-        m.RecuperacionClase.estado == "confirmada",
-        m.RecuperacionClase.fecha >= hoy - timedelta(days=6),
-        m.RecuperacionClase.fecha <= hoy,
-    )
-    for cid, fecha in filas:
-        dia = recuperan.setdefault(cid, {})
-        dia[fecha.isoformat()] = dia.get(fecha.isoformat(), 0) + 1
+    texto = request.args.get("fecha")
+    try:
+        fecha = date.fromisoformat(texto) if texto else hoy
+    except ValueError:
+        return jsonify({"error": "La fecha tiene que ser AAAA-MM-DD"}), 400
+    consulta = consulta.filter(m.Clase.dia_semana == fecha.weekday())
 
-    salida = [{
-        "id": c.id,
-        "dia": c.dia_semana,
-        "hora": c.hora_inicio.strftime("%H:%M"),
-        "duracion": c.duracion_min,
-        "profe": profe or "",
-        "tipo": c.tipo,
-        "nivel": c.nivel or "",
-        "ambito": c.ambito,
-        "alumnos": cuentas.get(c.id, 0),
-        "recuperan": recuperan.get(c.id, {}),
-    } for c, profe in consulta]
+    salida = []
+    for c, profe in consulta:
+        vienen, no_vienen = recuperaciones.alumnos_del_dia(c, fecha)
+        etiquetas = list(vienen.values())
+        salida.append({
+            "id": c.id,
+            "dia": c.dia_semana,
+            "hora": c.hora_inicio.strftime("%H:%M"),
+            "duracion": c.duracion_min,
+            "profe": profe or "",
+            "tipo": c.tipo,
+            "nivel": c.nivel or "",
+            "ambito": c.ambito,
+            "alumnos": len(vienen),
+            "recuperan": etiquetas.count("recupera"),
+            "reemplazos": etiquetas.count("reemplazo"),
+            "no_vienen": len(no_vienen),
+        })
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
-    return jsonify({"hoy": hoy.isoformat(), "clases": salida})
+    return jsonify({"hoy": hoy.isoformat(), "fecha": fecha.isoformat(), "clases": salida})
 
 
 @asistencia_bp.get("/api/mis-clases/<int:clase_id>/asistencia")
@@ -149,17 +137,29 @@ def ver_asistencia(clase_id):
     if dictada:
         for a in m.Asistencia.query.filter_by(clase_dictada_id=dictada.id):
             marcas[a.alumno_id] = a
-            ids.setdefault(a.alumno_id, False)  # por si lo sacaron de la clase después
+            ids.setdefault(a.alumno_id, "fijo")  # por si lo sacaron de la clase después
+
+    # "avisó" solo si avisó de verdad: la falta que puso el profe como 'Ausente' no cuenta
+    avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=clase.id, fecha=fecha)}
+
+    def etiqueta(aid, tipo):
+        if tipo == "falta":
+            aus = avisos.get(aid)
+            return "avisó" if aus and (aus.origen != "profe" or aus.a_tiempo) else None
+        return {"recupera": "recupera", "reemplazo": "reemplaza", "viaje": "de viaje"}.get(tipo)
 
     nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(Alumno.id.in_(ids)).all()) if ids else {}
     alumnos = [{
         "id": aid,
         "nombre": nombres.get(aid, "?"),
-        "recupera": recupera,
+        "recupera": tipo == "recupera",
+        "viene": tipo not in ("viaje", "falta"),
+        "etiqueta": etiqueta(aid, tipo),
         "estado": marcas[aid].estado if aid in marcas else None,
         "nota": (marcas[aid].nota or "") if aid in marcas else "",
-    } for aid, recupera in ids.items()]
-    alumnos.sort(key=lambda x: x["nombre"].lower())
+    } for aid, tipo in ids.items()]
+    # primero los que vienen, después los que avisaron o están de viaje
+    alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
     return jsonify({"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos})
 
 

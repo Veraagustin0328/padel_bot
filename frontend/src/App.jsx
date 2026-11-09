@@ -15,6 +15,7 @@ import Clases from "./pages/Clases.jsx";
 import Cuotas from "./pages/Cuotas.jsx";
 import MisClases from "./pages/MisClases.jsx";
 import Novedades from "./pages/Novedades.jsx";
+import FaltasRecuperaciones from "./pages/FaltasRecuperaciones.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
 
@@ -26,6 +27,7 @@ const MENU = [
   { a: "/mis-clases", t: "Mis clases", roles: ["admin", "encargado", "profe"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
+  { a: "/faltas", t: "Faltas y recuperaciones", roles: GESTION },
   { a: "/cuotas", t: "Cuotas", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
@@ -166,6 +168,7 @@ export default function App() {
             <Route path="/mis-clases" element={<SoloRoles roles={["admin", "encargado", "profe"]}><MisClases /></SoloRoles>} />
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
+            <Route path="/faltas" element={<SoloGestion><FaltasRecuperaciones /></SoloGestion>} />
             <Route path="/cuotas" element={<SoloGestion><Cuotas /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
