@@ -1,16 +1,39 @@
 /* Mis clases: pensado primero para el celu en la cancha */
 .mc { display: flex; flex-direction: column; gap: 16px; }
 
-/* chips de días: hoy primero, se desliza de costado */
-.mc-dias { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+/* semana: flechas a los costados y los días de lunes a sábado.
+   6 botones angostos entran a 375px; si en algún celu no entran, scrollea de costado */
+.mc-semana { display: flex; align-items: flex-end; gap: 4px; max-width: 560px; }
+.mc-semana-centro { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mc-rango { text-align: center; color: var(--suave); font-size: 13px; font-weight: 600; }
+.mc-flecha-semana {
+  flex: none; width: 36px; min-height: 56px; border: 1px solid var(--linea); background: var(--tarjeta);
+  color: var(--tinta); border-radius: var(--radio); font-size: 22px; line-height: 1; cursor: pointer;
+}
+.mc-flecha-semana:disabled { opacity: .35; cursor: default; }
+.mc-dias {
+  position: relative; /* para centrar el elegido con offsetLeft */
+  display: grid; grid-template-columns: repeat(var(--n, 6), minmax(38px, 1fr)); gap: 4px;
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.mc-dias::-webkit-scrollbar { display: none; }
 .mc-dia {
-  flex: 0 0 auto; min-width: 58px; min-height: 56px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-width: 0; min-height: 56px; padding: 4px 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   border: 1px solid var(--linea); background: var(--tarjeta); color: var(--tinta);
   border-radius: var(--radio); font: 500 12px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
 }
-.mc-dia strong { font-size: 18px; }
-.mc-dia.activo { background: var(--pelota); border-color: var(--pelota); color: #2a2c28; font-weight: 700; }
+.mc-dia strong { font-size: 18px; line-height: 1.1; }
+.mc-dia.futuro { color: var(--suave); border-style: dashed; }
+.mc-dia.activo { background: var(--pelota); border-color: var(--pelota); border-style: solid; color: #2a2c28; font-weight: 700; }
+.mc-hoy {
+  font-style: normal; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  background: var(--verde); color: #fff; border-radius: 999px; padding: 0 5px; line-height: 14px;
+}
+.mc-aviso-futuro {
+  background: #fef3c7; color: #92400e; border-radius: var(--radio); padding: 10px 12px; font-size: 14px;
+}
+.mc-estado:disabled, .mc-nota:disabled { opacity: .5; cursor: not-allowed; }
 
 .mc-lista { display: grid; gap: 12px; }
 .mc-vacio { color: var(--suave); padding: 24px 0; text-align: center; }

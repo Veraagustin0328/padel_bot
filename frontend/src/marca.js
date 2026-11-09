@@ -8,6 +8,8 @@ export const MARCA = {
   colores: {},
   // días sin clases, que no aparecen en Mis clases (0 = lunes ... 6 = domingo)
   diasSinClases: [6],
+  // para saber qué día es "hoy" en la academia; tiene que coincidir con ZONA_HORARIA del backend
+  zonaHoraria: import.meta.env.VITE_ZONA_HORARIA || "America/Argentina/Buenos_Aires",
 };
 
 // se aplican apenas carga la página
