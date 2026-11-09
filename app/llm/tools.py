@@ -138,15 +138,68 @@ _TOOLS_BASE = [
     {
         "type": "function",
         "function": {
-            "name": "reprogramar_clase",
-            "description": "Reprograma (recupera) una clase del alumno a otro día y horario. Solo 1 recuperación por mes.",
+            "name": "avisar_ausencia",
+            "description": (
+                "Anota que el alumno que escribe NO va a ir a su clase un día (ej. 'el jueves no voy'). "
+                "El alumno sale del número de WhatsApp. La primera vez te devuelve la fecha completa: "
+                "preguntale si es esa y, cuando diga que sí, volvé a llamarla con confirmado=true. "
+                "Contale solo lo que dice 'decile'."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "dia_nuevo": {"type": "string"},
-                    "horario_nuevo": {"type": "string"},
+                    "fecha": {"type": "string", "description": "El día tal cual lo dijo el alumno (ej. 'jueves', 'mañana', '12/11')."},
+                    "horario": {"type": "string", "description": "Opcional. Hora de la clase, SOLO si la tool te la pidió."},
+                    "motivo": {"type": "string", "description": "Opcional. Por qué no va, si lo dijo."},
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
+                    "confirmado": {"type": "boolean", "description": "true SOLO si el alumno ya confirmó la fecha completa que te dio la tool."},
                 },
-                "required": ["dia_nuevo", "horario_nuevo"],
+                "required": ["fecha"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pedir_recuperacion",
+            "description": (
+                "Pide recuperar (o reprogramar) una clase en otro día y horario. Si cumple las reglas "
+                "queda confirmada; si no, queda pendiente y la decide el encargado. La primera vez te "
+                "devuelve la fecha completa para confirmar: cuando el alumno diga que sí, volvé a "
+                "llamarla con confirmado=true. Solo decí 'confirmada' si la tool devolvió status 'confirmada'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dia": {"type": "string", "description": "Día en que quiere recuperar, tal cual lo dijo (ej. 'miércoles' o '18/11')."},
+                    "horario": {"type": "string", "description": "Hora de la clase donde quiere recuperar (ej. '18' o '18:30')."},
+                    "clase_id": {"type": "integer", "description": "Opcional. Solo si la tool te dio opciones con clase_id."},
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
+                    "confirmado": {"type": "boolean", "description": "true SOLO si el alumno ya confirmó la fecha completa que te dio la tool."},
+                },
+                "required": ["dia", "horario"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "avisar_viaje",
+            "description": (
+                "Anota que el alumno se va de viaje y no viene entre dos fechas. Queda pendiente hasta "
+                "que el encargado lo confirme. La primera vez te devuelve las fechas completas para "
+                "confirmar: cuando el alumno diga que sí, volvé a llamarla con confirmado=true."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "desde": {"type": "string", "description": "Primer día que no viene, tal cual lo dijo (ej. '20/11' o 'lunes')."},
+                    "hasta": {"type": "string", "description": "Último día que no viene, tal cual lo dijo."},
+                    "motivo": {"type": "string", "description": "Opcional, si lo dijo."},
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
+                    "confirmado": {"type": "boolean", "description": "true SOLO si el alumno ya confirmó las fechas completas que te dio la tool."},
+                },
+                "required": ["desde", "hasta"],
             },
         },
     },

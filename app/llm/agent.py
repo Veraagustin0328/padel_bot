@@ -1,19 +1,20 @@
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from sqlalchemy.exc import IntegrityError
 from app.extensions import db
 from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
 from app import planilla
+from app import recuperaciones as rec
 from app.cuotas import (
     DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
 )
-from app.models_academia import Clase, ConfigAcademia, Inscripcion
+from app.models_academia import AusenciaLapso, Clase, ConfigAcademia, Inscripcion, RecuperacionClase
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
     Grupo, ClaseSuelta, Conversacion, Alumno,
-    CambioPendiente, Recuperacion, Notificacion, EstadoChat,
+    CambioPendiente, Notificacion, EstadoChat,
 )
 
 MAX_HISTORIAL = 10
@@ -94,11 +95,21 @@ TIPOS_VIEJOS = {
 _TURNOS = {"manana": "manana", "mananas": "manana", "tarde": "tarde", "tardes": "tarde",
            "sabado": "sabado", "sabados": "sabado"}
 
-POLITICAS = (
-    "Las clases se pagan por mes adelantado. Hay que avisar con al menos 24 hs "
-    "de anticipación si no se puede ir, si no se pierde la clase. Se puede "
-    "recuperar 1 clase por mes."
-)
+def _politicas() -> str:
+    """Las reglas salen de ConfigAcademia: cada club pone las suyas."""
+    horas = rec.regla("aviso_horas") or 0
+    tope = int(rec.regla("max_recuperaciones_mes") or 0)
+    mismo_mes = rec.regla("recupera_mismo_mes")
+    texto = "Las clases se pagan por mes adelantado. "
+    if horas:
+        texto += (f"Si no se puede ir, hay que avisar con al menos {horas} hs de anticipación; "
+                  "si no, la clase no se puede recuperar. ")
+    if tope:
+        texto += f"Se puede recuperar hasta {tope} clase{'s' if tope > 1 else ''} por mes"
+    else:
+        texto += "Las clases avisadas a tiempo se pueden recuperar"
+    texto += ", dentro del mismo mes de la falta." if mismo_mes else "."
+    return texto
 
 # ---------------------------------------------------------------- prompts
 PROMPT_ALUMNO_PARTE_1 = (
@@ -217,9 +228,18 @@ PROMPT_ALUMNO_PARTE_2 = (
     "- Si el alumno quiere dejar la academia, preguntale el motivo (horario, "
     "lesión u otro) con buena onda antes de usar dar_de_baja, y despedite "
     "dejando la puerta abierta.\n"
-    "- Si pide reprogramar o recuperar una clase, preguntale a qué día y horario "
-    "y usá reprogramar_clase. Tiene derecho a 1 recuperación por mes; si la tool "
-    "dice que ya la usó, contale con buena onda, sin prometer excepciones.\n"
+    "- Si avisa que no va a una clase ('el jueves no voy'), usá avisar_ausencia con la "
+    "fecha tal cual la dijo. Si pide recuperar o reprogramar una clase, preguntale qué día "
+    "y horario le queda bien y usá pedir_recuperacion. Si cuenta que se va de viaje, "
+    "preguntale desde qué día hasta qué día y usá avisar_viaje.\n"
+    "- Esas tres tools primero te devuelven la fecha completa para confirmar: preguntale "
+    "si es esa fecha, copiándola tal cual, y cuando te diga que sí volvé a llamarla con "
+    "confirmado=true.\n"
+    "- Contale SOLO lo que dice el campo 'decile' de la tool, sin cambiar fechas ni "
+    "condiciones. Nunca digas que una recuperación está confirmada si la tool no "
+    "devolvió status 'confirmada', y nunca prometas excepciones.\n"
+    "- Si la tool dice que el número es de varios alumnos, preguntale de quién habla y "
+    "volvé a llamarla con alumno=<ese nombre>.\n"
     "- Si más abajo ves un 'cambio pendiente', contale de qué se trata y "
     "preguntale si lo acepta; cuando conteste usá resolver_cambio_pendiente.\n"
     "\nFormato (obligatorio, tiene prioridad sobre todo lo demás):\n"
@@ -364,6 +384,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             "content": SALUDO_YA_SALUDASTE if ya_hablo_bot else _saludo_primer_mensaje(),
         })
         mensajes.append({"role": "system", "content": _nota_registro(telefono)})
+        mensajes.append({"role": "system", "content": "Reglas de faltas y recuperaciones: " + _politicas()})
 
     mensajes.extend(_historial(telefono))
 
@@ -436,8 +457,13 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             resultado = _registrar_alumno(telefono, args)
         elif nombre == "dar_de_baja":
             resultado = _dar_de_baja(telefono, args)
-        elif nombre == "reprogramar_clase":
-            resultado = _reprogramar_clase(telefono, args)
+        # el alumno sale siempre del número que escribe, nunca de lo que diga el modelo
+        elif nombre == "avisar_ausencia":
+            resultado = _avisar_ausencia(telefono, args)
+        elif nombre in ("pedir_recuperacion", "reprogramar_clase"):  # el nombre viejo, por las dudas
+            resultado = _pedir_recuperacion(telefono, args)
+        elif nombre == "avisar_viaje":
+            resultado = _avisar_viaje(telefono, args)
         elif nombre == "pausar_bot":
             resultado = _pausar_bot(args, es_jefe)
         elif nombre == "reanudar_bot":
@@ -661,7 +687,7 @@ def _consultar_precio(args: dict) -> dict:
         "precio_mensual": precio,
         "por_persona": True,
         "inscripcion_pago_unico": _inscripcion(),
-        "politicas": POLITICAS,
+        "politicas": _politicas(),
     }
 
 
@@ -1097,30 +1123,407 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
     return {"status": "registrado", "alumno": alumno.nombre}
 
 
-def _reprogramar_clase(telefono: str, args: dict) -> dict:
-    mes_actual = datetime.utcnow().strftime("%Y-%m")
+# ---------------------------------------------------------------- faltas, recuperaciones y viajes
+# Las reglas viven en app/recuperaciones.py. Acá solo se traduce lo que dice el alumno
+# a alumno + clase + fecha, se pide que confirme la fecha y se arma un texto claro
+# ('decile') para que el modelo no invente nada.
+_RX_FECHA_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+_RX_FECHA = re.compile(r"(?<!\d)(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?(?!\d)")
+_RESPUESTA_TOOL = ("Pasale al alumno el texto de 'decile' con tus palabras, en voseo, sin cambiar "
+                   "fechas, horas ni condiciones. No agregues promesas.")
 
-    ya_uso = Recuperacion.query.filter_by(telefono=telefono, mes=mes_actual).first()
-    if ya_uso:
-        return {
-            "error": (
-                f"Este alumno ya usó su recuperación del mes ({ya_uso.mes}), "
-                f"la cambió al {ya_uso.dia_nuevo} {ya_uso.horario_nuevo}. No puede "
-                "usar otra hasta el mes que viene."
-            )
-        }
 
-    dia_nuevo = (args.get("dia_nuevo") or "").strip()
-    horario_nuevo = (args.get("horario_nuevo") or "").strip()
-    if not dia_nuevo or not horario_nuevo:
-        return {"error": "Faltan día u horario nuevo, no se puede reprogramar sin eso."}
+def _mes_nombre(f: date) -> str:
+    return planilla.MESES[f.month - 1].lower()
 
-    recu = Recuperacion(telefono=telefono, mes=mes_actual, dia_nuevo=dia_nuevo, horario_nuevo=horario_nuevo)
-    db.session.add(recu)
-    db.session.commit()
 
-    _notificar(f"{telefono} reprogramó su clase para {dia_nuevo} {horario_nuevo}", tipo="reprogramacion")
-    return {"status": "reprogramada", "dia_nuevo": dia_nuevo, "horario_nuevo": horario_nuevo}
+def _fecha_corta(f: date) -> str:
+    return f"{_NOMBRE_DIA[f.weekday()]} {f.day}/{f.month}"
+
+
+def _hora_txt(clase: Clase) -> str:
+    return clase.hora_inicio.strftime("%H:%M")
+
+
+def _parsear_fecha(texto) -> tuple[date | None, int | None]:
+    """'jueves', 'el jueves 12/11', '12/11', '2026-11-12', 'hoy', 'mañana' -> (fecha, día de la semana).
+    fecha None si solo vino el día; los dos None si no se entiende."""
+    t = planilla._norm(texto)
+    hoy = rec.hoy()
+    fecha = None
+    m = _RX_FECHA_ISO.search(t)
+    try:
+        if m:
+            fecha = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        elif (m := _RX_FECHA.search(t)):
+            anio = int(m.group(3)) if m.group(3) else None
+            if anio is not None and anio < 100:
+                anio += 2000
+            fecha = date(anio or hoy.year, int(m.group(2)), int(m.group(1)))
+            if anio is None and fecha < hoy - timedelta(days=60):
+                fecha = fecha.replace(year=hoy.year + 1)  # "5/1" dicho en noviembre es enero que viene
+    except ValueError:
+        return None, None
+    dia = next((n for nombre, n in _DIAS.items() if re.search(rf"\b{nombre}\b", t)), None)
+    if fecha is None and dia is None:
+        if "pasado manana" in t:
+            fecha = hoy + timedelta(days=2)
+        elif "manana" in t:
+            fecha = hoy + timedelta(days=1)
+        elif "hoy" in t:
+            fecha = hoy
+    return fecha, dia
+
+
+def _resolver_fecha(texto) -> tuple[date | None, bool, dict | None]:
+    """Devuelve (fecha, vino_solo_el_dia, error). Solo el día -> el próximo (hoy cuenta)."""
+    fecha, dia = _parsear_fecha(texto)
+    if fecha is None and dia is None:
+        return None, False, {"status": "falta_fecha",
+                             "mensaje": "No entendí la fecha. NO registraste nada. Preguntale qué día "
+                                        "(por ejemplo 'el jueves' o '12/11') y volvé a llamar."}
+    if fecha and dia is not None and fecha.weekday() != dia:
+        return None, False, {"status": "fecha_no_coincide",
+                             "mensaje": f"El {fecha.day}/{fecha.month} no es {_NOMBRE_DIA[dia]}, es "
+                                        f"{_NOMBRE_DIA[fecha.weekday()]}. NO registraste nada. Preguntale "
+                                        "cuál de los dos es y volvé a llamar."}
+    if fecha:
+        return fecha, False, None
+    hoy = rec.hoy()
+    return hoy + timedelta(days=(dia - hoy.weekday()) % 7), True, None
+
+
+def _fecha_ya_dicha(telefono: str, f: date) -> bool:
+    """La fecha completa ya apareció en la charla (se la mostramos o la escribió él)."""
+    mes = planilla._norm(_mes_nombre(f))
+    rx = re.compile(rf"(?<!\d)0?{f.day}\s*/\s*0?{f.month}(?!\d)|\b{f.day} de {mes}\b")
+    textos = Conversacion.query.filter(
+        Conversacion.telefono == telefono, Conversacion.creado_en >= _inicio_sesion()).all()
+    return any(rx.search(planilla._norm(c.contenido)) for c in textos)
+
+
+def _falta_confirmar(telefono: str, args: dict, fechas: list[date], que: str) -> dict | None:
+    """None si ya confirmó la fecha completa; si no, la respuesta que le pide confirmarla."""
+    if _si(args.get("confirmado")) and all(_fecha_ya_dicha(telefono, f) for f in fechas):
+        return None
+    return {"status": "confirmar_fecha", "fecha_completa": que,
+            "decile": f"¿Te referís al {que}? Confirmame así lo anoto \U0001F60A",
+            "mensaje": f"Todavía NO registraste nada. Preguntale si es el {que}, escribiendo la fecha "
+                       "tal cual. Cuando te diga que sí, volvé a llamar la tool con los mismos datos "
+                       "y confirmado=true."}
+
+
+def _elegir_alumno(telefono: str, nombre) -> tuple[Alumno | None, dict | None]:
+    """Siempre por el número que escribe. Si el número es de varios, el nombre solo elige entre esos."""
+    alumnos = _alumnos_con_telefono(telefono)
+    if not alumnos:
+        return None, {"status": "no_alumno",
+                      "decile": "No encuentro ningún alumno con este número, así que no puedo anotarlo. "
+                                "Si querés le paso tu consulta al encargado, o escribime desde el número "
+                                "que tiene anotado la academia.",
+                      "mensaje": "NO registraste nada. " + _RESPUESTA_TOOL}
+    if len(alumnos) == 1:
+        return alumnos[0], None
+    palabras = set(planilla._norm(nombre).split())
+    if palabras:
+        elegidos = [a for a in alumnos if palabras <= set(planilla._norm(a.nombre).split())]
+        if len(elegidos) == 1:
+            return elegidos[0], None
+    nombres = [a.nombre for a in alumnos]
+    return None, {"status": "elegir_alumno", "alumnos": nombres,
+                  "decile": f"Este número lo tengo con {' y '.join(nombres)}. ¿De quién me hablás?",
+                  "mensaje": "NO registraste nada. Preguntale de cuál de ellos habla y volvé a llamar "
+                             "la tool con alumno=<ese nombre>."}
+
+
+def _clases_del_alumno_el(alumno_id: int, fecha: date) -> list[Clase]:
+    clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
+              .filter(Inscripcion.alumno_id == alumno_id, Clase.activa.is_(True),
+                      Clase.dia_semana == fecha.weekday())
+              .order_by(Clase.hora_inicio).distinct().all())
+    return [c for c in clases if rec.inscripto(alumno_id, c.id, fecha)]
+
+
+def _dias_del_alumno(alumno_id: int) -> list[str]:
+    hoy = rec.hoy()
+    clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
+              .filter(Inscripcion.alumno_id == alumno_id, Clase.activa.is_(True))
+              .order_by(Clase.dia_semana, Clase.hora_inicio).distinct().all())
+    return [f"{_NOMBRE_DIA[c.dia_semana]} {_hora_txt(c)}" for c in clases
+            if rec.inscripto(alumno_id, c.id, hoy + timedelta(days=(c.dia_semana - hoy.weekday()) % 7))]
+
+
+def _texto_recupero(alumno_id: int, fecha: date, a_tiempo: bool) -> tuple[bool, str]:
+    horas = rec.regla("aviso_horas") or 0
+    tope = int(rec.regla("max_recuperaciones_mes") or 0)
+    en_mes = f" en {_mes_nombre(fecha)}" if rec.regla("recupera_mismo_mes") else ""
+    if not a_tiempo:
+        return False, (f"Como avisaste con menos de {horas} hs, la falta queda anotada pero la "
+                       "recuperación no entra en la regla. Si querés te la pido igual y la decide el encargado.")
+    if tope and rec._usadas_en_mes(alumno_id, fecha) >= tope:
+        return False, (f"Ya usaste {'tu recuperación' if tope == 1 else f'tus {tope} recuperaciones'} "
+                       f"de {_mes_nombre(fecha)}, así que esta no entra en la regla. Si querés te la "
+                       "pido igual y la decide el encargado.")
+    return True, (f"Como avisaste a tiempo, la podés recuperar{en_mes}. Decime qué día y horario te "
+                  "queda bien y me fijo si hay lugar.")
+
+
+def _avisar_ausencia(telefono: str, args: dict) -> dict:
+    alumno, error = _elegir_alumno(telefono, args.get("alumno"))
+    if error:
+        return error
+    fecha, solo_dia, error = _resolver_fecha(args.get("fecha"))
+    if error:
+        return error
+
+    clases = _clases_del_alumno_el(alumno.id, fecha)
+    if solo_dia and clases and all(rec.inicio_clase(c, fecha) <= rec.ahora() for c in clases):
+        # "el jueves" dicho un jueves después de la clase: es el que viene
+        fecha += timedelta(days=7)
+        clases = _clases_del_alumno_el(alumno.id, fecha)
+    if not clases:
+        dias = _dias_del_alumno(alumno.id)
+        return {"status": "sin_clase", "dias_de_clase": dias,
+                "decile": f"El {_fecha_corta(fecha)} no tenés clase"
+                          + (f": tus clases son {', '.join(dias)}." if dias else ".")
+                          + " ¿Me decís qué día es el que no venís?",
+                "mensaje": "NO registraste nada. " + _RESPUESTA_TOOL}
+
+    if len(clases) > 1:
+        hora = _parsear_hora(args.get("horario"))
+        if hora:
+            clases = [c for c in clases if c.hora_inicio.hour in (hora[0], hora[0] + 12)
+                      and (hora[1] is None or c.hora_inicio.minute == hora[1])] or clases
+        if len(clases) > 1:
+            horas = [_hora_txt(c) for c in clases]
+            return {"status": "elegir_horario", "horarios": horas,
+                    "decile": f"El {_fecha_corta(fecha)} tenés clase a las {' y a las '.join(horas)}. ¿A cuál no venís?",
+                    "mensaje": "NO registraste nada. Preguntale el horario y volvé a llamar con horario."}
+    clase = clases[0]
+    que = f"{_fecha_corta(fecha)} a las {_hora_txt(clase)}"
+
+    if rec.inicio_clase(clase, fecha) <= rec.ahora():
+        return {"status": "ya_paso",
+                "decile": f"La clase del {que} ya empezó o ya pasó, así que no la puedo anotar desde acá. "
+                          "Si querés le paso al encargado que no pudiste ir.",
+                "mensaje": "NO registraste nada. " + _RESPUESTA_TOOL}
+
+    pedir = _falta_confirmar(telefono, args, [fecha], que)
+    if pedir:
+        return pedir
+
+    try:
+        aus, nueva = rec.avisar_ausencia(alumno.id, clase.id, fecha, origen="agente", motivo=args.get("motivo"))
+        db.session.commit()
+    except rec.ErrorRegla as e:
+        db.session.rollback()
+        return {"status": "no_registrada", "decile": f"No pude anotar la falta del {que} ({e}). Se lo paso al encargado.",
+                "mensaje": "NO registraste la falta. " + _RESPUESTA_TOOL}
+    except IntegrityError:  # otra llamada la cargó recién
+        db.session.rollback()
+        aus, nueva = rec.avisar_ausencia(alumno.id, clase.id, fecha, origen="agente")
+
+    puede, texto = _texto_recupero(alumno.id, fecha, aus.a_tiempo)
+    if nueva:
+        _notificar(f"{alumno.nombre} avisó por WhatsApp que falta el {que} "
+                   f"({'a tiempo' if aus.a_tiempo else 'tarde'})", tipo="ausencia")
+    inicio = "Listo, anoté que" if nueva else "Ya lo tenía anotado:"
+    return {"status": "registrada" if nueva else "ya_estaba_registrada",
+            "alumno": alumno.nombre, "fecha": que, "a_tiempo": bool(aus.a_tiempo), "puede_recuperar": puede,
+            "decile": f"{inicio} el {que} no venís. {texto}",
+            "mensaje": _RESPUESTA_TOOL}
+
+
+_MOTIVOS_ALUMNO = [
+    (re.compile(r"no tiene una falta"), lambda m: "no encontré una falta tuya anotada para recuperar"),
+    (re.compile(r"la falta del (\S+) fue sin aviso"), lambda m: f"la falta del {m.group(1)} fue sin aviso o con aviso tarde"),
+    (re.compile(r"la falta es del (\S+) y quiere recuperar en otro mes"),
+     lambda m: f"la falta es del {m.group(1)} y la recuperación cae en otro mes"),
+    (re.compile(r"ya tiene (\d+) recuperaci.n\(es\) ese mes y el tope es (\d+)"),
+     lambda m: f"ya usaste las recuperaciones de ese mes (el máximo es {m.group(2)})"),
+]
+
+
+def _motivos_para_alumno(fuera_de_regla: str | None) -> str:
+    """Los motivos de recuperaciones.py están en tercera persona (son para el encargado)."""
+    partes = []
+    for parte in (fuera_de_regla or "").split("; "):
+        for rx, armar in _MOTIVOS_ALUMNO:
+            m = rx.search(parte)
+            if m:
+                partes.append(armar(m))
+                break
+        else:
+            if parte:
+                partes.append(parte)
+    return " y ".join(partes)
+
+
+def _otras_con_lugar(clase: Clase, fecha: date) -> list[str]:
+    otras = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal",
+                               Clase.dia_semana == fecha.weekday(), Clase.id != clase.id).all()
+    return [f"{_hora_txt(c)} ({c.nivel or 'sin nivel'})" for c in sorted(otras, key=lambda c: c.hora_inicio)
+            if rec.inicio_clase(c, fecha) > rec.ahora() and rec.lugares_libres(c, fecha) > 0]
+
+
+def _recuperacion_ya_pedida(alumno: Alumno, clase: Clase, fecha: date, que: str) -> dict | None:
+    recu = RecuperacionClase.query.filter(
+        RecuperacionClase.alumno_id == alumno.id, RecuperacionClase.clase_id == clase.id,
+        RecuperacionClase.fecha == fecha, RecuperacionClase.estado.in_(rec.ACTIVAS)).first()
+    if not recu:
+        return None
+    if recu.estado == "confirmada":
+        texto = f"Ya tenés confirmada la recuperación del {que}. ¡Te esperamos! \U0001F3BE"
+    else:
+        texto = f"Ya tenés pedida la recuperación del {que}: está pendiente, la ve el encargado y te avisa."
+    return {"status": "ya_pedida", "estado": recu.estado, "fecha": que, "decile": texto,
+            "mensaje": "No se pidió de nuevo. " + _RESPUESTA_TOOL}
+
+
+def _pedir_recuperacion(telefono: str, args: dict) -> dict:
+    alumno, error = _elegir_alumno(telefono, args.get("alumno"))
+    if error:
+        return error
+
+    texto_dia = f"{args.get('dia') or args.get('dia_nuevo') or ''} {args.get('fecha') or ''}"
+    horario = args.get("horario") or args.get("horario_nuevo")
+    fecha, dia = _parsear_fecha(texto_dia)
+    if dia is None and fecha:
+        dia = fecha.weekday()
+    if fecha and dia is not None and fecha.weekday() != dia:
+        return _resolver_fecha(texto_dia)[2]
+    if dia is None and not _entero(args.get("clase_id")):
+        return {"status": "falta_dia", "mensaje": "NO pediste nada. Preguntale qué día y a qué hora quiere "
+                                                  "recuperar y volvé a llamar."}
+
+    clase, error = _buscar_clase({"clase_id": args.get("clase_id"), "hora": horario,
+                                  "dia": _NOMBRE_DIA[dia] if dia is not None else ""}, alumno.categoria or "")
+    if error:
+        if error.get("opciones"):
+            return {"status": "elegir_clase", "opciones": error["opciones"],
+                    "mensaje": "NO pediste nada. Hay más de una clase ese día y hora: preguntale cuál (por "
+                               "nivel) y volvé a llamar con el clase_id."}
+        return {"status": "sin_clase",
+                "decile": "No encuentro una clase grupal ese día a esa hora. ¿Querés que te busque otro horario?",
+                "mensaje": "NO pediste nada. Si quiere, buscá opciones con consultar_cupos. " + _RESPUESTA_TOOL}
+
+    if fecha is None:
+        hoy = rec.hoy()
+        fecha = hoy + timedelta(days=(clase.dia_semana - hoy.weekday()) % 7)
+        if rec.inicio_clase(clase, fecha) <= rec.ahora():
+            fecha += timedelta(days=7)
+    elif fecha.weekday() != clase.dia_semana:
+        return {"status": "fecha_no_coincide",
+                "mensaje": f"Esa clase es los {_NOMBRE_DIA[clase.dia_semana]} y el {fecha.day}/{fecha.month} es "
+                           f"{_NOMBRE_DIA[fecha.weekday()]}. NO pediste nada. Preguntale qué día quiere."}
+    que = f"{_fecha_corta(fecha)} a las {_hora_txt(clase)}"
+
+    ya = _recuperacion_ya_pedida(alumno, clase, fecha, que)
+    if ya:
+        return ya
+    # la llena la aviso antes de confirmar la fecha: no tiene sentido hacerle confirmar algo imposible
+    if rec.inicio_clase(clase, fecha) > rec.ahora() and rec.lugares_libres(clase, fecha) <= 0:
+        return _clase_llena(clase, fecha, que)
+
+    pedir = _falta_confirmar(telefono, args, [fecha], que)
+    if pedir:
+        return pedir
+
+    # bloqueo la clase para que dos no se metan en el último lugar (en SQLite no hace nada)
+    db.session.query(Clase).filter(Clase.id == clase.id).with_for_update().first()
+    try:
+        recu = rec.pedir_recuperacion(alumno.id, clase.id, fecha, pedida_por="agente")
+        db.session.commit()
+    except rec.ErrorRegla as e:
+        db.session.rollback()
+        motivo = str(e)
+        if "llena" in motivo:
+            return _clase_llena(clase, fecha, que)
+        if "Ya tiene una recuperación" in motivo:
+            return _recuperacion_ya_pedida(alumno, clase, fecha, que) or {"status": "ya_pedida", "mensaje": motivo}
+        if "clase fija" in motivo or "Ya está en esa clase" in motivo:
+            texto = f"El {que} ya estás en esa clase, así que no hace falta recuperar ahí. ¿Querés otro día u horario?"
+        elif "ya pasó" in motivo:
+            texto = f"La clase del {que} ya empezó o ya pasó. ¿Querés otro día u horario?"
+        else:
+            texto = f"No pude pedir la recuperación del {que}. Se lo paso al encargado para que lo vea."
+        return {"status": "no_pedida", "decile": texto, "mensaje": "NO pediste nada. " + _RESPUESTA_TOOL}
+
+    _notificar(f"{alumno.nombre} pidió por WhatsApp recuperar el {que}: {recu.estado}"
+               + (f" ({recu.fuera_de_regla})" if recu.fuera_de_regla else ""), tipo="recuperacion")
+    if recu.estado == "confirmada":
+        return {"status": "confirmada", "alumno": alumno.nombre, "fecha": que,
+                "decile": f"¡Listo! Quedó confirmada tu recuperación el {que}. ¡Te esperamos! \U0001F3BE",
+                "mensaje": "Quedó CONFIRMADA. " + _RESPUESTA_TOOL}
+    motivo = _motivos_para_alumno(recu.fuera_de_regla)
+    return {"status": "pendiente", "alumno": alumno.nombre, "fecha": que, "motivo": motivo,
+            "decile": f"Te dejé pedida la recuperación del {que}, pero queda pendiente porque {motivo}. "
+                      "Lo ve el encargado y te avisa si se puede.",
+            "mensaje": "Quedó PENDIENTE, NO confirmada: no digas que tiene lugar ni que se va a aprobar. "
+                       + _RESPUESTA_TOOL}
+
+
+def _clase_llena(clase: Clase, fecha: date, que: str) -> dict:
+    otras = _otras_con_lugar(clase, fecha)
+    texto = f"Uh, la clase del {que} está llena."
+    texto += (f" Ese mismo día hay lugar a las {', '.join(otras)}. ¿Te sirve alguna?" if otras
+              else " ¿Querés probar otro día u horario?")
+    return {"status": "clase_llena", "otras_con_lugar": otras, "decile": texto,
+            "mensaje": "NO pediste nada, la clase está llena. " + _RESPUESTA_TOOL}
+
+
+def _avisar_viaje(telefono: str, args: dict) -> dict:
+    alumno, error = _elegir_alumno(telefono, args.get("alumno"))
+    if error:
+        return error
+    desde, _, error = _resolver_fecha(args.get("desde"))
+    if error:
+        return error
+    hasta, solo_dia, error = _resolver_fecha(args.get("hasta"))
+    if error:
+        return error
+    if solo_dia:
+        while hasta < desde:  # "del 20/11 al martes": el martes después de la ida
+            hasta += timedelta(days=7)
+    if hasta < desde:
+        return {"status": "fechas_al_reves",
+                "mensaje": "La vuelta quedó antes que la ida. NO registraste nada. Preguntale de nuevo las fechas."}
+    if hasta < rec.hoy():
+        return {"status": "ya_paso", "decile": "Esas fechas ya pasaron, así que no lo puedo anotar desde acá. "
+                                               "Si querés se lo paso al encargado.",
+                "mensaje": "NO registraste nada. " + _RESPUESTA_TOOL}
+    que = f"{_fecha_corta(desde)} al {_fecha_corta(hasta)} inclusive"
+
+    pedir = _falta_confirmar(telefono, args, [desde, hasta], "viaje del " + que)
+    if pedir:
+        return pedir
+
+    try:
+        rec.crear_lapso(alumno.id, desde, hasta, motivo=args.get("motivo") or "viaje", origen="agente")
+        db.session.commit()
+    except rec.ErrorRegla as e:
+        db.session.rollback()
+        if "se pisa" in str(e):
+            igual = AusenciaLapso.query.filter(
+                AusenciaLapso.alumno_id == alumno.id, AusenciaLapso.estado != "cancelado",
+                AusenciaLapso.desde == desde, AusenciaLapso.hasta == hasta).first()
+            if igual:
+                estado = "ya está confirmado" if igual.estado == "confirmado" else "está pendiente de que lo confirme el encargado"
+                return {"status": "ya_cargado", "estado": igual.estado,
+                        "decile": f"Ya tenía anotado tu viaje del {que}, {estado}.",
+                        "mensaje": "No se cargó de nuevo. " + _RESPUESTA_TOOL}
+            texto = (f"Ya tenés otro viaje anotado que se cruza con el {que}. "
+                     "Se lo paso al encargado para que lo acomode.")
+        else:
+            texto = f"No pude anotar el viaje del {que}. Se lo paso al encargado."
+        return {"status": "no_registrado", "decile": texto, "mensaje": "NO registraste nada. " + _RESPUESTA_TOOL}
+
+    _notificar(f"{alumno.nombre} avisó por WhatsApp un viaje del {que}. Falta confirmarlo en el panel.",
+               tipo="viaje")
+    return {"status": "pendiente", "alumno": alumno.nombre, "fecha": que,
+            "decile": f"Listo, le pasé al encargado tu viaje del {que}. Queda pendiente hasta que él lo "
+                      "confirme y te avisa. ¡Buen viaje! ✈️",
+            "mensaje": "Quedó PENDIENTE de confirmar por el encargado. " + _RESPUESTA_TOOL}
 
 
 def _dar_de_baja(telefono: str, args: dict) -> dict:
