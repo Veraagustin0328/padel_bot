@@ -3,6 +3,9 @@ import { api } from "../api.js";
 import { fechaCorta } from "./Novedades.jsx";
 import "./faltas.css";
 
+// el contador del menú se vuelve a pedir cada vez que cambia algo acá
+const avisarMenu = () => window.dispatchEvent(new Event("faltas-cambiaron"));
+
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const SOLAPAS = [
   ["pendientes", "Pendientes"],
@@ -81,6 +84,7 @@ function Pendientes({ avisar }) {
       const [r, l] = await Promise.all([api("/api/recuperaciones?estado=pendiente"), api("/api/lapsos")]);
       setRecus(r);
       setViajes(l.filter((x) => x.estado === "pendiente"));
+      avisarMenu();
     } catch (e) {
       avisar(e.message, true);
       setRecus([]);
@@ -296,6 +300,7 @@ function Viajes({ avisar }) {
   async function cargar() {
     try {
       setLista(await api("/api/lapsos"));
+      avisarMenu();
     } catch (e) {
       avisar(e.message, true);
       setLista([]);

@@ -54,6 +54,17 @@ function Layout() {
     return () => window.removeEventListener("solicitudes-cambiaron", contar);
   }, [usuario.rol, pathname]);
 
+  // recuperaciones y viajes que esperan que el encargado los apruebe (muchos los pide el agente)
+  const [faltasPend, setFaltasPend] = useState(0);
+  useEffect(() => {
+    if (!esGestion) return;
+    const contar = () => api("/api/recuperaciones/pendientes").then((d) => setFaltasPend(d.total)).catch(() => {});
+    contar();
+    window.addEventListener("faltas-cambiaron", contar);
+    return () => window.removeEventListener("faltas-cambiaron", contar);
+  }, [esGestion, pathname]);
+  const contadores = { "/solicitudes": pendientes, "/faltas": faltasPend };
+
   // al cambiar de página el cajón se cierra solo
   useEffect(() => setAbierto(false), [pathname]);
 
@@ -79,8 +90,8 @@ function Layout() {
         {MENU.filter((m) => m.roles.includes(usuario.rol)).map((m) => (
           <NavLink key={m.a} to={m.a} end={m.a === "/"} className={({ isActive }) => "item" + (isActive ? " activo" : "")}>
             {m.t}
-            {m.a === "/solicitudes" && pendientes > 0 && (
-              <span className="contador" aria-label={`${pendientes} pendientes`}>{pendientes}</span>
+            {contadores[m.a] > 0 && (
+              <span className="contador" aria-label={`${contadores[m.a]} pendientes`}>{contadores[m.a]}</span>
             )}
           </NavLink>
         ))}

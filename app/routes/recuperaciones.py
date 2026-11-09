@@ -254,6 +254,16 @@ def listar_recuperaciones():
     return jsonify(_json_recus(filas))
 
 
+@recuperaciones_bp.get("/api/recuperaciones/pendientes")
+@requiere_login("encargado")
+def contar_pendientes():
+    # para el contador del menú: lo mismo que muestra la pestaña Pendientes, solo contado
+    recus = m.RecuperacionClase.query.filter(m.RecuperacionClase.estado == "pendiente").count()
+    viajes = m.AusenciaLapso.query.filter(
+        m.AusenciaLapso.estado == "pendiente", m.AusenciaLapso.hasta >= r.hoy()).count()
+    return jsonify({"recuperaciones": recus, "viajes": viajes, "total": recus + viajes})
+
+
 @recuperaciones_bp.post("/api/recuperaciones")
 @requiere_login("encargado")
 def crear_recuperacion():
