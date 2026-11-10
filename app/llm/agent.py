@@ -249,6 +249,10 @@ PROMPT_ALUMNO_PARTE_2 = (
     "y, cuando diga que sí, volvé a llamarla igual con confirmado=true. Si no hay lugar, "
     "ofrecele las alternativas que te dé. Nunca digas que el cambio ya está hecho: lo "
     "aprueba el encargado.\n"
+    "- Aunque lo cuente como afirmación ('en diciembre voy solo los jueves', 'desde el mes "
+    "que viene vengo martes y jueves'), es un pedido de cambio: llamá pedir_cambio_dias. "
+    "NUNCA digas 'tomo nota', 'lo anoto' ni 'queda registrado' si la tool no devolvió "
+    "status 'pendiente': sin la tool no se guarda nada.\n"
     "\nFormato (obligatorio, tiene prioridad sobre todo lo demás):\n"
     "- Escribí en frases cortas, sin listas. NUNCA uses listas numeradas ni emojis "
     "numerados. Si tenés que preguntar varias cosas, hacelo en una sola frase "
@@ -869,7 +873,8 @@ def _buscar_clase(args: dict, nivel: str) -> tuple[Clase | None, dict | None]:
 
 
 def _esta_llena(clase: Clase, hoy) -> bool:
-    return _anotados_hoy([clase.id], hoy).get(clase.id, 0) >= clase.cupo
+    # también mira más adelante: si ya hay gente que entra el 1 del mes, no la pisamos
+    return cd.lleno_desde(clase, hoy)
 
 
 def _anotar_en_clase(telefono: str, args: dict) -> dict:
@@ -891,7 +896,7 @@ def _anotar_en_clase(telefono: str, args: dict) -> dict:
     def _ya_anotado(a):
         return Inscripcion.query.filter(
             Inscripcion.clase_id == clase.id, Inscripcion.alumno_id == a.id,
-            db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta >= hoy),
+            db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta > hoy),  # hasta = primer día que no va
         ).first() is not None
 
     ya_anotado = {"status": "ya_anotado", **datos,

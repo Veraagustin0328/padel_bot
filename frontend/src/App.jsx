@@ -16,6 +16,7 @@ import Cuotas from "./pages/Cuotas.jsx";
 import MisClases from "./pages/MisClases.jsx";
 import Novedades from "./pages/Novedades.jsx";
 import FaltasRecuperaciones from "./pages/FaltasRecuperaciones.jsx";
+import CambiosDias from "./pages/CambiosDias.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
 import Notas from "./pages/Notas.jsx";
@@ -29,6 +30,7 @@ const MENU = [
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
   { a: "/faltas", t: "Faltas y recuperaciones", roles: GESTION },
+  { a: "/cambios-dias", t: "Cambios de días", roles: GESTION },
   { a: "/cuotas", t: "Cuotas", roles: GESTION },
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
@@ -69,7 +71,16 @@ function Layout() {
     window.addEventListener("faltas-cambiaron", contar);
     return () => window.removeEventListener("faltas-cambiaron", contar);
   }, [esGestion, pathname]);
-  const contadores = { "/solicitudes": pendientes, "/faltas": faltasPend };
+  // cambios de días que pidieron los alumnos y esperan que el encargado los apruebe
+  const [cambiosPend, setCambiosPend] = useState(0);
+  useEffect(() => {
+    if (!esGestion) return;
+    const contar = () => api("/api/cambios-dias").then((d) => setCambiosPend(d.total)).catch(() => {});
+    contar();
+    window.addEventListener("cambios-cambiaron", contar);
+    return () => window.removeEventListener("cambios-cambiaron", contar);
+  }, [esGestion, pathname]);
+  const contadores = { "/solicitudes": pendientes, "/faltas": faltasPend, "/cambios-dias": cambiosPend };
 
   // al cambiar de página el cajón se cierra solo
   useEffect(() => setAbierto(false), [pathname]);
@@ -185,6 +196,7 @@ export default function App() {
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
             <Route path="/faltas" element={<SoloGestion><FaltasRecuperaciones /></SoloGestion>} />
+            <Route path="/cambios-dias" element={<SoloGestion><CambiosDias /></SoloGestion>} />
             <Route path="/cuotas" element={<SoloGestion><Cuotas /></SoloGestion>} />
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />

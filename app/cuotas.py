@@ -1,4 +1,10 @@
 """Cálculo de la cuota mensual de un alumno a partir de sus clases fijas y la tabla de tarifas."""
+from calendar import monthrange
+from datetime import date
+
+from sqlalchemy import or_
+
+from app.models_academia import Clase, Inscripcion
 from app.models_tarifas import Tarifa
 
 FRANJA_POR_AMBITO = {
@@ -39,6 +45,25 @@ def bucket_de(clase):
     if clase.tipo == "particular":
         return (franja, "particular", 1)
     return None
+
+
+def clases_del_mes(inicio: date, alumno_id: int | None = None) -> dict[int, list]:
+    """{alumno_id: [clases activas en las que está anotado algún día de ese mes]}.
+    'hasta' es el primer día que ya no va: si es el 1 del mes, ese mes ya no cuenta."""
+    fin = date(inicio.year, inicio.month, monthrange(inicio.year, inicio.month)[1])
+    clases = {c.id: c for c in Clase.query.filter(Clase.activa.is_(True)).all()}
+    q = Inscripcion.query.filter(
+        or_(Inscripcion.desde.is_(None), Inscripcion.desde <= fin),
+        or_(Inscripcion.hasta.is_(None), Inscripcion.hasta > inicio),
+    )
+    if alumno_id is not None:
+        q = q.filter(Inscripcion.alumno_id == alumno_id)
+    por_alumno = {}
+    for i in q.all():
+        c = clases.get(i.clase_id)
+        if c is not None and c not in por_alumno.setdefault(i.alumno_id, []):
+            por_alumno[i.alumno_id].append(c)
+    return por_alumno
 
 
 def cargar_tarifas():

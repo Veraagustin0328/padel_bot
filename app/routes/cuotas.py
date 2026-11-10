@@ -1,12 +1,8 @@
 """Cuotas y pagos: generar el mes, ver quién debe, registrar pagos y ajustes."""
-from calendar import monthrange
 from datetime import date
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import or_
-
-from app import models_academia as m
-from app.cuotas import cargar_tarifas, cuota_de
+from app.cuotas import cargar_tarifas, clases_del_mes, cuota_de
 from app.extensions import db
 from app.models import Alumno
 from app.models_cuotas import CONCEPTOS, MEDIOS_PAGO, CuotaMes, PagoCuota
@@ -37,18 +33,7 @@ def _entero(valor):
 
 def generar_mes(inicio):
     """Crea la cuota de cada alumno con clases ese mes. No pisa las que ya existen."""
-    fin = date(inicio.year, inicio.month, monthrange(inicio.year, inicio.month)[1])
-    clases = {c.id: c for c in m.Clase.query.filter(m.Clase.activa.is_(True)).all()}
-    insc = m.Inscripcion.query.filter(
-        or_(m.Inscripcion.desde.is_(None), m.Inscripcion.desde <= fin),
-        or_(m.Inscripcion.hasta.is_(None), m.Inscripcion.hasta >= inicio),
-    ).all()
-
-    por_alumno = {}
-    for i in insc:
-        c = clases.get(i.clase_id)
-        if c is not None:
-            por_alumno.setdefault(i.alumno_id, []).append(c)
+    por_alumno = clases_del_mes(inicio)
 
     ya = {c.alumno_id for c in CuotaMes.query.filter_by(mes=inicio, concepto="cuota")}
     tarifas = cargar_tarifas()

@@ -3,7 +3,6 @@
 Todo cambio queda en la tabla de auditoría con quién lo hizo.
 """
 import json
-from datetime import date
 
 from flask import Blueprint, g, jsonify, request
 
@@ -183,10 +182,15 @@ def anotar(clase_id):
     alumno = db.session.get(Alumno, int(datos.get("alumno_id") or 0))
     if not alumno:
         return jsonify({"error": "No encontré el alumno"}), 400
-    ya = m.Inscripcion.query.filter_by(clase_id=c.id, alumno_id=alumno.id, hasta=None).first()
+    hoy = recuperaciones.hoy()
+    # anotado hoy o más adelante ('hasta' es el primer día que ya no va)
+    ya = m.Inscripcion.query.filter(
+        m.Inscripcion.clase_id == c.id, m.Inscripcion.alumno_id == alumno.id,
+        db.or_(m.Inscripcion.hasta.is_(None), m.Inscripcion.hasta > hoy),
+    ).first()
     if ya:
         return jsonify({"error": f"{alumno.nombre} ya está en esta clase"}), 409
-    db.session.add(m.Inscripcion(clase_id=c.id, alumno_id=alumno.id, desde=date.today()))
+    db.session.add(m.Inscripcion(clase_id=c.id, alumno_id=alumno.id, desde=hoy))
     _auditar(c.id, "anotar_alumno", None, {"alumno_id": alumno.id, "nombre": alumno.nombre})
     db.session.commit()
     return jsonify({"ok": True})
@@ -195,11 +199,15 @@ def anotar(clase_id):
 @clases_bp.delete("/api/clases/<int:clase_id>/alumnos/<int:alumno_id>")
 @requiere_login("encargado")
 def sacar(clase_id, alumno_id):
-    ins = m.Inscripcion.query.filter_by(clase_id=clase_id, alumno_id=alumno_id, hasta=None).first()
+    hoy = recuperaciones.hoy()
+    # el que está hoy, aunque ya tenga fecha de salida por un cambio de días
+    ins = m.Inscripcion.query.filter(
+        m.Inscripcion.clase_id == clase_id, m.Inscripcion.alumno_id == alumno_id, vigente_en(hoy),
+    ).first()
     if not ins:
         return jsonify({"error": "Ese alumno no está en la clase"}), 404
     alumno = db.session.get(Alumno, alumno_id)
-    ins.hasta = date.today()
+    ins.hasta = hoy
     _auditar(clase_id, "sacar_alumno", {"alumno_id": alumno_id, "nombre": alumno.nombre if alumno else ""}, None)
     db.session.commit()
     return jsonify({"ok": True})

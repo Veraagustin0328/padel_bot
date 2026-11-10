@@ -1,24 +1,25 @@
 """Cambio de días de un alumno: deja unas clases fijas y pasa a otras desde una fecha.
 
 Lo usan el agente (el alumno lo pide y queda pendiente del encargado, o el encargado lo
-propone y queda pendiente del alumno) y después el panel. Acá NO se tocan inscripciones:
-solo se arma y se guarda la solicitud. Aplicarla va en la parte del panel.
+propone y queda pendiente del alumno) y el panel, que lo aprueba con aplicar() o lo
+rechaza con rechazar(). Solo aplicar() toca inscripciones y la cuota.
 
 Ojo con Inscripcion.hasta: es el primer día que ya NO va (igual que Mis clases y
 recuperaciones). Una inscripción vale en f si desde <= f y (hasta vacío o hasta > f).
 """
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import or_
 
 from app import planilla
 from app import recuperaciones as rec
-from app.cuotas import FRANJA_POR_AMBITO, cargar_tarifas, cuota_de
+from app.cuotas import FRANJA_POR_AMBITO, cargar_tarifas, clases_del_mes, cuota_de
 from app.extensions import db
-from app.models import CambioPendiente
-from app.models_academia import Clase, ConfigAcademia, Inscripcion
+from app.models import Alumno, CambioPendiente
+from app.models_academia import Auditoria, Clase, ConfigAcademia, Inscripcion
+from app.models_cuotas import CuotaMes, PagoCuota
 
 NOMBRE_DIA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 DIAS = {"lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3, "viernes": 4, "sabado": 5, "domingo": 6}
@@ -111,6 +112,13 @@ def ocupados(clase_ids: list[int], fecha: date) -> dict[int, int]:
 
 def libres(clase: Clase, fecha: date) -> int:
     return clase.cupo - ocupados([clase.id], fecha).get(clase.id, 0)
+
+
+def lleno_desde(clase: Clase, fecha: date) -> bool:
+    """True si en esa fecha, o en alguna más adelante en que entra gente, no queda lugar."""
+    fechas = {fecha} | {d for (d,) in db.session.query(Inscripcion.desde).filter(
+        Inscripcion.clase_id == clase.id, Inscripcion.desde > fecha).distinct()}
+    return any(libres(clase, f) <= 0 for f in fechas)
 
 
 def clases_del_alumno(alumno_id: int, fecha: date) -> list[Clase]:
@@ -274,3 +282,163 @@ def crear(alumno, deja: list[Clase], nuevas: list[Clase], vigente_desde: date,
     db.session.add(cambio)
     db.session.commit()
     return cambio
+
+
+# ---------------------------------------------------------------- aprobar y rechazar (panel)
+class ErrorCambio(ValueError):
+    """No se puede aplicar tal cual: el panel muestra el mensaje."""
+
+
+def clases_por_ids(ids_: list[int]) -> list[Clase]:
+    if not ids_:
+        return []
+    return Clase.query.filter(Clase.id.in_(ids_)).order_by(Clase.dia_semana, Clase.hora_inicio).all()
+
+
+def anotado_en(alumno_id: int, clase_id: int, fecha: date) -> Inscripcion | None:
+    return Inscripcion.query.filter(Inscripcion.clase_id == clase_id, Inscripcion.alumno_id == alumno_id,
+                                    vigente_en(fecha)).first()
+
+
+def sin_lugar(cambio: CambioPendiente) -> list[Clase]:
+    """Clases nuevas del cambio que ya no tienen lugar en su fecha (aprobarlo va a fallar)."""
+    fecha = cambio.vigente_desde
+    if not fecha or not cambio.alumno_id:
+        return []
+    return [c for c in clases_por_ids(ids(cambio.clases_nuevas))
+            if not anotado_en(cambio.alumno_id, c.id, fecha) and lleno_desde(c, fecha)]
+
+
+def _auditar(cambio: CambioPendiente, accion: str, despues: dict, usuario_id: int | None) -> None:
+    db.session.add(Auditoria(
+        entidad="cambio_dias", entidad_id=cambio.id, accion=accion,
+        antes=json.dumps({"deja": ids(cambio.clases_deja)}),
+        despues=json.dumps(despues, ensure_ascii=False, default=str),
+        usuario_id=usuario_id,
+    ))
+
+
+def _para_resolver(cambio_id: int) -> CambioPendiente:
+    cambio = CambioPendiente.query.filter_by(id=cambio_id).with_for_update().first()
+    if not cambio or cambio.tipo != "cambio_dias":
+        raise ErrorCambio("No encontré ese cambio de días")
+    if cambio.estado != "pendiente":
+        raise ErrorCambio(f"Ese cambio ya está {cambio.estado}")
+    if cambio.espera == "alumno":
+        raise ErrorCambio("Ese cambio todavía espera que el alumno lo acepte")
+    return cambio
+
+
+def recalcular_cuota(alumno_id: int, mes: date) -> dict:
+    """Si la cuota del mes ya estaba generada y no tiene pagos, la vuelve a calcular.
+    Con pagos o ajustada a mano no la pisa: devuelve un aviso para el encargado."""
+    cuota = CuotaMes.query.filter_by(alumno_id=alumno_id, mes=mes, concepto="cuota").first()
+    nombre_mes = MESES[mes.month - 1]
+    if not cuota:
+        return {"cuota": "sin_generar"}
+    pagos = PagoCuota.query.filter_by(alumno_id=alumno_id, mes=mes, concepto="cuota").count()
+    if pagos:
+        return {"cuota": "con_pagos", "aviso": f"La cuota de {nombre_mes} ya tiene pagos: no la toqué, revisala a mano."}
+    if cuota.monto_calculado is not None and cuota.monto != cuota.monto_calculado:
+        return {"cuota": "ajustada", "aviso": f"La cuota de {nombre_mes} estaba ajustada a mano: no la toqué, revisala."}
+    r = cuota_de(clases_del_mes(mes, alumno_id).get(alumno_id, []), cargar_tarifas())
+    if r["total"] <= 0:
+        return {"cuota": "sin_tarifa", "aviso": f"No pude calcular la cuota de {nombre_mes}: revisala a mano."}
+    antes = cuota.monto
+    cuota.monto = cuota.monto_calculado = int(r["total"])
+    cuota.detalle = "; ".join(r["lineas"] + [f"AVISO: {a}" for a in r["avisos"]])
+    cuota.nota = ((cuota.nota or "") + f" Recalculada por cambio de días ({antes} -> {cuota.monto}).").strip()[:200]
+    return {"cuota": "recalculada", "antes": antes, "ahora": cuota.monto}
+
+
+def aplicar(cambio_id: int, usuario_id: int | None) -> dict:
+    """Aprueba: cierra las clases que deja (hasta = vigente_desde, el primer día que ya no va),
+    abre las nuevas desde vigente_desde, vuelve a mirar el cupo, audita y recalcula la cuota."""
+    cambio = _para_resolver(cambio_id)
+    fecha = cambio.vigente_desde
+    if not fecha or not cambio.alumno_id:
+        raise ErrorCambio("Al cambio le falta el alumno o la fecha")
+    deja, nuevas = clases_por_ids(ids(cambio.clases_deja)), clases_por_ids(ids(cambio.clases_nuevas))
+
+    # cupo de nuevo, con las clases bloqueadas por si aprueban dos a la vez
+    if nuevas:
+        db.session.query(Clase).filter(Clase.id.in_([c.id for c in nuevas])).with_for_update().all()
+    for c in nuevas:
+        if not c.activa:
+            raise ErrorCambio(f"La clase del {texto_clase(c)} ya no está activa")
+        if not anotado_en(cambio.alumno_id, c.id, fecha) and lleno_desde(c, fecha):
+            raise ErrorCambio(f"La clase del {texto_clase(c)} ya no tiene lugar desde el {fecha_corta(fecha)}")
+
+    for c in deja:
+        ins = anotado_en(cambio.alumno_id, c.id, fecha)
+        if not ins:
+            raise ErrorCambio(f"El alumno ya no está en la clase del {texto_clase(c)} el {fecha_corta(fecha)}")
+        ins.hasta = fecha
+    for c in nuevas:
+        abierta = Inscripcion.query.filter(Inscripcion.clase_id == c.id, Inscripcion.alumno_id == cambio.alumno_id,
+                                           or_(Inscripcion.hasta.is_(None), Inscripcion.hasta > fecha)).first()
+        if abierta:
+            continue  # ya está (o ya entra): no se duplica
+        db.session.add(Inscripcion(clase_id=c.id, alumno_id=cambio.alumno_id, desde=fecha))
+    db.session.flush()
+
+    cambio.estado = "aprobado"
+    cambio.espera = None
+    cambio.resuelto_en = datetime.utcnow()
+    cambio.resuelto_por = usuario_id
+    cuota = recalcular_cuota(cambio.alumno_id, fecha.replace(day=1))
+    quedan = clases_del_alumno(cambio.alumno_id, fecha)
+    _auditar(cambio, "aprobado", {"nuevas": [c.id for c in nuevas], "desde": fecha, "cuota": cuota}, usuario_id)
+    db.session.commit()
+    return {"cambio": cambio, "quedan": quedan, "cuota": cuota}
+
+
+def rechazar(cambio_id: int, usuario_id: int | None, motivo: str) -> CambioPendiente:
+    motivo = (motivo or "").strip()
+    if not motivo:
+        raise ErrorCambio("Poné el motivo del rechazo, así se lo contamos al alumno")
+    cambio = _para_resolver(cambio_id)
+    cambio.estado = "rechazado"
+    cambio.espera = None
+    cambio.motivo_rechazo = motivo[:500]
+    cambio.resuelto_en = datetime.utcnow()
+    cambio.resuelto_por = usuario_id
+    _auditar(cambio, "rechazado", {"motivo": cambio.motivo_rechazo}, usuario_id)
+    db.session.commit()
+    return cambio
+
+
+# ---------------------------------------------------------------- textos para el alumno
+def _pesos(n: int) -> str:
+    return "$" + f"{int(n):,}".replace(",", ".")
+
+
+def texto_aprobado(alumno: Alumno, cambio: CambioPendiente, quedan: list[Clase], cuota: dict) -> str:
+    nombre = (alumno.nombre or "").split()[0] if alumno else ""
+    monto = cuota.get("ahora") if cuota.get("cuota") == "recalculada" else cambio.precio_estimado
+    texto = (f"¡Hola{' ' + nombre if nombre else ''}! \U0001F64C Ya quedó aprobado tu cambio de días: "
+             f"desde el {fecha_corta(cambio.vigente_desde)} venís {texto_clases(quedan) or 'sin clases fijas'}.")
+    if monto:
+        texto += f" Tu cuota pasa a ser de {_pesos(monto)} por mes."
+    return texto + " ¡Nos vemos en la cancha! \U0001F3BE"
+
+
+def texto_rechazado(alumno: Alumno, cambio: CambioPendiente) -> str:
+    nombre = (alumno.nombre or "").split()[0] if alumno else ""
+    desde = f" desde el {fecha_corta(cambio.vigente_desde)}" if cambio.vigente_desde else ""
+    return (f"Hola{' ' + nombre if nombre else ''}, te cuento que el cambio de días que pediste{desde} "
+            f"no se pudo aprobar. Motivo: {cambio.motivo_rechazo}. Seguís con tus días de siempre. "
+            "Si querés, escribime y buscamos otra opción.")
+
+
+def telefono_whatsapp(cambio: CambioPendiente) -> str:
+    """Número para escribirle: el mismo desde el que pidió, o el de la base con 549 adelante."""
+    for t in (cambio.pedido_por if cambio.origen == "alumno" else None, cambio.alumno_telefono):
+        dig = re.sub(r"\D", "", str(t or ""))
+        if len(dig) == 10:
+            return "549" + dig
+        if len(dig) == 12 and dig.startswith("54"):
+            return "549" + dig[2:]
+        if len(dig) == 13 and dig.startswith("549"):
+            return dig
+    return ""
