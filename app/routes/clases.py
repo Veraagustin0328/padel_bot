@@ -8,6 +8,8 @@ from datetime import date
 from flask import Blueprint, g, jsonify, request
 
 from app import models_academia as m
+from app import recuperaciones
+from app.cambios_dias import vigente_en
 from app.extensions import db
 from app.models import Alumno
 from app.models_plataforma import Profesor
@@ -49,7 +51,8 @@ def _estados():
 
 def _cantidad_inscriptos():
     cuentas = {}
-    filas = db.session.query(m.Inscripcion.clase_id).filter(m.Inscripcion.hasta.is_(None)).all()
+    # solo los que están anotados hoy: una inscripción que arranca más adelante no cuenta todavía
+    filas = db.session.query(m.Inscripcion.clase_id).filter(vigente_en(recuperaciones.hoy())).all()
     for (clase_id,) in filas:
         cuentas[clase_id] = cuentas.get(clase_id, 0) + 1
     return cuentas
@@ -69,7 +72,7 @@ def listar():
     consulta = (
         db.session.query(m.Inscripcion.clase_id, Alumno.id, Alumno.nombre, m.Inscripcion.desde)
         .join(Alumno, Alumno.id == m.Inscripcion.alumno_id)
-        .filter(m.Inscripcion.hasta.is_(None))
+        .filter(vigente_en(recuperaciones.hoy()))
         .order_by(Alumno.nombre)
     )
     for clase_id, alumno_id, nombre, desde in consulta:

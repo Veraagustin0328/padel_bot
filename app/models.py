@@ -57,14 +57,33 @@ class Pago(db.Model):
     estado = db.Column(db.String(20), default="pendiente") 
 
 class CambioPendiente(db.Model):
+    """Cambios que dependen de alguien más. Dos casos:
+    - reasignacion: propuesta en texto libre del encargado (lo viejo), espera al alumno.
+    - cambio_dias: deja unas clases fijas y pasa a otras desde vigente_desde.
+      Si lo pide el alumno espera al encargado; si lo propone el encargado espera al alumno.
+    Las columnas nuevas las agrega migrar_cambios.py.
+    """
     __tablename__ = "cambios_pendientes"
 
     id = db.Column(db.Integer, primary_key=True)
     alumno_telefono = db.Column(db.String(20), nullable=False, index=True)
-    tipo = db.Column(db.String(30), nullable=False)  # reasignacion, etc.
+    tipo = db.Column(db.String(30), nullable=False)  # reasignacion / cambio_dias
     propuesta = db.Column(db.Text, nullable=False)  # descripción en texto de qué se propone
-    estado = db.Column(db.String(20), default="pendiente")  # pendiente / aceptado / rechazado
+    # pendiente / aceptado (lo viejo) / aprobado / rechazado / cancelado
+    estado = db.Column(db.String(20), default="pendiente")
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id"), nullable=True, index=True)
+    clases_deja = db.Column(db.Text, nullable=True)     # JSON con ids de clase
+    clases_nuevas = db.Column(db.Text, nullable=True)   # JSON con ids de clase
+    vigente_desde = db.Column(db.Date, nullable=True)
+    origen = db.Column(db.String(15), nullable=True)    # alumno / encargado / panel
+    espera = db.Column(db.String(15), nullable=True)    # mientras está pendiente: alumno / encargado
+    pedido_por = db.Column(db.String(120), nullable=True)  # teléfono o nombre de quien lo pidió
+    precio_estimado = db.Column(db.Integer, nullable=True)  # cuota nueva; vacío = sin tarifa exacta
+    motivo_rechazo = db.Column(db.Text, nullable=True)
+    resuelto_en = db.Column(db.DateTime, nullable=True)
+    resuelto_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     
     
 class Recuperacion(db.Model):

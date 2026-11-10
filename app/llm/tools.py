@@ -1,5 +1,6 @@
 from app.planilla import TOOLS_PLANILLA_ALUMNO, TOOLS_PLANILLA_JEFE
 
+DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
 NIVELES = ["1era", "1ra", "2da", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "principiante"]
 
 _TOOLS_BASE = [
@@ -221,8 +222,9 @@ _TOOLS_BASE = [
             "name": "consultar_cupos",
             "description": (
                 "Solo lectura. Devuelve las clases GRUPALES de un día y turno que todavía "
-                "tienen lugar (cupo menos alumnos anotados hoy). Usala cuando pregunten si "
-                "hay lugar, cupo o vacante en un día. No anota a nadie."
+                "tienen lugar (cupo menos alumnos anotados en esa fecha: hoy, o 'desde' si "
+                "lo mandás). Usala cuando pregunten si hay lugar, cupo o vacante en un día. "
+                "No anota a nadie."
             ),
             "parameters": {
                 "type": "object",
@@ -241,6 +243,11 @@ _TOOLS_BASE = [
                         "type": "string",
                         "enum": NIVELES,
                         "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo.",
+                    },
+                    "desde": {
+                        "type": "string",
+                        "description": "Opcional. Si pregunta por lugar más adelante, desde cuándo, "
+                                       "tal cual lo dijo (ej. 'diciembre' o '1/12'). Si no, no lo mandes.",
                     },
                 },
                 "required": ["dia", "franja"],
@@ -271,6 +278,44 @@ _TOOLS_BASE = [
                     "nivel": {"type": "string", "enum": NIVELES, "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo."},
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pedir_cambio_dias",
+            "description": (
+                "El alumno que escribe quiere CAMBIAR los días u horarios fijos que viene "
+                "(ej. 'desde diciembre quiero ir solo los jueves'). No sirve para sumar una clase "
+                "(eso es anotar_en_clase) ni para faltar un día (avisar_ausencia). Busca lugar, "
+                "arma el pedido con la fecha y la cuota nueva y lo deja pendiente para que lo "
+                "apruebe el encargado. No cambia nada hasta que el encargado lo aprueba."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dias_nuevos": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": DIAS_SEMANA},
+                        "description": "Los días que quiere venir de ahora en más.",
+                    },
+                    "hora": {"type": "string", "description": "Opcional. Hora que pidió (ej. '10' o '18:30'), SOLO si la dijo."},
+                    "dias_que_deja": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": DIAS_SEMANA},
+                        "description": "Opcional. Qué días deja, SOLO si dijo que cambia algunos y no todos.",
+                    },
+                    "clase_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Opcional. Ids de clase que te devolvió esta tool como opción, si eligió una.",
+                    },
+                    "desde": {"type": "string", "description": "Opcional. Desde cuándo, tal cual lo dijo (ej. 'diciembre' o '1/12')."},
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir."},
+                    "confirmado": {"type": "boolean", "description": "true SOLO cuando el alumno confirmó el detalle que le pasaste."},
+                },
+                "required": ["dias_nuevos"],
             },
         },
     },
@@ -311,14 +356,24 @@ TOOLS_JEFE = TOOLS_ALUMNO + TOOLS_PLANILLA_JEFE + [
         "type": "function",
         "function": {
             "name": "crear_cambio_pendiente",
-            "description": "Inicia una propuesta que depende de la confirmación de un alumno (ej: reasignar de día u horario).",
+            "description": (
+                "Le propone un cambio a un alumno, que queda pendiente de que él lo confirme. "
+                "Si es un cambio de días u horarios fijos, mandá dias_nuevos (y hora, dias_que_deja "
+                "o desde si los dijiste): se busca lugar y la cuota nueva. Para otra cosa, mandá "
+                "solo la propuesta en texto."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "alumno_nombre": {"type": "string"},
-                    "propuesta": {"type": "string", "description": "Detalle en texto de qué se propone"},
+                    "propuesta": {"type": "string", "description": "Detalle en texto, si no es un cambio de días."},
+                    "dias_nuevos": {"type": "array", "items": {"type": "string", "enum": DIAS_SEMANA}},
+                    "hora": {"type": "string"},
+                    "dias_que_deja": {"type": "array", "items": {"type": "string", "enum": DIAS_SEMANA}},
+                    "clase_ids": {"type": "array", "items": {"type": "integer"}},
+                    "desde": {"type": "string", "description": "Desde cuándo (ej. '1/12'). Por defecto, el 1 del mes que viene."},
                 },
-                "required": ["alumno_nombre", "propuesta"],
+                "required": ["alumno_nombre"],
             },
         },
     },

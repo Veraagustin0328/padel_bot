@@ -7,6 +7,7 @@ from app.llm.client import client, MODEL
 from app.llm.tools import tools_para_rol
 from app import planilla
 from app import recuperaciones as rec
+from app import cambios_dias as cd
 from app.cuotas import (
     DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
 )
@@ -242,6 +243,12 @@ PROMPT_ALUMNO_PARTE_2 = (
     "volvé a llamarla con alumno=<ese nombre>.\n"
     "- Si más abajo ves un 'cambio pendiente', contale de qué se trata y "
     "preguntale si lo acepta; cuando conteste usá resolver_cambio_pendiente.\n"
+    "- Si quiere cambiar los días u horarios fijos que viene ('desde diciembre quiero ir "
+    "solo los jueves'), usá pedir_cambio_dias con los días nuevos (y la hora o desde cuándo "
+    "si lo dijo). Primero te devuelve el detalle con la fecha y la cuota: pasáselo tal cual "
+    "y, cuando diga que sí, volvé a llamarla igual con confirmado=true. Si no hay lugar, "
+    "ofrecele las alternativas que te dé. Nunca digas que el cambio ya está hecho: lo "
+    "aprueba el encargado.\n"
     "\nFormato (obligatorio, tiene prioridad sobre todo lo demás):\n"
     "- Escribí en frases cortas, sin listas. NUNCA uses listas numeradas ni emojis "
     "numerados. Si tenés que preguntar varias cosas, hacelo en una sola frase "
@@ -284,8 +291,9 @@ SALUDO_YA_SALUDASTE = (
 SYSTEM_PROMPT_JEFE = (
     "Sos el asistente interno de Academia Arena Pádel, hablando con el encargado. "
     "Podés ejecutar cambios administrativos como actualizar la categoría de un "
-    "alumno, proponerle un cambio de día/horario (que queda pendiente de que el "
-    "alumno lo confirme), o pausar/reanudar al bot en una conversación puntual. "
+    "alumno, proponerle un cambio de día/horario con crear_cambio_pendiente (mandá "
+    "dias_nuevos si es un cambio de días; queda pendiente de que el alumno lo confirme), "
+    "o pausar/reanudar al bot en una conversación puntual. "
     "También podés ver los comprobantes de pago pendientes (comprobantes_pendientes) "
     "y pasar a la planilla los que el encargado marcó como CONFIRMADO "
     "(aplicar_pagos_confirmados). Sé directo y breve, es un canal de trabajo."
@@ -401,6 +409,16 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
                     "cualquier otra cosa."
                 ),
             })
+        pedido = _pedido_propio_de(telefono)
+        if pedido:
+            mensajes.append({
+                "role": "system",
+                "content": (
+                    f"Este alumno ya pidió un cambio de días que espera la aprobación del "
+                    f"encargado: '{pedido.propuesta}'. Si pregunta, decile que está pendiente. "
+                    "NO digas que está aprobado ni que ya cambió."
+                ),
+            })
 
     # si vuelve vacía o con el "No entendí eso", pruebo una vez más variando un poco
     for intento in range(2):
@@ -453,6 +471,8 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             resultado = _crear_cambio_pendiente(args, es_jefe)
         elif nombre == "resolver_cambio_pendiente":
             resultado = _resolver_cambio_pendiente(telefono, args)
+        elif nombre == "pedir_cambio_dias":
+            resultado = _pedir_cambio_dias(telefono, args)  # el alumno sale del número
         elif nombre == "registrar_alumno":
             resultado = _registrar_alumno(telefono, args)
         elif nombre == "dar_de_baja":
@@ -531,12 +551,23 @@ def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
     t = planilla._tel(telefono)
     if not t:
         return None
+    # solo los que esperan la respuesta del alumno (los viejos no tienen 'espera')
     pendientes = (
         CambioPendiente.query.filter_by(estado="pendiente")
+        .filter(db.or_(CambioPendiente.espera.is_(None), CambioPendiente.espera == "alumno"))
         .order_by(CambioPendiente.creado_en.desc(), CambioPendiente.id.desc())
         .all()
     )
     return next((c for c in pendientes if planilla._tel(c.alumno_telefono) == t), None)
+
+
+def _pedido_propio_de(telefono: str) -> CambioPendiente | None:
+    """El cambio de días que pidió el alumno y todavía no resolvió el encargado."""
+    alumno = _alumno_por_telefono(telefono)
+    if not alumno:
+        return None
+    pedidos = cd.pendientes_del_alumno(alumno.id, espera="encargado")
+    return pedidos[0] if pedidos else None
 
 
 # ---------------------------------------------------------------- tools
@@ -702,9 +733,8 @@ def _nivel_de_clase(nivel_clase: str, canonico: str) -> bool:
 
 
 def _vigente(hoy):
-    # inscripción vigente hoy: desde <= hoy y (sin hasta o hasta >= hoy)
-    return db.and_(Inscripcion.desde <= hoy,
-                   db.or_(Inscripcion.hasta.is_(None), Inscripcion.hasta >= hoy))
+    # mismo criterio que Mis clases: 'hasta' es el primer día que ya no va
+    return cd.vigente_en(hoy)
 
 
 def _anotados_hoy(clase_ids: list[int], hoy) -> dict[int, int]:
@@ -727,7 +757,11 @@ def _consultar_cupos(args: dict) -> dict:
     ambitos = [a for a, f in FRANJA_POR_AMBITO.items() if f == franja]
     nivel = _nivel_canonico(args.get("nivel") or "")
 
+    # si pregunta por más adelante, cuento los anotados en esa fecha (nunca antes de hoy)
     hoy = planilla._ahora().date()
+    desde = cd.leer_fecha(args.get("desde"), hoy)
+    if desde and desde > hoy:
+        hoy = desde
     clases = Clase.query.filter(
         Clase.activa.is_(True), Clase.tipo == "grupal",
         Clase.dia_semana == dia, Clase.ambito.in_(ambitos),
@@ -747,9 +781,11 @@ def _consultar_cupos(args: dict) -> dict:
             con_lugar.append({"clase_id": c.id, "dia": _NOMBRE_DIA[c.dia_semana],
                               "hora": c.hora_inicio.strftime("%H:%M"),
                               "nivel": c.nivel or "sin nivel", "lugares_libres": libres})
+    fecha = {"desde": cd.fecha_corta(hoy)} if desde and desde == hoy else {}
     if not con_lugar:
-        return {"clases_con_lugar": [], "mensaje": f"Las {len(clases)} clases de ese día y turno están llenas. Ofrecé buscar otro día."}
-    return {"clases_con_lugar": con_lugar,
+        return {"clases_con_lugar": [], **fecha,
+                "mensaje": f"Las {len(clases)} clases de ese día y turno están llenas. Ofrecé buscar otro día."}
+    return {"clases_con_lugar": con_lugar, **fecha,
             "mensaje": "Pasale las opciones. Que haya lugar no lo anota: no digas que quedó reservado."}
 
 
@@ -1057,21 +1093,42 @@ def _actualizar_categoria(args: dict, es_jefe: bool) -> dict:
 
 
 def _crear_cambio_pendiente(args: dict, es_jefe: bool) -> dict:
+    """El encargado le propone algo a un alumno; queda esperando que el alumno conteste.
+    Si es un cambio de días usa la misma estructura que pedir_cambio_dias."""
     if not es_jefe:
         return {"error": "No autorizado. Solo el encargado puede proponer cambios."}
 
-    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
+    nombre = (args.get("alumno_nombre") or "").strip()
+    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{nombre}%")).first() if nombre else None
     if not alumno:
-        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
+        return {"error": f"No encontré ningún alumno llamado '{nombre}'"}
 
-    cambio = CambioPendiente(
-        alumno_telefono=alumno.telefono,
-        tipo="reasignacion",
-        propuesta=args["propuesta"],
-    )
-    db.session.add(cambio)
-    db.session.commit()
-    return {"status": "propuesta creada", "cambio_id": cambio.id, "alumno": alumno.nombre}
+    if not (args.get("dias_nuevos") or args.get("clase_ids")):
+        propuesta = (args.get("propuesta") or "").strip()
+        if not propuesta:
+            return {"error": "Falta qué le propongo: los días nuevos (dias_nuevos) o el detalle en texto."}
+        cambio = CambioPendiente(alumno_telefono=alumno.telefono, alumno_id=alumno.id, tipo="reasignacion",
+                                 propuesta=propuesta, origen="encargado", espera="alumno",
+                                 pedido_por="encargado")
+        db.session.add(cambio)
+        db.session.commit()
+        return {"status": "propuesta creada", "cambio_id": cambio.id, "alumno": alumno.nombre}
+
+    hoy = rec.hoy()
+    fecha = cd.leer_fecha(args.get("desde"), hoy) or cd.primero_del_mes_siguiente(hoy)
+    if fecha < hoy:
+        return {"error": f"El {cd.fecha_corta(fecha)} ya pasó: el cambio tiene que arrancar de hoy en adelante."}
+    armado, error = _armar_cambio(alumno, args, fecha)
+    if error:
+        return {**error, "mensaje": "NO se creó la propuesta. Contale esto al encargado con tus palabras."}
+    precio, _ = cd.precio_de(armado["quedan"])
+    cambio = cd.crear(alumno, armado["deja"], armado["nuevas"], fecha, origen="encargado",
+                      espera="alumno", pedido_por="encargado", precio=precio)
+    resultado = {"status": "propuesta creada", "cambio_id": cambio.id, "alumno": alumno.nombre,
+                 "propuesta": cambio.propuesta}
+    if precio is None:
+        resultado["aviso"] = "No hay tarifa exacta para cómo le quedan las clases: la cuota la tenés que ver vos."
+    return resultado
 
 
 def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
@@ -1079,13 +1136,166 @@ def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
     if not cambio:
         return {"error": "No hay ningún cambio pendiente para vos"}
 
-    cambio.estado = "aceptado" if args["decision"] == "si_acepto" else "rechazado"
-    db.session.commit()
-
+    acepta = args.get("decision") == "si_acepto"
     alumno = _alumno_por_telefono(telefono)
     nombre = alumno.nombre if alumno else telefono
+
+    if acepta and cambio.tipo == "cambio_dias":
+        # sigue pendiente, ahora del encargado: lo aplica desde el panel (vuelve a mirar el cupo)
+        cambio.espera = "encargado"
+        db.session.commit()
+        _notificar(f"{nombre} aceptó el cambio de días: {cambio.propuesta} Falta aplicarlo en el panel.",
+                   tipo="cambio_resuelto")
+        return {"status": "aceptado", "propuesta": cambio.propuesta,
+                "mensaje": "Aceptó. Decile que se lo pasás al encargado para que lo deje cargado. "
+                           "NO digas que ya cambió."}
+
+    cambio.estado = "aceptado" if acepta else "rechazado"
+    if not acepta:
+        cambio.motivo_rechazo = "no lo aceptó el alumno"
+    cambio.resuelto_en = datetime.utcnow()
+    db.session.commit()
+
     _notificar(f"{nombre} {cambio.estado} el cambio propuesto: {cambio.propuesta}", tipo="cambio_resuelto")
     return {"status": cambio.estado, "propuesta": cambio.propuesta}
+
+
+# ---------------------------------------------------------------- cambio de días (lo pide el alumno)
+# La lógica (cupos a fecha, precio, guardar) está en app/cambios_dias.py. Acá solo se traduce
+# lo que dice el alumno y se arma el 'decile'. No toca inscripciones: lo aprueba el encargado.
+def _dias_de(valor) -> list[int]:
+    if isinstance(valor, str):
+        valor = re.split(r"[,\s]+(?:y\s+)?", valor)
+    if not isinstance(valor, list):
+        return []
+    return [d for d in (_DIAS.get(planilla._norm(v)) for v in valor) if d is not None]
+
+
+def _ids_de(valor) -> list[int]:
+    if not isinstance(valor, list):
+        valor = [valor] if valor else []
+    return [n for n in (_entero(v) for v in valor) if n]
+
+
+def _filtro_nivel(alumno: Alumno):
+    canonico = _nivel_canonico(alumno.categoria or "")
+    if not canonico:
+        return None
+    return lambda c: not c.nivel or _nivel_de_clase(c.nivel, canonico)
+
+
+def _opciones_txt(clases: list[Clase]) -> str:
+    return ", ".join(f"{cd.texto_clase(c)} ({c.nivel or 'sin nivel'})" for c in clases)
+
+
+def _armar_cambio(alumno: Alumno, args: dict, fecha: date) -> tuple[dict | None, dict | None]:
+    """(armado, None) si está todo; (None, respuesta para el modelo) si falta algo o no hay lugar."""
+    hora = _parsear_hora(args.get("hora")) if args.get("hora") else None
+    r = cd.armar(alumno.id, fecha, _dias_de(args.get("dias_nuevos")), hora=hora,
+                 dias_deja=_dias_de(args.get("dias_que_deja")) or None,
+                 clase_ids=_ids_de(args.get("clase_ids")), nivel_ok=_filtro_nivel(alumno))
+    st = r["status"]
+    desde = f"desde el {cd.fecha_corta(fecha)}"
+    nada = "NO quedó ningún pedido. "
+    if st == "ok":
+        return r, None
+    if st == "sin_clases":
+        return None, {"status": st,
+                      "decile": f"No te encuentro con clases fijas {desde}, así que no tengo días para "
+                                "cambiarte. Si querés te busco lugar para anotarte.",
+                      "mensaje": nada + _RESPUESTA_TOOL}
+    if st == "faltan_dias":
+        return None, {"status": st, "mensaje": nada + "No sé a qué días quiere pasar: preguntale qué "
+                                                      "días quiere venir y volvé a llamar."}
+    if st == "no_tiene_dia":
+        dias = " ni los ".join(_NOMBRE_DIA[d] for d in r["dias"])
+        return None, {"status": st,
+                      "decile": f"No te tengo anotado los {dias}. Hoy venís {cd.texto_clases(r['actuales'])}. "
+                                "¿Cuáles querés cambiar?",
+                      "mensaje": nada + _RESPUESTA_TOOL}
+    if st == "elegir_hora":
+        return None, {"status": st, "opciones": [_datos_clase(c) for c in r["opciones"]],
+                      "decile": f"El {_NOMBRE_DIA[r['dia']]} {desde} tengo lugar en {_opciones_txt(r['opciones'])}. "
+                                "¿Cuál te queda mejor?",
+                      "mensaje": nada + "Cuando elija, volvé a llamar con los mismos datos y "
+                                        "clase_ids=[el clase_id que eligió]."}
+    if st == "sin_cupo":
+        alts = r["alternativas"][:6]
+        decile = f"El {_NOMBRE_DIA[r['dia']]} no hay lugar {desde}. "
+        decile += (f"Con lugar tengo {_opciones_txt(alts)}. ¿Te sirve alguno?" if alts else
+                   "Y en tu turno no me queda otro día con lugar: si querés le paso tu consulta al encargado.")
+        return None, {"status": st, "alternativas": [_datos_clase(c) for c in alts], "decile": decile,
+                      "mensaje": nada + "No hay lista de espera. Si elige una alternativa, volvé a llamar "
+                                        "con esos días (o clase_ids=[el clase_id])."}
+    return None, {"status": st,
+                  "decile": f"Con eso te quedan los mismos días que ya tenés ({cd.texto_clases(r['actuales'])}), "
+                            "no hay nada para cambiar.",
+                  "mensaje": nada + _RESPUESTA_TOOL}
+
+
+def _resumen_cambio(armado: dict, fecha: date) -> str:
+    partes = []
+    if armado["deja"]:
+        partes.append(f"dejás {cd.texto_clases(armado['deja'])}")
+    if armado["nuevas"]:
+        partes.append(f"pasás a {cd.texto_clases(armado['nuevas'])}")
+    return f"desde el {cd.fecha_corta(fecha)} " + " y ".join(partes)
+
+
+def _pedir_cambio_dias(telefono: str, args: dict) -> dict:
+    alumno, error = _elegir_alumno(telefono, args.get("alumno"))
+    if error:
+        return error
+
+    hoy = rec.hoy()
+    minima = cd.vigencia_minima(hoy)
+    fecha = minima
+    pedida = cd.leer_fecha(args.get("desde"), hoy)
+    if pedida:
+        pedida = pedida.replace(day=1)  # los cambios arrancan a principio de mes
+        if pedida < minima:
+            # ya pasó el plazo para ese mes: no se promete nada, lo ve el encargado
+            _notificar(f"{alumno.nombre} ({telefono}) quiere cambiar de días desde el {cd.fecha_corta(pedida)}, "
+                       f"fuera de plazo. Días que pidió: {', '.join(map(str, args.get('dias_nuevos') or [])) or '?'}",
+                       tipo="cambio_dias")
+            return {"status": "fuera_de_plazo",
+                    "decile": f"El plazo para cambiar los días desde el {cd.fecha_corta(pedida)} ya pasó, así que "
+                              "eso no te lo puedo confirmar yo. Ya le pasé tu pedido al encargado para que lo vea "
+                              "y te escriba.",
+                    "mensaje": "NO quedó ningún pedido y no prometas nada. " + _RESPUESTA_TOOL}
+        fecha = pedida
+
+    armado, error = _armar_cambio(alumno, args, fecha)
+    if error:
+        return error
+
+    resumen = _resumen_cambio(armado, fecha)
+    quedan = cd.texto_clases(armado["quedan"])
+    precio, _ = cd.precio_de(armado["quedan"])
+    if precio is None:
+        # nunca inventar precios: sin tarifa exacta lo ve el encargado
+        _notificar(f"{alumno.nombre} ({telefono}) quiere cambiar de días ({resumen}), pero no hay tarifa "
+                   f"exacta para quedar con {quedan}. Lo tenés que ver vos.", tipo="cambio_dias")
+        return {"status": "derivado",
+                "decile": f"Para quedar con {quedan} no tengo un precio cargado, así que se lo paso al "
+                          "encargado para que te confirme el cambio y la cuota.",
+                "mensaje": "NO quedó ningún pedido y NO des ningún precio. " + _RESPUESTA_TOOL}
+
+    que = f"{resumen}. Te quedarían {quedan} y la cuota pasa a {_pesos(precio)} por mes"
+    if not (_si(args.get("confirmado")) and _fecha_ya_dicha(telefono, fecha)):
+        return {"status": "confirmar", "vigente_desde": cd.fecha_corta(fecha), "cuota_nueva": precio,
+                "decile": f"Te lo dejo así: {que}. ¿Lo confirmo? Después lo aprueba el encargado \U0001F60A",
+                "mensaje": "Todavía NO quedó ningún pedido. Pasale el detalle tal cual, con la fecha. Si dice "
+                           "que sí, volvé a llamar con los mismos datos y confirmado=true."}
+
+    cambio = cd.crear(alumno, armado["deja"], armado["nuevas"], fecha, origen="alumno",
+                      espera="encargado", pedido_por=telefono, precio=precio)
+    _notificar(f"{alumno.nombre} pidió un cambio de días. {cambio.propuesta} Aprobalo o rechazalo en el panel.",
+               tipo="cambio_dias")
+    return {"status": "pendiente", "cambio_id": cambio.id,
+            "decile": f"¡Listo! Le pasé tu pedido al encargado: {que}. Cuando lo apruebe te avisamos; "
+                      "mientras tanto seguís con tus días de siempre.",
+            "mensaje": "El pedido quedó PENDIENTE, no aprobado. " + _RESPUESTA_TOOL}
 
 
 def _registrar_alumno(telefono: str, args: dict) -> dict:
