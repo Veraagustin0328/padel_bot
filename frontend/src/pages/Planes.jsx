@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { useAuth } from "../auth.jsx";
+import { esDueno } from "../roles.js";
 
 const peso = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const hoy = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -7,6 +9,9 @@ const fechaAR = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
 const numero = (txt) => Number(String(txt).replace(",", "."));
 
 export default function Planes() {
+  // el admin (encargado) solo mira; crear, cargar precios y aumentos es del dueño
+  const { usuario } = useAuth();
+  const editable = esDueno(usuario);
   const [planes, setPlanes] = useState([]);
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
@@ -90,17 +95,21 @@ export default function Planes() {
       <div className="cabecera">
         <div>
           <h1>Planes y precios</h1>
-          <div className="sub">Los cambios quedan con fecha. Los precios viejos no se pisan.</div>
+          <div className="sub">
+            {editable ? "Los cambios quedan con fecha. Los precios viejos no se pisan." : "Los precios los cambia el dueño."}
+          </div>
         </div>
-        <button className="boton claro" onClick={() => setAbierto(!abierto)}>
-          {abierto ? "Cerrar" : "Nuevo plan"}
-        </button>
+        {editable && (
+          <button className="boton claro" onClick={() => setAbierto(!abierto)}>
+            {abierto ? "Cerrar" : "Nuevo plan"}
+          </button>
+        )}
       </div>
 
       {error && <div className="msg-error" role="alert">{error}</div>}
       {aviso && <div className="msg-ok" role="status">{aviso}</div>}
 
-      {abierto && (
+      {editable && abierto && (
         <form className="tarjeta" onSubmit={crearPlan}>
           <h2>Nuevo plan</h2>
           <div className="campos" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
@@ -150,6 +159,7 @@ export default function Planes() {
           ))}
         </section>
 
+        {editable && (
         <section className="tarjeta angosta" aria-label="Subir precios">
           <h2>Subir precios</h2>
           <div className="campos">
@@ -190,6 +200,7 @@ export default function Planes() {
             <button className="boton" onClick={aplicar} disabled={!vista || vista.planes.length === 0}>Aplicar aumento</button>
           </div>
         </section>
+        )}
       </div>
     </>
   );

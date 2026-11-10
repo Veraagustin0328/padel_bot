@@ -11,7 +11,7 @@ from app.extensions import db
 # valores posibles (se validan en el código, no en la base)
 TIPOS_CLASE = ("grupal", "particular", "particular_2", "otro")
 AMBITOS = ("adultos", "adultos_tarde", "sabados", "kids", "kids_pro")
-ROLES = ("admin", "encargado", "profe", "jugador", "tutor")
+ROLES = ("dueno", "encargado", "profe", "jugador", "tutor")
 ESTADOS_ASISTENCIA = ("presente", "ausente", "ausente_avisa")
 
 

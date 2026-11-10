@@ -1,4 +1,4 @@
-"""Faltas, recuperaciones y viajes desde el panel. Todo para encargado (y admin).
+"""Faltas, recuperaciones y viajes desde el panel. Todo para encargado (y dueño).
 
 La lógica de las reglas vive en app/recuperaciones.py; acá solo se lee el pedido,
 se llama y se responde. Lo que se sale de la regla queda pendiente para aprobar.

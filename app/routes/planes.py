@@ -1,7 +1,7 @@
 """
 Planes y precios. Los precios guardan historial: cada cambio es una fila nueva
 con la fecha desde la que rige, nunca se pisa el valor anterior.
-Todas las rutas piden login (encargado o admin).
+Ver: encargado y dueño. Crear, editar, cargar precios y aumentos: solo el dueño.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -129,7 +129,7 @@ def listar_planes():
 
 
 @planes_bp.post("/api/planes")
-@requiere_login("encargado")
+@requiere_login("dueno")
 @_con_validacion
 def crear_plan():
     d = request.get_json(silent=True) or {}
@@ -157,7 +157,7 @@ def crear_plan():
 
 
 @planes_bp.patch("/api/planes/<int:plan_id>")
-@requiere_login("encargado")
+@requiere_login("dueno")
 @_con_validacion
 def editar_plan(plan_id):
     plan = _buscar_plan(plan_id)
@@ -202,7 +202,7 @@ def historial_precios(plan_id):
 
 
 @planes_bp.post("/api/planes/<int:plan_id>/precios")
-@requiere_login("encargado")
+@requiere_login("dueno")
 @_con_validacion
 def cargar_precio(plan_id):
     plan = _buscar_plan(plan_id)
@@ -217,7 +217,7 @@ def cargar_precio(plan_id):
 
 
 @planes_bp.post("/api/planes/aumento")
-@requiere_login("encargado")
+@requiere_login("dueno")
 @_con_validacion
 def aumento_masivo():
     """

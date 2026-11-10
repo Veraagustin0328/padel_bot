@@ -1,7 +1,7 @@
 """
 Novedades del panel: avisos que se ven en el Inicio.
 GET lo puede pedir cualquiera logueado y trae solo las vigentes.
-Crear, editar y borrar: admin y encargado.
+Crear, editar y borrar: dueño y encargado.
 Las vencidas no se muestran pero no se borran solas (quedan de historial).
 """
 import os
@@ -16,7 +16,7 @@ from app.routes.auth import requiere_login
 
 novedades_bp = Blueprint("novedades", __name__)
 
-GESTION = ("admin", "encargado")
+GESTION = ("dueno", "encargado")
 TITULO_MAX = 120
 TEXTO_MAX = 2000
 # configurable por club; por defecto hora argentina

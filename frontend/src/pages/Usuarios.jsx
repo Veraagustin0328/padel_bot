@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { useAuth } from "../auth.jsx";
+import { nombreRol } from "../roles.js";
 
 export default function Usuarios() {
-  const { usuario: yo } = useAuth();
   const [lista, setLista] = useState(null);
   const [error, setError] = useState("");
   const [nueva, setNueva] = useState(null); // { nombre, password }: se muestra una sola vez
@@ -48,9 +47,10 @@ export default function Usuarios() {
           <div key={u.id} className="tarjeta usuario-fila">
             <div>
               <strong>{u.nombre}</strong>
-              <div className="sub">{u.email} · {u.rol}{!u.activo && " · inactivo"}</div>
+              <div className="sub">{u.email} · {nombreRol(u.rol)}{!u.activo && " · inactivo"}</div>
             </div>
-            {u.id !== yo.id && (
+            {/* el backend dice a quién se puede: el admin no resetea a dueños ni a otros admins */}
+            {u.puede_resetear && (
               <button className="boton chico claro" disabled={ocupado === u.id} onClick={() => resetear(u)}>
                 Resetear contraseña
               </button>

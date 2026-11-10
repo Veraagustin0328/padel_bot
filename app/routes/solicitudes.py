@@ -1,5 +1,6 @@
 """
-Solicitudes de acceso al panel (gente que se registró por link). Solo el admin.
+Solicitudes de acceso al panel (gente que se registró por link). Dueño y encargado.
+El encargado solo aprueba profe, jugador y tutor; dueño y encargado los da el dueño.
 Aprobar = darle rol y vínculo (profe -> profesor_id, jugador/tutor -> alumno_usuario).
 Rechazar = queda marcada en usuario_perfil y no entra.
 """
@@ -11,12 +12,12 @@ from app.extensions import db
 from app.models import Alumno
 from app.models_plataforma import Usuario, Profesor
 from app.models_academia import UsuarioPerfil, AlumnoUsuario
-from app.routes.auth import requiere_login
+from app.routes.auth import requiere_login, puede_tocar_rol
 
 solicitudes_bp = Blueprint("solicitudes", __name__)
 
-# roles que se pueden dar desde acá (admin no: eso queda para el script)
-ROLES = ("encargado", "profe", "jugador", "tutor")
+# roles que se pueden dar desde acá (cuáles puede cada uno lo decide puede_tocar_rol)
+ROLES = ("dueno", "encargado", "profe", "jugador", "tutor")
 MAX_TUTORES = 2  # padre, madre o tutor por chico
 RELACIONES_TUTOR = ("padre", "madre", "tutor")
 
@@ -30,7 +31,7 @@ def _pendiente(id_):
 
 
 @solicitudes_bp.get("/api/solicitudes")
-@requiere_login("admin")
+@requiere_login("encargado")
 def listar():
     filas = (
         db.session.query(Usuario)
@@ -47,13 +48,13 @@ def listar():
 
 
 @solicitudes_bp.get("/api/solicitudes/opciones")
-@requiere_login("admin")
+@requiere_login("encargado")
 def opciones():
     """Para los selects del panel: roles, profes y alumnos activos."""
     profes = Profesor.query.filter_by(activo=True).order_by(Profesor.nombre).all()
     alumnos = Alumno.query.filter(Alumno.estado != "baja").order_by(Alumno.nombre).all()
     return jsonify({
-        "roles": list(ROLES),
+        "roles": [r for r in ROLES if puede_tocar_rol(g.usuario, r)],
         "profesores": [{"id": p.id, "nombre": p.nombre} for p in profes],
         "alumnos": [{"id": a.id, "nombre": a.nombre} for a in alumnos],
     })
@@ -73,7 +74,7 @@ def _error(texto):
 
 
 @solicitudes_bp.post("/api/solicitudes/<int:id_>/aprobar")
-@requiere_login("admin")
+@requiere_login("encargado")
 def aprobar(id_):
     u, perfil = _pendiente(id_)
     if not u:
@@ -86,6 +87,8 @@ def aprobar(id_):
 
     if rol not in ROLES:
         return _error("Elegí un rol válido")
+    if not puede_tocar_rol(g.usuario, rol):
+        return jsonify({"error": "Solo el dueño puede dar el rol de dueño o de admin"}), 403
     if "malo" in (profesor_id, alumno_id):
         return _error("El vínculo tiene que ser un id")
 
@@ -107,8 +110,8 @@ def aprobar(id_):
                 return _error("Ese alumno ya tiene una cuenta de jugador vinculada")
             if rol == "tutor" and vinculos.filter(AlumnoUsuario.relacion.in_(RELACIONES_TUTOR)).count() >= MAX_TUTORES:
                 return _error(f"Ese alumno ya tiene {MAX_TUTORES} tutores vinculados")
-    elif profesor_id or alumno_id:  # encargado: sin vínculo
-        return _error("El encargado no lleva vínculo")
+    elif profesor_id or alumno_id:  # dueño y encargado: sin vínculo
+        return _error("Ese rol no lleva vínculo")
 
     u.rol = rol
     u.profesor_id = profesor_id if rol == "profe" else None
@@ -123,7 +126,7 @@ def aprobar(id_):
 
 
 @solicitudes_bp.post("/api/solicitudes/<int:id_>/rechazar")
-@requiere_login("admin")
+@requiere_login("encargado")
 def rechazar(id_):
     u, perfil = _pendiente(id_)
     if not u:

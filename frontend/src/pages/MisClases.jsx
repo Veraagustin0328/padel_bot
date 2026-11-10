@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import { GESTION } from "../roles.js";
 import { MARCA } from "../marca.js";
 import { diaSemana, diasDeSemana, hoyEn, lunesDe, mesDe, numeroDia, sumarDias, ultimoDiaConClases } from "../fechas.js";
 import "./misclases.css";
@@ -154,7 +155,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
 
 export default function MisClases() {
   const { usuario } = useAuth();
-  const verTodas = usuario.rol === "admin" || usuario.rol === "encargado";
+  const verTodas = GESTION.includes(usuario.rol);
   const sinClases = MARCA.diasSinClases || [];
   // "hoy" se calcula una vez al abrir; si queda abierta de un día para el otro, se recarga y listo
   const [hoy] = useState(() => hoyEn(MARCA.zonaHoraria));

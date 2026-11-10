@@ -3,7 +3,7 @@ Login del panel. Devuelve un token (JWT) que el frontend manda en cada pedido:
     Authorization: Bearer <token>
 Las rutas protegidas usan el decorador @requiere_login.
 
-También está el registro por link: la cuenta queda pendiente hasta que el admin
+También está el registro por link: la cuenta queda pendiente hasta que el dueño o un encargado
 la aprueba desde Solicitudes (app/routes/solicitudes.py). El estado va en
 usuario_perfil, así la tabla usuarios no se toca.
 """
@@ -38,6 +38,9 @@ REGISTROS_TOTALES = 30        # ...y en total, por si alguien rota IPs
 VENTANA_SEGUNDOS = 60 * 60    # en una hora
 # la columna rol no acepta vacío; este valor no coincide con ningún rol real
 ROL_PENDIENTE = "pendiente"
+# el dueño entra a todo; el encargado (en el panel se ve como "Admin") a casi todo menos la plata
+ROL_DUENO = "dueno"
+ROLES_ALTOS = ("dueno", "encargado")  # estos solo los da o los toca el dueño
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # cambio de clave: cuántas veces puede errarle a la actual antes de frenarlo
@@ -73,7 +76,8 @@ def _usuario_json(u):
 def requiere_login(*roles):
     """
     @requiere_login()                -> cualquier usuario logueado
-    @requiere_login("encargado")     -> encargado o admin (el admin entra siempre)
+    @requiere_login("encargado")     -> encargado o dueño (el dueño entra siempre)
+    @requiere_login("dueno")         -> solo el dueño (plata)
     """
     def decorador(f):
         @wraps(f)
@@ -91,13 +95,18 @@ def requiere_login(*roles):
             usuario = db.session.get(Usuario, int(datos["sub"]))
             if not usuario or not usuario.activo:
                 return jsonify({"error": "Usuario inactivo"}), 401
-            if roles and usuario.rol != "admin" and usuario.rol not in roles:
+            if roles and usuario.rol != ROL_DUENO and usuario.rol not in roles:
                 return jsonify({"error": "No tenés permiso para esto"}), 403
 
             g.usuario = usuario
             return f(*args, **kwargs)
         return envoltura
     return decorador
+
+
+def puede_tocar_rol(actor, rol):
+    """El encargado solo maneja profe, jugador y tutor. Dueño y encargado los asigna el dueño."""
+    return actor.rol == ROL_DUENO or rol not in ROLES_ALTOS
 
 
 @auth_bp.post("/api/auth/login")
@@ -202,7 +211,7 @@ def registro():
         db.session.rollback()
         return jsonify({"error": "Ya hay una cuenta con ese email"}), 409
 
-    # aviso al admin con el mismo sistema de notificaciones del agente
+    # aviso al dueño/encargado con el mismo sistema de notificaciones del agente
     # el usuario ya quedó guardado: si el aviso falla, solo se loguea
     try:
         from app.llm.agent import _notificar
@@ -278,28 +287,35 @@ def cambiar_password():
 
 
 @auth_bp.get("/api/auth/usuarios")
-@requiere_login("admin")
+@requiere_login("encargado")
 def listar_usuarios():
     """Para la pantalla de Usuarios: los que ya tienen rol (sin solicitudes pendientes)."""
     filas = (Usuario.query.filter(Usuario.rol != ROL_PENDIENTE)
              .order_by(Usuario.nombre).all())
-    return jsonify([{**_usuario_json(u), "activo": bool(u.activo)} for u in filas])
+    yo = g.usuario
+    return jsonify([
+        {**_usuario_json(u), "activo": bool(u.activo),
+         "puede_resetear": u.id != yo.id and puede_tocar_rol(yo, u.rol)}
+        for u in filas
+    ])
 
 
 @auth_bp.post("/api/auth/usuarios/<int:id_>/resetear-password")
-@requiere_login("admin")
+@requiere_login("encargado")
 def resetear_password(id_):
     u = db.session.get(Usuario, id_)
     if not u or u.rol == ROL_PENDIENTE:
         return jsonify({"error": "No encontré ese usuario"}), 404
     if u.id == g.usuario.id:
         return jsonify({"error": "Para tu propia cuenta usá Cambiar contraseña"}), 400
+    if not puede_tocar_rol(g.usuario, u.rol):
+        return jsonify({"error": "La contraseña de un dueño o un admin solo la resetea el dueño"}), 403
 
     clave = "".join(secrets.choice(ALFABETO_CLAVE) for _ in range(LARGO_CLAVE_RESET))
     u.password_hash = generate_password_hash(clave)
     db.session.commit()
     with _candado:
         _fallos_clave.pop(u.id, None)
-    log.info("El admin %s reseteó la contraseña del usuario %s", g.usuario.id, u.id)
+    log.info("El usuario %s reseteó la contraseña del usuario %s", g.usuario.id, u.id)
     # se devuelve una sola vez; no queda guardada en ningún lado
     return jsonify({"ok": True, "id": u.id, "password": clave})

@@ -18,7 +18,7 @@ class Usuario(db.Model):
     nombre = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(160), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    rol = db.Column(db.String(20), nullable=False, default="encargado")  # admin / encargado / profe
+    rol = db.Column(db.String(20), nullable=False, default="encargado")  # dueno / encargado / profe / jugador / tutor
     profesor_id = db.Column(db.Integer, db.ForeignKey("profesores.id"), nullable=True)
     activo = db.Column(db.Boolean, default=True)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)

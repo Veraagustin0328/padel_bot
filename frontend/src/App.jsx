@@ -18,13 +18,13 @@ import Novedades from "./pages/Novedades.jsx";
 import FaltasRecuperaciones from "./pages/FaltasRecuperaciones.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
-
-const GESTION = ["admin", "encargado"];
+import { DUENO, GESTION, nombreRol } from "./roles.js";
 
 // lo que ya está hecho. El profe ve solo Mis clases (el backend igual le da 403 en lo demás)
+// la plata (ganancias, estadísticas, pagos a profes, tarifas por hora) va solo con roles: [DUENO]
 const MENU = [
-  { a: "/", t: "Inicio", roles: ["admin", "encargado", "jugador", "tutor"] },
-  { a: "/mis-clases", t: "Mis clases", roles: ["admin", "encargado", "profe"] },
+  { a: "/", t: "Inicio", roles: [...GESTION, "jugador", "tutor"] },
+  { a: "/mis-clases", t: "Mis clases", roles: [...GESTION, "profe"] },
   { a: "/alumnos", t: "Alumnos", roles: GESTION },
   { a: "/clases", t: "Clases", roles: GESTION },
   { a: "/faltas", t: "Faltas y recuperaciones", roles: GESTION },
@@ -32,11 +32,15 @@ const MENU = [
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
   { a: "/novedades", t: "Novedades", roles: GESTION },
-  { a: "/solicitudes", t: "Solicitudes", roles: ["admin"] },
-  { a: "/usuarios", t: "Usuarios", roles: ["admin"] },
+  { a: "/solicitudes", t: "Solicitudes", roles: GESTION },
+  { a: "/usuarios", t: "Usuarios", roles: GESTION },
 ];
-// lo que viene (se ve apagado para que Gabi sepa que está en camino)
-const PRONTO = ["Profes y horas", "Planificación", "Agente"];
+// lo que viene (se ve apagado para que sepan que está en camino). Profes y horas es plata: solo dueño
+const PRONTO = [
+  { t: "Profes y horas", roles: [DUENO] },
+  { t: "Planificación", roles: GESTION },
+  { t: "Agente", roles: GESTION },
+];
 
 function Layout() {
   const { usuario, salir } = useAuth();
@@ -44,15 +48,15 @@ function Layout() {
   const [abierto, setAbierto] = useState(false);
   const { pathname } = useLocation();
 
-  // cuántas solicitudes de acceso hay sin resolver (solo le importa al admin)
+  // cuántas solicitudes de acceso hay sin resolver (dueño y encargado)
   const [pendientes, setPendientes] = useState(0);
   useEffect(() => {
-    if (usuario.rol !== "admin") return;
+    if (!esGestion) return;
     const contar = () => api("/api/solicitudes").then((l) => setPendientes(l.length)).catch(() => {});
     contar();
     window.addEventListener("solicitudes-cambiaron", contar);
     return () => window.removeEventListener("solicitudes-cambiaron", contar);
-  }, [usuario.rol, pathname]);
+  }, [esGestion, pathname]);
 
   // recuperaciones y viajes que esperan que el encargado los apruebe (muchos los pide el agente)
   const [faltasPend, setFaltasPend] = useState(0);
@@ -95,8 +99,7 @@ function Layout() {
             )}
           </NavLink>
         ))}
-        {esGestion &&
-          PRONTO.map((t) => (
+        {PRONTO.filter((p) => p.roles.includes(usuario.rol)).map(({ t }) => (
             <span key={t} className="item apagado">
               {t}
               <small>pronto</small>
@@ -104,7 +107,7 @@ function Layout() {
           ))}
         <div className="usuario">
           <div className="usuario-nombre">{usuario.nombre}</div>
-          <div className="usuario-rol">{usuario.rol}</div>
+          <div className="usuario-rol">{nombreRol(usuario.rol)}</div>
           <div className="botones">
             {/* es un link: al navegar el cajón del celu se cierra solo */}
             <NavLink to="/cambiar-password" className="boton chico claro">
@@ -176,7 +179,7 @@ export default function App() {
           <Route path="/registro" element={<Registro />} />
           <Route element={<Protegida />}>
             <Route path="/" element={<PaginaInicial />} />
-            <Route path="/mis-clases" element={<SoloRoles roles={["admin", "encargado", "profe"]}><MisClases /></SoloRoles>} />
+            <Route path="/mis-clases" element={<SoloRoles roles={[...GESTION, "profe"]}><MisClases /></SoloRoles>} />
             <Route path="/alumnos" element={<SoloGestion><Alumnos /></SoloGestion>} />
             <Route path="/clases" element={<SoloGestion><Clases /></SoloGestion>} />
             <Route path="/faltas" element={<SoloGestion><FaltasRecuperaciones /></SoloGestion>} />
@@ -184,8 +187,8 @@ export default function App() {
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
             <Route path="/novedades" element={<SoloGestion><Novedades /></SoloGestion>} />
-            <Route path="/solicitudes" element={<SoloRoles roles={["admin"]}><Solicitudes /></SoloRoles>} />
-            <Route path="/usuarios" element={<SoloRoles roles={["admin"]}><Usuarios /></SoloRoles>} />
+            <Route path="/solicitudes" element={<SoloGestion><Solicitudes /></SoloGestion>} />
+            <Route path="/usuarios" element={<SoloGestion><Usuarios /></SoloGestion>} />
             <Route path="/cambiar-password" element={<CambiarPassword />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

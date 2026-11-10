@@ -1,4 +1,4 @@
-"""Mis clases: el profe ve sus clases y marca asistencia. Encargado y admin ven todas.
+"""Mis clases: el profe ve sus clases y marca asistencia. Encargado y dueño ven todas.
 
 La asistencia cuelga de ClaseDictada (una por clase + fecha), así que marcar
 un alumno deja registrada la clase de ese día.
@@ -17,7 +17,7 @@ from app.routes.auth import requiere_login
 
 asistencia_bp = Blueprint("asistencia", __name__)
 
-GESTION = ("admin", "encargado")
+GESTION = ("dueno", "encargado")
 
 
 def _hoy():

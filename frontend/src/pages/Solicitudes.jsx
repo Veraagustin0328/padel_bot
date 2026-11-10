@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-
-const NOMBRE_ROL = { encargado: "Encargado", profe: "Profe", jugador: "Jugador", tutor: "Tutor" };
+import { nombreRol } from "../roles.js";
 
 // avisa al menú que cambió la cantidad de pendientes
 const avisarMenu = () => window.dispatchEvent(new Event("solicitudes-cambiaron"));
@@ -50,7 +49,7 @@ export default function Solicitudes() {
     setOcupado(s.id);
     try {
       await api(`/api/solicitudes/${s.id}/${accion}`, { metodo: "POST", cuerpo });
-      setAviso(accion === "aprobar" ? `${s.nombre} ya puede entrar como ${NOMBRE_ROL[f.rol].toLowerCase()}` : `Rechazaste a ${s.nombre}`);
+      setAviso(accion === "aprobar" ? `${s.nombre} ya puede entrar como ${nombreRol(f.rol).toLowerCase()}` : `Rechazaste a ${s.nombre}`);
       await cargar();
       avisarMenu();
     } catch (e) {
@@ -88,7 +87,7 @@ export default function Solicitudes() {
                   <label htmlFor={`rol-${s.id}`}>Rol</label>
                   <select id={`rol-${s.id}`} value={f.rol} onChange={(e) => cambiar(s, "rol", e.target.value)}>
                     <option value="">Elegí…</option>
-                    {opciones.roles.map((r) => <option key={r} value={r}>{NOMBRE_ROL[r] || r}</option>)}
+                    {opciones.roles.map((r) => <option key={r} value={r}>{nombreRol(r)}</option>)}
                   </select>
                 </div>
                 {vinculos && (
