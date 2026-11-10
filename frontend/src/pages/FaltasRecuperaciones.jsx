@@ -440,6 +440,29 @@ function Viajes({ avisar }) {
   );
 }
 
+// ---------- solapa suelta para la pantalla Pendientes ----------
+
+export function FaltasPendientes() {
+  const [msg, setMsg] = useState(null);
+  const avisar = (texto, error = false) => setMsg({ texto, error });
+  return (
+    <div className="fr">
+      <div className="cabecera">
+        <div>
+          <h1>Faltas y recuperaciones</h1>
+          <div className="sub">Recuperaciones y viajes que esperan tu OK. El historial está en Faltas y viajes.</div>
+        </div>
+      </div>
+      {msg && (
+        <div className={msg.error ? "msg-error" : "msg-ok"} role={msg.error ? "alert" : "status"} onClick={() => setMsg(null)}>
+          {msg.texto}
+        </div>
+      )}
+      <Pendientes avisar={avisar} />
+    </div>
+  );
+}
+
 // ---------- pantalla ----------
 
 export default function FaltasRecuperaciones() {
@@ -456,7 +479,7 @@ export default function FaltasRecuperaciones() {
     <div className="fr">
       <div className="cabecera">
         <div>
-          <h1>Faltas y recuperaciones</h1>
+          <h1>Faltas y viajes</h1>
           <div className="sub">Lo que se sale de la regla queda acá para que decidas vos.</div>
         </div>
       </div>

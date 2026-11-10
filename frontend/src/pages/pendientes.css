@@ -1,0 +1,18 @@
+/* solapas de Pendientes: en el celu se deslizan de costado en vez de romper el renglón */
+.pend-solapas {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+}
+.pend-solapa {
+  flex: none; display: inline-flex; align-items: center; gap: 8px;
+  min-height: 40px; padding: 8px 14px; border-radius: 20px;
+  border: 1px solid #c4c8b8; background: #fff; color: var(--tinta);
+  text-decoration: none; font-weight: 600; white-space: nowrap;
+}
+.pend-solapa:hover { border-color: var(--verde); }
+.pend-solapa.activo { background: var(--verde); border-color: var(--verde); color: #fff; }
+.pend-solapa .contador {
+  min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+  background: var(--pelota); color: #2a2c28; font-size: 12px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}

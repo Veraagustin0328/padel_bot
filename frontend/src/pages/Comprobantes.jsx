@@ -14,6 +14,9 @@ const CONCEPTOS = [
   ["inscripcion", "Inscripción"],
   ["ajuste", "Ajuste"],
 ];
+// el contador del menú: con número lo usa directo, sin número lo vuelve a pedir
+const avisarMenu = (n) => window.dispatchEvent(new CustomEvent("comprobantes-cambiaron", { detail: n }));
+
 const MEDIOS = [
   ["transferencia", "Transferencia"],
   ["mercadopago", "Mercado Pago"],
@@ -31,9 +34,14 @@ export default function Comprobantes() {
   const [ocupado, setOcupado] = useState(null);
   const [resultado, setResultado] = useState(null);
 
-  async function cargar() {
+  // trasCambio: se aprobó, rechazó o desaprobó algo, así el contador del menú se entera
+  async function cargar(trasCambio = false) {
     try {
-      setLista(await api(`/api/comprobantes?estado=${filtro}`));
+      const r = await api(`/api/comprobantes?estado=${filtro}`);
+      setLista(r);
+      // con el filtro en pendientes le paso el número al menú, así no vuelve a leer la planilla
+      if (filtro === "pendiente") avisarMenu(r.length);
+      else if (trasCambio) avisarMenu();
     } catch (e) {
       setError(e.message);
       setLista([]);
@@ -74,7 +82,7 @@ export default function Comprobantes() {
       });
       const nombre = alumnos.find((a) => a.id === Number(valor(c, "alumno_id")))?.nombre || c.alumno || c.telefono;
       setAviso(`Aprobado: ${nombre} por ${peso.format(n)}. Quedó cargado en Cuotas.`);
-      await cargar();
+      await cargar(true);
     } catch (e) {
       setError(e.message);
     }
@@ -88,7 +96,7 @@ export default function Comprobantes() {
     try {
       const r = await api(`/api/comprobantes/${c.id}/${accion}`, { metodo: "POST" });
       setAviso(ok + (r.pago_borrado ? " Se borró el pago que había generado en Cuotas." : ""));
-      await cargar();
+      await cargar(true);
     } catch (e) {
       setError(e.message);
     }
@@ -125,7 +133,7 @@ export default function Comprobantes() {
           </button>
         ))}
         <span className="cmp-espacio" />
-        <button className="boton chico claro" onClick={cargar}>Actualizar</button>
+        <button className="boton chico claro" onClick={() => cargar()}>Actualizar</button>
         <button className="boton chico" onClick={aplicar} disabled={ocupado === "aplicar"}>
           {ocupado === "aplicar" ? "Pasando…" : "Pasar confirmados a la planilla"}
         </button>
