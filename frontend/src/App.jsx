@@ -18,6 +18,7 @@ import Novedades from "./pages/Novedades.jsx";
 import FaltasRecuperaciones from "./pages/FaltasRecuperaciones.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
+import Notas from "./pages/Notas.jsx";
 import { DUENO, GESTION, nombreRol } from "./roles.js";
 
 // lo que ya está hecho. El profe ve solo Mis clases (el backend igual le da 403 en lo demás)
@@ -32,6 +33,7 @@ const MENU = [
   { a: "/comprobantes", t: "Comprobantes", roles: GESTION },
   { a: "/planes", t: "Planes y precios", roles: GESTION },
   { a: "/novedades", t: "Novedades", roles: GESTION },
+  { a: "/notas", t: "Notas", roles: GESTION },
   { a: "/solicitudes", t: "Solicitudes", roles: GESTION },
   { a: "/usuarios", t: "Usuarios", roles: GESTION },
 ];
@@ -187,6 +189,7 @@ export default function App() {
             <Route path="/comprobantes" element={<SoloGestion><Comprobantes /></SoloGestion>} />
             <Route path="/planes" element={<SoloGestion><Planes /></SoloGestion>} />
             <Route path="/novedades" element={<SoloGestion><Novedades /></SoloGestion>} />
+            <Route path="/notas" element={<SoloGestion><Notas /></SoloGestion>} />
             <Route path="/solicitudes" element={<SoloGestion><Solicitudes /></SoloGestion>} />
             <Route path="/usuarios" element={<SoloGestion><Usuarios /></SoloGestion>} />
             <Route path="/cambiar-password" element={<CambiarPassword />} />

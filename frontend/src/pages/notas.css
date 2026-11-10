@@ -1,0 +1,43 @@
+/* notas: primero celu, en pantalla grande se acomoda solo */
+.notas { display: flex; flex-direction: column; gap: 16px; }
+.notas-form { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 16px; }
+.notas-form textarea {
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 10px; width: 100%; resize: vertical;
+  font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif;
+}
+.notas-check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+.notas-check input { width: 20px; height: 20px; }
+.notas-form .botones { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.notas-form .boton { width: 100%; }
+
+.notas-filtros { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.notas-filtros input, .notas-filtros select {
+  min-height: 44px; border: 1px solid #c4c8b8; border-radius: 8px; padding: 8px 12px; width: 100%;
+  font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif; background: #fff;
+}
+
+.notas-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.notas-item {
+  background: var(--tarjeta); border: 1px solid var(--linea); border-left: 4px solid var(--suave);
+  border-radius: 8px; padding: 12px 14px;
+}
+.notas-item.fijada { border-left-color: var(--pelota); }
+.notas-arriba { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.notas-arriba strong { overflow-wrap: anywhere; }
+.notas-chip {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  background: var(--fondo); color: var(--suave); border-radius: 6px; padding: 2px 8px;
+}
+.notas-alumno { color: var(--azul); font-size: 13px; font-weight: 600; margin-top: 4px; }
+.notas-texto { margin: 6px 0; white-space: pre-line; overflow-wrap: anywhere; }
+.notas-pie { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.notas-acciones { display: flex; gap: 8px; }
+.notas-acciones .boton { flex: 1; }
+
+@media (min-width: 821px) {
+  .notas-filtros { grid-template-columns: 2fr 1fr; }
+  .notas-form .botones { flex-direction: row; }
+  .notas-form .boton { width: auto; }
+  .notas-pie { flex-direction: row; align-items: center; justify-content: space-between; }
+  .notas-acciones .boton { flex: none; }
+}

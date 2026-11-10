@@ -265,3 +265,17 @@ class Novedad(db.Model):
     publicada_desde = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     visible_hasta = db.Column(db.Date, nullable=True, index=True)  # inclusive; vacío = sin vencimiento
     creada_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+
+
+class Nota(db.Model):
+    """Notas internas de dueño y encargado. Pueden ir atadas a un alumno o sueltas."""
+    __tablename__ = "notas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(120), nullable=False)
+    texto = db.Column(db.Text, nullable=True)
+    alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id"), nullable=True, index=True)
+    creada_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    fijada = db.Column(db.Boolean, nullable=False, default=False)
+    creada_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    actualizada_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
