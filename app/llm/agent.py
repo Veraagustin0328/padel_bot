@@ -17,7 +17,7 @@ from app.models_academia import AusenciaLapso, Clase, ConfigAcademia, Inscripcio
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
     ClaseSuelta, Conversacion, Alumno,
-    CambioPendiente, Notificacion, EstadoChat,
+    CambioPendiente, Notificacion,
 )
 
 MAX_HISTORIAL = 10
@@ -616,7 +616,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
 
 
 def esta_pausado(telefono: str) -> bool:
-    estado = EstadoChat.query.filter_by(telefono=telefono).first()
+    estado = contactos.estado_chat(telefono)  # por tel10, venga con 549 o sin
     return bool(estado and estado.modo == "humano")
 
 
@@ -2089,33 +2089,46 @@ def _dar_de_baja(telefono: str, args: dict) -> dict:
     return {"status": "baja registrada", "alumno": alumno.nombre}
 
 
+def _alumno_para_pausa(nombre: str):
+    """(alumno, error). Si el nombre coincide con varios no elijo: devuelvo la lista para que precise.
+    Si uno coincide justo con el nombre completo, ese."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return None, {"error": "Decime de qué alumno."}
+    candidatos = Alumno.query.filter(Alumno.nombre.ilike(f"%{nombre}%")).order_by(Alumno.nombre).all()
+    if not candidatos:
+        return None, {"error": f"No encontré ningún alumno llamado '{nombre}'"}
+    if len(candidatos) == 1:
+        return candidatos[0], None
+    exactos = [a for a in candidatos if a.nombre.strip().lower() == nombre.lower()]
+    if len(exactos) == 1:
+        return exactos[0], None
+    return None, {"error": "Hay varios alumnos con ese nombre, no pausé ni reanudé nada. Preguntale cuál.",
+                  "coincidencias": [a.nombre for a in candidatos]}
+
+
+def _cambiar_modo_alumno(args: dict, modo: str) -> dict:
+    """Pone el modo en todos los números del alumno (propio, papá, mamá...)."""
+    alumno, error = _alumno_para_pausa(args.get("alumno_nombre"))
+    if error:
+        return error
+    telefonos = contactos.telefonos_de_alumno(alumno)
+    if not telefonos:
+        return {"error": f"{alumno.nombre} no tiene ningún teléfono cargado."}
+    for t, _ in telefonos:
+        contactos.estado_chat(t, crear=True).modo = modo
+    db.session.commit()
+    return {"status": "pausado" if modo == "humano" else "reanudado", "alumno": alumno.nombre,
+            "telefonos": [f"{t} ({etiqueta})" for t, etiqueta in telefonos]}
+
+
 def _pausar_bot(args: dict, es_jefe: bool) -> dict:
     if not es_jefe:
         return {"error": "No autorizado."}
-
-    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
-    if not alumno:
-        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
-
-    estado = EstadoChat.query.filter_by(telefono=alumno.telefono).first()
-    if not estado:
-        estado = EstadoChat(telefono=alumno.telefono)
-        db.session.add(estado)
-    estado.modo = "humano"
-    db.session.commit()
-    return {"status": "pausado", "alumno": alumno.nombre}
+    return _cambiar_modo_alumno(args, "humano")
 
 
 def _reanudar_bot(args: dict, es_jefe: bool) -> dict:
     if not es_jefe:
         return {"error": "No autorizado."}
-
-    alumno = Alumno.query.filter(Alumno.nombre.ilike(f"%{args['alumno_nombre']}%")).first()
-    if not alumno:
-        return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
-
-    estado = EstadoChat.query.filter_by(telefono=alumno.telefono).first()
-    if estado:
-        estado.modo = "bot"
-        db.session.commit()
-    return {"status": "reanudado", "alumno": alumno.nombre}
+    return _cambiar_modo_alumno(args, "bot")

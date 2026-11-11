@@ -404,7 +404,7 @@ TOOLS_JEFE = TOOLS_ALUMNO + TOOLS_PLANILLA_JEFE + [
         "type": "function",
         "function": {
             "name": "pausar_bot",
-            "description": "Pausa al bot en la conversación de un alumno puntual, para que el encargado responda a mano por un rato.",
+            "description": "Pausa al bot en la conversación de un alumno puntual (todos sus números: propio, papá, mamá), para que el encargado responda a mano por un rato. Si hay varios alumnos con ese nombre devuelve la lista: preguntale cuál.",
             "parameters": {
                 "type": "object",
                 "properties": {"alumno_nombre": {"type": "string"}},
@@ -416,7 +416,7 @@ TOOLS_JEFE = TOOLS_ALUMNO + TOOLS_PLANILLA_JEFE + [
         "type": "function",
         "function": {
             "name": "reanudar_bot",
-            "description": "Reactiva al bot en la conversación de un alumno, para que vuelva a responder automáticamente.",
+            "description": "Reactiva al bot en la conversación de un alumno (todos sus números), para que vuelva a responder automáticamente.",
             "parameters": {
                 "type": "object",
                 "properties": {"alumno_nombre": {"type": "string"}},

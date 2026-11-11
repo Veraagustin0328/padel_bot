@@ -42,11 +42,37 @@ def crear_contacto(alumno: Alumno, telefono, parentesco="propio", nombre=None) -
     return c
 
 
-# ---------- alumno activo de la charla ----------
+# ---------- estado de la charla (pausa y alumno activo) ----------
+# La clave es tel10: WhatsApp manda 549..., en la base suele estar sin 549, y así da lo mismo.
+
+def estado_chat(telefono, crear: bool = False) -> EstadoChat | None:
+    """La fila de EstadoChat de este número. Con crear=True la agrega si no está (el commit lo hace quien llama)."""
+    t = tel10(telefono)
+    if len(t) < 10:
+        return None
+    estado = EstadoChat.query.filter_by(telefono=t).first()
+    if not estado and crear:
+        estado = EstadoChat(telefono=t)
+        db.session.add(estado)
+    return estado
+
+
+def telefonos_de_alumno(alumno: Alumno) -> list[tuple[str, str]]:
+    """Todos los números del alumno como (tel10, etiqueta): sus contactos y Alumno.telefono
+    por si es de antes de los contactos. Sin repetidos."""
+    vistos = {}
+    for c in ContactoAlumno.query.filter_by(alumno_id=alumno.id).order_by(ContactoAlumno.id).all():
+        if len(c.tel10) == 10 and c.tel10 not in vistos:
+            vistos[c.tel10] = c.nombre or c.parentesco
+    t = tel10(alumno.telefono)
+    if len(t) == 10 and t not in vistos:
+        vistos[t] = "propio"
+    return list(vistos.items())
+
 
 def alumno_activo(telefono, alumnos: list[Alumno], horas: int) -> Alumno | None:
     """El que quedó elegido en la charla, si no venció y sigue siendo de este número."""
-    estado = EstadoChat.query.filter_by(telefono=telefono).first()
+    estado = estado_chat(telefono)
     if not estado or not estado.alumno_activo_id or not estado.alumno_activo_en:
         return None
     if estado.alumno_activo_en < datetime.utcnow() - timedelta(hours=horas):
@@ -55,10 +81,9 @@ def alumno_activo(telefono, alumnos: list[Alumno], horas: int) -> Alumno | None:
 
 
 def fijar_alumno_activo(telefono, alumno_id: int) -> None:
-    estado = EstadoChat.query.filter_by(telefono=telefono).first()
+    estado = estado_chat(telefono, crear=True)
     if not estado:
-        estado = EstadoChat(telefono=telefono)
-        db.session.add(estado)
+        return
     estado.alumno_activo_id = alumno_id
     estado.alumno_activo_en = datetime.utcnow()
     db.session.commit()
