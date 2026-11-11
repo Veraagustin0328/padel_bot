@@ -26,7 +26,7 @@ ENC = planilla.ENC_COMPROBANTES
 def _indices_alumnos():
     """Teléfono (últimos 10) -> [ids] y nombre normalizado -> [ids], para no consultar por cada fila.
     El teléfono sale del alumno y de sus contactos (padre, madre, tutor)."""
-    por_tel, por_nombre = {}, {}
+    por_tel, por_nombre, nombre_de = {}, {}, {}
 
     def sumar(t, alumno_id):
         ids = por_tel.setdefault(t, [])  # lista: papás con varios hijos comparten tel
@@ -38,16 +38,17 @@ def _indices_alumnos():
         if t:
             sumar(t, a.id)
         por_nombre.setdefault(planilla._norm(a.nombre), []).append(a.id)
+        nombre_de[a.id] = planilla._norm(a.nombre)
     for alumno_id, t in db.session.query(ContactoAlumno.alumno_id, ContactoAlumno.tel10):
         sumar(t, alumno_id)
-    return por_tel, por_nombre
+    return por_tel, por_nombre, nombre_de
 
 
 def _alumno_de(f, indices):
     """Primero por teléfono; si no, por nombre exacto y solo si hay uno.
     Si el tel es de varios alumnos, el nombre de la fila elige entre esos; si no alcanza
     (o es de los dos hermanos) devuelvo None: que elijan a mano."""
-    por_tel, por_nombre = indices
+    por_tel, por_nombre, _ = indices
     t = planilla._tel(f.get("TELEFONO"))
     ids_nombre = por_nombre.get(planilla._norm(f.get("ALUMNO")), [])
     if t and t in por_tel:
@@ -57,6 +58,14 @@ def _alumno_de(f, indices):
         entre = [i for i in ids_nombre if i in ids_tel]
         return entre[0] if len(entre) == 1 else None
     return ids_nombre[0] if len(ids_nombre) == 1 else None
+
+
+def _varios_alumnos(f, indices):
+    """True si la fila es de más de un hijo del número (el agente la anota 'Juan Perez y Sofia Perez')."""
+    por_tel, _, nombre_de = indices
+    ids_tel = por_tel.get(planilla._tel(f.get("TELEFONO")), [])
+    quien = planilla._norm(f.get("ALUMNO"))
+    return len(ids_tel) > 1 and sum(1 for i in ids_tel if nombre_de.get(i) and nombre_de[i] in quien) > 1
 
 
 def _mes_de(f):
@@ -105,6 +114,7 @@ def _a_json(f, indices, pagos):
         "mes": f.get("MES", ""),
         "estado": planilla._norm(f.get("ESTADO")),
         "alumno_id": _alumno_de(f, indices),           # None si no lo pude identificar
+        "varios_alumnos": _varios_alumnos(f, indices),  # pago de hermanos juntos: hasta poder dividirlo, aviso
         "mes_iso": mes.strftime("%Y-%m") if mes else None,
         "pago_id": pagos.get(f["_fila"]),               # el PagoCuota que generó, si hay
     }

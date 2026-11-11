@@ -23,4 +23,5 @@
 .cmp-resultado ul { margin: 6px 0 0; padding-left: 20px; }
 @media (max-width: 600px) { .cmp-input { width: 100%; } }.cmp-select { padding: 7px 10px; border: 1px solid var(--linea); border-radius: 8px; font: inherit; background: var(--tarjeta); max-width: 100%; }
 .cmp-falta { color: var(--mal); font-size: .85rem; font-weight: 600; }
+.cmp-varios { background: #fef3c7; color: #92400e; font-size: .85rem; font-weight: 600; padding: 8px 12px; border-radius: 8px; }
 .cmp-origen { color: var(--suave); font-size: .85rem; }

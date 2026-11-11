@@ -184,6 +184,10 @@ export default function Comprobantes() {
 
                 {c.estado === "pendiente" && (
                   <>
+                    {/* temporal, hasta que se pueda dividir el pago entre los hermanos */}
+                    {c.varios_alumnos && (
+                      <div className="cmp-varios">Pago de varios hijos: confirmalo con el monto de uno y cargá el otro en Cuotas.</div>
+                    )}
                     {falta.length > 0 && (
                       <div className="cmp-falta">No pude identificar {falta.join(" ni ")}: elegilo antes de aprobar.</div>
                     )}
