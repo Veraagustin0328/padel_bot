@@ -145,7 +145,7 @@ export default function App() {
               <Route key={a} path={a} element={<SoloRoles roles={roles}><Pagina /></SoloRoles>} />
             ))}
             {/* rutas de antes: van a su solapa de Pendientes */}
-            {SOLAPAS_PENDIENTES.map((s) => (
+            {SOLAPAS_PENDIENTES.filter((s) => s.viejo).map((s) => (
               <Route key={s.viejo} path={s.viejo} element={<Navigate to={`/pendientes/${s.clave}`} replace />} />
             ))}
             <Route path="/cambiar-password" element={<CambiarPassword />} />

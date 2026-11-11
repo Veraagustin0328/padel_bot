@@ -8,6 +8,7 @@ import Novedades from "./pages/Novedades.jsx";
 import FaltasRecuperaciones, { FaltasPendientes } from "./pages/FaltasRecuperaciones.jsx";
 import CambiosDias from "./pages/CambiosDias.jsx";
 import Comprobantes from "./pages/Comprobantes.jsx";
+import Consultas from "./pages/Consultas.jsx";
 import Planes from "./pages/Planes.jsx";
 import Solicitudes from "./pages/Solicitudes.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
@@ -22,6 +23,11 @@ export const SOLAPAS_PENDIENTES = [
   {
     clave: "comprobantes", t: "Comprobantes", roles: GESTION, pagina: Comprobantes, viejo: "/comprobantes",
     contar: { url: "/api/comprobantes?estado=pendiente", leer: (l) => l.length, evento: "comprobantes-cambiaron", lento: true },
+  },
+  {
+    // sin `viejo`: es nueva, no tiene ruta de antes
+    clave: "consultas", t: "Consultas", roles: GESTION, pagina: Consultas,
+    contar: { url: "/api/consultas/pendientes", leer: (d) => d.total, evento: "consultas-cambiaron" },
   },
   {
     clave: "cambios-dias", t: "Cambios de días", roles: GESTION, pagina: CambiosDias, viejo: "/cambios-dias",
