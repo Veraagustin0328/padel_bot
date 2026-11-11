@@ -102,7 +102,8 @@ def _recibir_comprobante(telefono: str, data: dict, tipo: str):
         mes = planilla.MESES[planilla._ahora().month - 1].capitalize()
         _notificar(f"Comprobante de {nombre or telefono} ({telefono}), {mes}, monto: "
                    f"{_pesos(monto) if monto else 'sin detectar'}. No se pudo anotar en la "
-                   "planilla: cargalo a mano en la pestaña comprobantes.", tipo="comprobante")
+                   "planilla: cargalo a mano en la pestaña comprobantes.", tipo="comprobante",
+                   telefono=telefono, tema="comprobante")
 
     encargado = os.environ.get("ENCARGADO_TELEFONO", "").strip()
     if encargado and media_id:

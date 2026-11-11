@@ -586,8 +586,10 @@ def _corregir_nombre_tool(nombre: str, conocidas: set[str]) -> tuple[str, dict |
     return nombre, None  # cae en 'Tool desconocida'
 
 
-def _notificar(mensaje: str, tipo: str) -> None:
-    db.session.add(Notificacion(mensaje=mensaje, tipo=tipo))
+def _notificar(mensaje: str, tipo: str, telefono: str = None, tema: str = None) -> None:
+    # telefono y tema solo los pasan las que van a la solapa Consultas
+    db.session.add(Notificacion(mensaje=mensaje, tipo=tipo, telefono=telefono,
+                                tema=(tema or None) and tema[:80]))
     db.session.commit()
 
 
@@ -920,10 +922,8 @@ def _derivar_al_encargado(telefono: str, args: dict, texto: str) -> dict:
     resumen = str(args.get("consulta") or "").strip()[:200]
     if resumen and planilla._norm(resumen) != planilla._norm(consulta):
         consulta = f"{consulta} (resumen: {resumen})" if consulta else resumen
-    a = _alumno_por_telefono(telefono)
-    quien = f"{a.nombre} ({telefono})" if a else telefono
-    _notificar(f"Consulta para el encargado de {quien}. Tema: {tema}. Consulta: {consulta or '(sin detalle)'}",
-               tipo="consulta_derivada")
+    # el nombre lo arma el panel con el teléfono; en el mensaje va la consulta tal cual
+    _notificar(consulta or "(sin detalle)", tipo="consulta_derivada", telefono=telefono, tema=tema)
     return {"ok": True,
             "decile": "Eso lo maneja el encargado: ya le pasé tu consulta y se comunica con vos.",
             "mensaje": "Contale solo eso, con buena onda. NO des precios, horarios, disponibilidad ni "
@@ -1398,9 +1398,10 @@ def _pedir_cambio_dias(telefono: str, args: dict) -> dict:
         pedida = pedida.replace(day=1)  # los cambios arrancan a principio de mes
         if pedida < minima:
             # ya pasó el plazo para ese mes: no se promete nada, lo ve el encargado
-            _notificar(f"{alumno.nombre} ({telefono}) quiere cambiar de días desde el {cd.fecha_corta(pedida)}, "
-                       f"fuera de plazo. Días que pidió: {', '.join(map(str, args.get('dias_nuevos') or [])) or '?'}",
-                       tipo="cambio_dias")
+            # no queda pedido: va a Consultas para que el encargado le conteste
+            _notificar(f"Quiere cambiar de días desde el {cd.fecha_corta(pedida)}, fuera de plazo. "
+                       f"Días que pidió: {', '.join(map(str, args.get('dias_nuevos') or [])) or '?'}",
+                       tipo="consulta_derivada", telefono=telefono, tema="cambio de dias")
             return {"status": "fuera_de_plazo",
                     "decile": f"El plazo para cambiar los días desde el {cd.fecha_corta(pedida)} ya pasó, así que "
                               "eso no te lo puedo confirmar yo. Ya le pasé tu pedido al encargado para que lo vea "
@@ -1417,8 +1418,9 @@ def _pedir_cambio_dias(telefono: str, args: dict) -> dict:
     precio, _ = cd.precio_de(armado["quedan"])
     if precio is None:
         # nunca inventar precios: sin tarifa exacta lo ve el encargado
-        _notificar(f"{alumno.nombre} ({telefono}) quiere cambiar de días ({resumen}), pero no hay tarifa "
-                   f"exacta para quedar con {quedan}. Lo tenés que ver vos.", tipo="cambio_dias")
+        _notificar(f"Quiere cambiar de días ({resumen}), pero no hay tarifa exacta para quedar con "
+                   f"{quedan}. Lo tenés que ver vos.",
+                   tipo="consulta_derivada", telefono=telefono, tema="cambio de dias")
         return {"status": "derivado",
                 "decile": f"Para quedar con {quedan} no tengo un precio cargado, así que se lo paso al "
                           "encargado para que te confirme el cambio y la cuota.",

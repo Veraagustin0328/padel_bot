@@ -105,6 +105,12 @@ class Notificacion(db.Model):
     tipo = db.Column(db.String(30), nullable=False)  # alta_alumno, cambio_resuelto, etc.
     leida = db.Column(db.Boolean, default=False)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # para la solapa Consultas (las columnas las agrega migrar_notificaciones.py)
+    telefono = db.Column(db.String(20), nullable=True, index=True)  # a quién contestarle
+    tema = db.Column(db.String(80), nullable=True)
+    resuelta_en = db.Column(db.DateTime, nullable=True)  # vacío = abierta
+    resuelta_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     
 class EstadoChat(db.Model):
     __tablename__ = "estados_chat"
