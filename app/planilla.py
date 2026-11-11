@@ -145,8 +145,25 @@ def registrar_contacto_nuevo(telefono, nombre="", nivel="", consulta=""):
     return {"ok": True, "mensaje": "Contacto nuevo agendado."}
 
 
-def avisar_comprobante(telefono, monto=None):
-    """El alumno dice que ya pagó. Queda PENDIENTE hasta que Gabi lo confirme en la hoja."""
+VENTANA_FOTO_HORAS = 2  # una foto sin datos que llega al rato de avisar un pago es de ese pago
+
+
+def _monto_entero(n):
+    return int(n) if n is not None and n == int(n) else n
+
+
+def _fecha_fila(f):
+    try:
+        return datetime.strptime(str(f.get("FECHA", "")).strip(), "%d/%m/%Y %H:%M")
+    except ValueError:
+        return None
+
+
+def avisar_comprobante(telefono, monto=None, alumno=None, por_alumno=False, es_foto=False):
+    """El alumno dice que ya pagó. Queda PENDIENTE hasta que Gabi lo confirme en la hoja.
+    por_alumno: el número es de varios hijos, así que cada hijo tiene su comprobante y no se pisan."""
+    if por_alumno:
+        return _avisar_por_alumno(telefono, monto, (alumno or "").strip(), es_foto)
     v = _vinculo(telefono)
     nombre = v.get("ALUMNO") if v else ""
     n = _a_numero(monto)
@@ -172,14 +189,67 @@ def avisar_comprobante(telefono, monto=None):
             "mensaje": "Anotado. Repetile al alumno el monto anotado (si es null, preguntale cuánto fue). El encargado revisa y confirma el pago. No digas que ya está acreditado."}
 
 
-def corregir_comprobante(telefono, monto):
-    """Cambia el monto de un comprobante que sigue PENDIENTE. Uno ya confirmado no se toca."""
+def _avisar_por_alumno(telefono, monto, nombre, es_foto):
+    """Comprobante de un número con varios hijos. nombre vacío = todavía no sabemos de quién es.
+    - Con nombre: completa el que quedó sin nombre (si el monto no choca) o actualiza el de ese hijo.
+    - Sin nombre: una foto que llega al rato de un aviso es de ese aviso; si no, va al que está
+      sin nombre, o queda uno nuevo sin nombre (y quien llama pregunta de quién es).
+    Nunca se le pone a un hijo un comprobante que ya era de otro."""
+    n = _a_numero(monto)
+    t = _tel(telefono)
+    mes = MESES[_ahora().month - 1].capitalize()
+    pend = [f for f in leer_pestana(TAB_COMPROBANTES)
+            if _tel(f.get("TELEFONO")) == t and _norm(f.get("ESTADO")) == "pendiente"
+            and _norm(f.get("MES")) == _norm(mes)]
+
+    def compatible(f):
+        previo = _a_numero(f.get("MONTO"))
+        return n is None or previo is None or previo == n
+
+    vacios = [f for f in pend if not str(f.get("ALUMNO", "")).strip() and compatible(f)]
+    objetivo = None
+    if nombre:
+        mismos = [f for f in pend if _norm(f.get("ALUMNO")) == _norm(nombre)]
+        objetivo = vacios[-1] if vacios else (mismos[-1] if mismos else None)
+    else:
+        if es_foto:
+            desde = _ahora().replace(tzinfo=None) - timedelta(hours=VENTANA_FOTO_HORAS)
+            recientes = [f for f in pend if compatible(f) and (_fecha_fila(f) or datetime.min) >= desde]
+            objetivo = recientes[-1] if recientes else None
+        if not objetivo and vacios:
+            objetivo = vacios[-1]
+
+    ws = pestana(TAB_COMPROBANTES, ENC_COMPROBANTES)
+    if objetivo:
+        quien = str(objetivo.get("ALUMNO", "")).strip()
+        if nombre and not quien:
+            ws.update_cell(objetivo["_fila"], ENC_COMPROBANTES.index("ALUMNO") + 1, nombre)
+            quien = nombre
+        if n is not None:
+            ws.update_cell(objetivo["_fila"], ENC_COMPROBANTES.index("MONTO") + 1, n)
+        final = n if n is not None else _a_numero(objetivo.get("MONTO"))
+        return {"ok": True, "nuevo": False, "fila": objetivo["_fila"], "alumno": quien,
+                "monto_anotado": _monto_entero(final),
+                "mensaje": "Ya había un comprobante pendiente de este pago, lo actualicé en vez de duplicarlo. "
+                           "Repetile el monto. El encargado lo confirma."}
+    ws.append_row([_fecha(), str(telefono), nombre, n if n is not None else "", mes, "PENDIENTE"],
+                  value_input_option="USER_ENTERED")
+    return {"ok": True, "nuevo": True, "alumno": nombre, "monto_anotado": _monto_entero(n),
+            "mensaje": "Anotado. Repetile el monto anotado (si es null, preguntale cuánto fue). El encargado "
+                       "revisa y confirma el pago. No digas que ya está acreditado."}
+
+
+def corregir_comprobante(telefono, monto, alumno=None):
+    """Cambia el monto de un comprobante que sigue PENDIENTE. Uno ya confirmado no se toca.
+    Con alumno (número de varios hijos) busca primero el de ese hijo."""
     n = _a_numero(monto)
     if n is None:
         return {"ok": False, "mensaje": "Falta el monto correcto. Preguntaselo al alumno."}
     t = _tel(telefono)
     pend = [f for f in leer_pestana(TAB_COMPROBANTES)
             if _tel(f.get("TELEFONO")) == t and _norm(f.get("ESTADO")) == "pendiente"]
+    if alumno:
+        pend = [f for f in pend if _norm(f.get("ALUMNO")) == _norm(alumno)] or pend
     if not pend:
         return {"ok": False, "mensaje": "No hay un comprobante pendiente para corregir. Si ya lo confirmaron, lo cambia el encargado."}
     f = pend[-1]
@@ -247,7 +317,8 @@ TOOLS_PLANILLA_ALUMNO = [
           {"nombre": {"type": "string"}, "nivel": {"type": "string"}, "consulta": {"type": "string", "description": "Qué quiere, en pocas palabras"}}),
     _tool("avisar_comprobante",
           "Anota que el alumno dice que ya pagó, para que el encargado lo confirme. Usala cuando diga que transfirió o mande un comprobante.",
-          {"monto": {"type": "string", "description": "Monto si lo dijo, si no vacío"}}),
+          {"monto": {"type": "string", "description": "Monto si lo dijo, si no vacío"},
+           "alumno": {"type": "string", "description": "De quién es el pago (un nombre o 'los dos'), SOLO si la tool te pidió elegir."}}),
     _tool("corregir_comprobante",
           "Corrige el monto de un comprobante que el alumno ya avisó, cuando dice que se equivocó. Solo sirve si el encargado todavía no lo confirmó.",
           {"monto": {"type": "string", "description": "Monto correcto"}}, ["monto"]),
@@ -269,10 +340,12 @@ def ejecutar(nombre, args, telefono):
         return vincular_telefono(telefono, args.get("nombre", ""))
     if nombre == "registrar_contacto_nuevo":
         return registrar_contacto_nuevo(telefono, args.get("nombre", ""), args.get("nivel", ""), args.get("consulta", ""))
+    # _alumno y _por_alumno los pone el agente (nunca el modelo): de quién es el pago si el número es de varios
     if nombre == "avisar_comprobante":
-        return avisar_comprobante(telefono, args.get("monto"))
+        return avisar_comprobante(telefono, args.get("monto"), alumno=args.get("_alumno"),
+                                  por_alumno=bool(args.get("_por_alumno")))
     if nombre == "corregir_comprobante":
-        return corregir_comprobante(telefono, args.get("monto"))
+        return corregir_comprobante(telefono, args.get("monto"), alumno=args.get("_alumno"))
     if nombre == "comprobantes_pendientes":
         return comprobantes_pendientes()
     if nombre == "aplicar_pagos_confirmados":

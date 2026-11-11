@@ -220,6 +220,8 @@ BLOQUE_PLANILLA = (
     "que lo confirme.\n"
     "- Si el alumno dice que se equivocó con el monto, llamá corregir_comprobante con "
     "el monto correcto y confirmale el monto corregido. No le pidas que vuelva a avisar.\n"
+    "- Si avisar_comprobante te pide elegir de quién es el pago, preguntale con el texto de "
+    "'decile' y volvé a llamarla con alumno=<el nombre> o alumno='los dos'.\n"
     "- Si una persona nueva, que no es alumna, consulta por clases, apenas te diga su "
     "nombre llamá registrar_contacto_nuevo con lo que dijo (nombre, nivel y qué "
     "consulta). Llamala una sola vez por charla, salvo que aporte datos nuevos.\n"
@@ -436,7 +438,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
 
     # Avisos de pago: los resuelve el código, no el modelo (es plata)
     if not es_jefe:
-        respuesta_pago = _responder_pago(telefono, texto)
+        respuesta_pago = _responder_de_quien(telefono, texto) or _responder_pago(telefono, texto)
         if respuesta_pago:
             _guardar_mensaje(telefono, "assistant", respuesta_pago)
             return respuesta_pago
@@ -1235,24 +1237,81 @@ def _pesos(n: float) -> str:
     return "$" + f"{int(n):,}".replace(",", ".")
 
 
+# ---- de quién es el pago, cuando el número es de varios hijos
+PREGUNTA_DE_QUIEN = "¿De quién es el pago"  # marca para reconocer la respuesta en el mensaje siguiente
+_RE_TODOS = re.compile(r"\b(los|las) (dos|tres|cuatro)\b|\b(ambos|ambas|todos|todas)\b")
+
+
+def _alumno_del_pago(telefono: str, texto) -> tuple[list[Alumno], str | None]:
+    """(alumnos del número, nombre para el comprobante). Con uno solo o ninguno el nombre no importa
+    (sigue como siempre). Con varios: el nombrado, 'A y B' si es de los dos, o None si no se sabe."""
+    alumnos = _alumnos_con_telefono(telefono)
+    if len(alumnos) < 2:
+        return alumnos, None
+    if _RE_TODOS.search(planilla._norm(texto)):
+        return alumnos, _nombres(alumnos)
+    nombrados = _mencionados(texto, alumnos)
+    return alumnos, (_nombres(nombrados) if nombrados else None)
+
+
+def _pregunta_de_quien(alumnos: list[Alumno]) -> str:
+    nombres = [a.nombre.split()[0] for a in alumnos]
+    todos = "los dos" if len(nombres) == 2 else "todos"
+    return f"{PREGUNTA_DE_QUIEN}, de {', de '.join(nombres)} o de {todos}?"
+
+
+def _responder_de_quien(telefono: str, texto: str) -> str | None:
+    """Si recién preguntamos de quién era el pago y contesta con un nombre (o 'los dos'), lo anota
+    en ese comprobante sin pasar por el modelo."""
+    ultima = (Conversacion.query.filter(Conversacion.telefono == telefono, Conversacion.rol == "assistant",
+                                        Conversacion.creado_en >= _inicio_sesion())
+              .order_by(Conversacion.creado_en.desc(), Conversacion.id.desc()).first())
+    if not ultima or PREGUNTA_DE_QUIEN not in (ultima.contenido or ""):
+        return None
+    alumnos, nombre = _alumno_del_pago(telefono, texto)
+    if len(alumnos) < 2 or not nombre:
+        return None  # contestó otra cosa: que siga el modelo
+    montos = _montos_en(texto) or [m for h in _historial(telefono) if h["role"] == "user"
+                                   for m in _montos_en(h["content"])]
+    monto = str(int(montos[-1])) if montos else None
+    try:
+        r = planilla.avisar_comprobante(telefono, monto, alumno=nombre, por_alumno=True)
+        print(f"[pago] de quién: {nombre} {monto} -> {r}", flush=True)
+    except Exception as e:
+        print(f"[pago] error: {e!r}", flush=True)
+        return "Perdón, no pude anotarlo en este momento. Avisale al encargado así lo revisa."
+    anotado = r.get("monto_anotado")
+    if anotado is None:
+        return f"Listo, lo anoté a nombre de {nombre}. Decime también cuánto fue así lo anoto."
+    return (f"Listo, anoté {_pesos(anotado)} a nombre de {nombre}. "
+            "El encargado lo revisa y te confirma el pago.")
+
+
 def _responder_pago(telefono: str, texto: str) -> str | None:
     """Si el mensaje avisa o corrige un pago con monto, lo anota y responde sin pasar por el modelo."""
     montos = _montos_en(texto)
     if not montos:
         return None
     monto = montos[-1]  # si corrige, el último número es el bueno
+    alumnos, nombre = _alumno_del_pago(telefono, texto)
+    varios = len(alumnos) > 1
+    extra = {"_alumno": nombre, "_por_alumno": varios}
     try:
         if _RE_CORRIGE.search(texto):
-            r = planilla.ejecutar("corregir_comprobante", {"monto": str(int(monto))}, telefono)
+            r = planilla.ejecutar("corregir_comprobante", {"monto": str(int(monto)), **extra}, telefono)
             print(f"[pago] corregir_comprobante {int(monto)} -> {r}", flush=True)
             if r and r.get("ok"):
                 return (f"Listo, corregí el monto: quedó anotado {_pesos(monto)}. "
                         "El encargado lo revisa y te confirma el pago.")
         if _RE_PAGO.search(texto):
-            r = planilla.ejecutar("avisar_comprobante", {"monto": str(int(monto))}, telefono)
+            r = planilla.ejecutar("avisar_comprobante", {"monto": str(int(monto)), **extra}, telefono)
             print(f"[pago] avisar_comprobante {int(monto)} -> {r}", flush=True)
             if r and r.get("ok"):
-                return (f"Anoté {_pesos(monto)}. Mandame también la foto o el PDF del "
+                if varios and not r.get("alumno"):
+                    return (f"Anoté {_pesos(monto)}. {_pregunta_de_quien(alumnos)} Mandame también la "
+                            "foto o el PDF del comprobante por acá así queda guardado.")
+                de = f" a nombre de {r['alumno']}" if varios else ""
+                return (f"Anoté {_pesos(monto)}{de}. Mandame también la foto o el PDF del "
                         "comprobante por acá así queda guardado. El encargado lo revisa "
                         "y te confirma el pago. ¡Gracias!")
     except Exception as e:
@@ -1294,6 +1353,16 @@ def _usar_planilla(nombre: str, args: dict, telefono: str, es_jefe: bool, texto:
         if str(args.get("monto") or "") != elegido:
             print(f"[monto] el modelo mandó {args.get('monto')!r}, uso {elegido!r}", flush=True)
         args["monto"] = elegido
+        # de quién es: lo que eligió en la charla o lo que dice el mensaje, nunca un nombre inventado
+        alumnos, quien = _alumno_del_pago(telefono, args.get("alumno") or "")
+        if len(alumnos) > 1 and not quien:
+            alumnos, quien = _alumno_del_pago(telefono, texto)
+        if nombre == "avisar_comprobante" and len(alumnos) > 1 and not quien:
+            return {"status": "elegir_alumno", "alumnos": [a.nombre for a in alumnos],
+                    "decile": _pregunta_de_quien(alumnos),
+                    "mensaje": "NO anotaste nada. Preguntale de quién es el pago con el texto de 'decile' "
+                               "y volvé a llamar avisar_comprobante con alumno=<ese nombre> o alumno='los dos'."}
+        args["_alumno"], args["_por_alumno"] = quien, len(alumnos) > 1
     try:
         return planilla.ejecutar(nombre, args, telefono)
     except Exception as e:  # la planilla no tiene que tumbar al bot

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import planilla
 from app.extensions import db
-from app.models import Alumno
+from app.models import Alumno, ContactoAlumno
 from app.models_cuotas import CONCEPTOS, MEDIOS_PAGO, PagoCuota
 from app.routes.auth import requiere_login
 from app.sheets_client import leer_pestana, pestana
@@ -24,26 +24,39 @@ ENC = planilla.ENC_COMPROBANTES
 # ---------- a quién y a qué mes corresponde ----------
 
 def _indices_alumnos():
-    """Teléfono (últimos 10) -> [ids] y nombre normalizado -> [ids], para no consultar por cada fila."""
+    """Teléfono (últimos 10) -> [ids] y nombre normalizado -> [ids], para no consultar por cada fila.
+    El teléfono sale del alumno y de sus contactos (padre, madre, tutor)."""
     por_tel, por_nombre = {}, {}
+
+    def sumar(t, alumno_id):
+        ids = por_tel.setdefault(t, [])  # lista: papás con varios hijos comparten tel
+        if alumno_id not in ids:
+            ids.append(alumno_id)
+
     for a in Alumno.query.all():
         t = planilla._tel(a.telefono)
         if t:
-            por_tel.setdefault(t, []).append(a.id)  # lista: papás con varios hijos comparten tel
+            sumar(t, a.id)
         por_nombre.setdefault(planilla._norm(a.nombre), []).append(a.id)
+    for alumno_id, t in db.session.query(ContactoAlumno.alumno_id, ContactoAlumno.tel10):
+        sumar(t, alumno_id)
     return por_tel, por_nombre
 
 
 def _alumno_de(f, indices):
     """Primero por teléfono; si no, por nombre exacto y solo si hay uno.
-    Si el tel es de varios alumnos devuelvo None: que elijan a mano."""
+    Si el tel es de varios alumnos, el nombre de la fila elige entre esos; si no alcanza
+    (o es de los dos hermanos) devuelvo None: que elijan a mano."""
     por_tel, por_nombre = indices
     t = planilla._tel(f.get("TELEFONO"))
+    ids_nombre = por_nombre.get(planilla._norm(f.get("ALUMNO")), [])
     if t and t in por_tel:
         ids_tel = por_tel[t]
-        return ids_tel[0] if len(ids_tel) == 1 else None
-    ids = por_nombre.get(planilla._norm(f.get("ALUMNO")), [])
-    return ids[0] if len(ids) == 1 else None
+        if len(ids_tel) == 1:
+            return ids_tel[0]
+        entre = [i for i in ids_nombre if i in ids_tel]
+        return entre[0] if len(entre) == 1 else None
+    return ids_nombre[0] if len(ids_nombre) == 1 else None
 
 
 def _mes_de(f):

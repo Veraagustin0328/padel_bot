@@ -1,7 +1,8 @@
 import os
 from flask import Blueprint, request, jsonify
 from app.llm.agent import (
-    procesar_mensaje, esta_pausado, _guardar_mensaje, _montos_en, _pesos, _notificar, _alumno_por_telefono,
+    procesar_mensaje, esta_pausado, _guardar_mensaje, _montos_en, _pesos, _notificar,
+    _alumno_del_pago, _nombres, _pregunta_de_quien,
 )
 from app.models import Notificacion
 from app.whatsapp_client import enviar_mensaje_whatsapp, reenviar_archivo_whatsapp
@@ -83,19 +84,32 @@ def _recibir_comprobante(telefono: str, data: dict, tipo: str):
     monto = _monto_del_texto(texto)
     varios_montos = monto is None and bool(_montos_en(texto))
 
-    alumno = _alumno_por_telefono(telefono)
-    nombre = alumno.nombre if alumno else ""
+    # si el número es de varios hijos, cada uno tiene su comprobante (nombre None = falta saber de quién)
+    alumnos, de_quien = _alumno_del_pago(telefono, texto)
+    varios = len(alumnos) > 1
+    if varios:
+        nombre = de_quien or ""
+    else:
+        nombre = alumnos[0].nombre if alumnos else ""
     anotado = None  # monto que quedó en la planilla
     planilla_ok = False
     try:
-        vinculo = planilla._vinculo(telefono)
-        nombre = (vinculo or {}).get("ALUMNO", "") or nombre
         # como texto entero, igual que _responder_pago: _a_numero lee "45000.0" como 450000
-        r = planilla.avisar_comprobante(telefono, str(int(monto)) if monto else None)
+        monto_txt = str(int(monto)) if monto else None
+        if varios:
+            r = planilla.avisar_comprobante(telefono, monto_txt, alumno=de_quien, por_alumno=True, es_foto=True)
+            nombre = r.get("alumno") or ""  # puede ser el de un aviso de recién
+        else:
+            vinculo = planilla._vinculo(telefono)
+            nombre = (vinculo or {}).get("ALUMNO", "") or nombre
+            r = planilla.avisar_comprobante(telefono, monto_txt)
         anotado = r.get("monto_anotado")
         planilla_ok = bool(r.get("ok"))
     except Exception as e:
         print(f"[comprobante] error con la planilla: {e!r}", flush=True)
+    falta_quien = varios and not nombre
+    if falta_quien:
+        nombre = f"{_nombres(alumnos)} (falta saber de quién)"
 
     if not planilla_ok:
         # que no se pierda: le queda el aviso al encargado en el panel
@@ -122,6 +136,8 @@ def _recibir_comprobante(telefono: str, data: dict, tipo: str):
                      "El encargado lo revisa y te confirma el pago.")
     elif planilla_ok:
         respuesta += " Decime también cuánto fue así lo anoto."
+    if planilla_ok and falta_quien:
+        respuesta += " " + _pregunta_de_quien(alumnos)
     _guardar_mensaje(telefono, "user", "[envió el comprobante de pago]" + (f" {texto}" if texto else ""))
     _guardar_mensaje(telefono, "assistant", respuesta)
     enviar_mensaje_whatsapp(telefono, respuesta)
