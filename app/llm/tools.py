@@ -90,6 +90,7 @@ _TOOLS_BASE = [
                         "enum": ["si_acepto", "no_rechazo"],
                         "description": "si_acepto = confirmó que sí quiere el cambio. no_rechazo = no lo quiere.",
                     },
+                    "cambio_id": {"type": "integer", "description": "Id del cambio, SOLO si hay más de uno pendiente."},
                 },
                 "required": ["decision"],
             },
@@ -190,7 +191,10 @@ _TOOLS_BASE = [
             "description": "Da de baja al alumno de la academia, cuando confirma que quiere dejar. Preguntale el motivo antes de llamarla.",
             "parameters": {
                 "type": "object",
-                "properties": {"motivo": {"type": "string", "enum": ["horario", "lesion", "otro"]}},
+                "properties": {
+                    "motivo": {"type": "string", "enum": ["horario", "lesion", "otro"]},
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
+                },
                 "required": ["motivo"],
             },
         },
@@ -287,7 +291,8 @@ _TOOLS_BASE = [
                         "description": "Día de la clase, si no tenés el clase_id.",
                     },
                     "hora": {"type": "string", "description": "Hora de la clase (ej. '10' o '18:30'), si no tenés el clase_id."},
-                    "nombre": {"type": "string", "description": "Nombre real del alumno, SOLO si la tool te lo pidió y él te lo dijo."},
+                    "nombre": {"type": "string", "description": "Nombre real del alumno, SOLO si la tool te lo pidió y él te lo dijo, o si quiere anotar a otra persona (ej. otro hijo)."},
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
                     "nivel": {"type": "string", "enum": NIVELES, "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo."},
                 },
                 "required": [],
@@ -339,10 +344,15 @@ _TOOLS_BASE = [
             "description": (
                 "Solo lectura. Devuelve la cuota de este mes del alumno que está escribiendo "
                 "(lo busca por su número de WhatsApp): cuánto es, cuánto pagó y cuánto debe. "
-                "Usala cuando pregunte cuánto debe o cuánto es su cuota. No recibe datos: "
-                "nunca sirve para consultar a otra persona."
+                "Usala cuando pregunte cuánto debe o cuánto es su cuota. Nunca sirve para "
+                "consultar a otra persona: solo a los alumnos de este número."
             ),
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
+                },
+            },
         },
     },
 ]

@@ -139,3 +139,6 @@ class EstadoChat(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     telefono = db.Column(db.String(20), unique=True, nullable=False, index=True)
     modo = db.Column(db.String(10), default="bot")  # "bot" o "humano"
+    # de qué hijo se está hablando cuando el número es de varios (lo agrega migrar_contactos.py)
+    alumno_activo_id = db.Column(db.Integer, db.ForeignKey("alumnos.id", ondelete="SET NULL"), nullable=True)
+    alumno_activo_en = db.Column(db.DateTime, nullable=True)

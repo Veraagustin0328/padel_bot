@@ -9,6 +9,7 @@ from app.llm.tools import tools_para_rol
 from app import planilla
 from app import recuperaciones as rec
 from app import cambios_dias as cd
+from app import contactos
 from app.cuotas import (
     DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
 )
@@ -316,27 +317,82 @@ def _inicio_sesion() -> datetime:
 
 
 def _alumnos_con_telefono(telefono: str) -> list[Alumno]:
-    """Todos los que matchean por los últimos 10 dígitos (WhatsApp manda 549..., la base puede no tenerlo)."""
-    t = planilla._tel(telefono)
-    if not t:
-        return []
-    return [a for a in Alumno.query.all() if planilla._tel(a.telefono) == t]
+    """Todos los alumnos de este número (los contactos: propio, padre, madre, tutor)."""
+    return contactos.alumnos_de_telefono(telefono)
 
 
 def _alumno_por_telefono(telefono: str) -> Alumno | None:
-    """Si matchea más de uno, no devuelvo ninguno (mejor no mostrar datos de otro)."""
+    """El único del número, o el que quedó elegido en la charla si es de varios. Si no, ninguno."""
     alumnos = _alumnos_con_telefono(telefono)
-    return alumnos[0] if len(alumnos) == 1 else None
+    if len(alumnos) == 1:
+        return alumnos[0]
+    return contactos.alumno_activo(telefono, alumnos, SESION_HORAS) if alumnos else None
+
+
+# ---- nombres: "Sofi" encuentra a "Sofía Pérez", y el apellido compartido no sirve para elegir
+def _palabras(texto) -> list[str]:
+    return [p for p in planilla._norm(texto).split() if len(p) >= 3]
+
+
+def _menciona(palabra: str, token: str) -> bool:
+    return palabra == token or (len(palabra) >= 4 and token.startswith(palabra))
+
+
+def _mencionados(texto, alumnos: list[Alumno]) -> list[Alumno]:
+    """Los alumnos nombrados en el texto, mirando solo las palabras que los distinguen entre sí."""
+    tokens = {a.id: set(_palabras(a.nombre)) for a in alumnos}
+    palabras = _palabras(texto)
+    salida = []
+    for a in alumnos:
+        otros = set().union(*(t for i, t in tokens.items() if i != a.id))
+        propios = tokens[a.id] - otros
+        if any(_menciona(p, t) for p in palabras for t in propios):
+            salida.append(a)
+    return salida
+
+
+def _es_otro_alumno(nombre, alumnos: list[Alumno]) -> bool:
+    """El nombre (la primera palabra) no se parece a ninguno de los del número: es otra persona."""
+    palabras = _palabras(nombre)
+    return bool(palabras) and not any(_menciona(palabras[0], t) for a in alumnos for t in _palabras(a.nombre))
+
+
+def _detectar_alumno_en_texto(telefono: str, texto: str) -> None:
+    """Si el número es de varios y el mensaje nombra a uno solo, pasa a ser el alumno activo."""
+    alumnos = _alumnos_con_telefono(telefono)
+    if len(alumnos) < 2:
+        return
+    nombrados = _mencionados(texto, alumnos)
+    if len(nombrados) == 1:
+        contactos.fijar_alumno_activo(telefono, nombrados[0].id)
+
+
+def _nombres(alumnos: list[Alumno]) -> str:
+    nombres = [a.nombre for a in alumnos]
+    return ", ".join(nombres[:-1]) + " y " + nombres[-1] if len(nombres) > 1 else "".join(nombres)
 
 
 def _nota_registro(telefono: str) -> str:
-    alumno = _alumno_por_telefono(telefono)
-    if alumno:
-        return f"Este número YA está registrado como alumno: {alumno.nombre}. No hace falta registrarlo."
-    return (
-        "Este número NO está registrado todavía como alumno. Si quiere anotarse "
-        "a una clase, pedile el nombre y pasáselo a anotar_en_clase, que lo registra y lo anota."
-    )
+    alumnos = _alumnos_con_telefono(telefono)
+    if not alumnos:
+        return (
+            "Este número NO está registrado todavía como alumno. Si quiere anotarse "
+            "a una clase, pedile el nombre y pasáselo a anotar_en_clase, que lo registra y lo anota."
+        )
+    otro = ("Si quiere anotar a otra persona que no es ninguno de estos (por ejemplo otro hijo o hija), "
+            "llamá anotar_en_clase con nombre=<el nombre que te dijo>: la tool se lo pasa al encargado.")
+    if len(alumnos) == 1:
+        return f"Este número YA está registrado como alumno: {alumnos[0].nombre}. No hace falta registrarlo. " + otro
+    nota = (f"Este número es contacto de varios alumnos: {_nombres(alumnos)} (escribe el papá, la mamá o "
+            "un tutor). No hace falta registrar a nadie. " + otro)
+    activo = contactos.alumno_activo(telefono, alumnos, SESION_HORAS)
+    if activo:
+        nota += (f" Ahora están hablando de {activo.nombre}: las tools ya lo usan a él o ella, salvo que "
+                 "nombre a otro.")
+    else:
+        nota += (" Si pregunta o pide algo de uno de ellos y no queda claro de cuál, preguntale de quién "
+                 "habla antes de llamar la tool.")
+    return nota
 
 
 import re as _re
@@ -375,6 +431,8 @@ def procesar_mensaje(telefono: str, texto: str, es_jefe: bool = False) -> str:
 
 def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) -> str:
     _guardar_mensaje(telefono, "user", texto)
+    if not es_jefe:
+        _detectar_alumno_en_texto(telefono, texto)  # si nombra a uno de los hijos, queda ese
 
     # Avisos de pago: los resuelve el código, no el modelo (es plata)
     if not es_jefe:
@@ -407,24 +465,30 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
     mensajes.extend(_historial(telefono))
 
     if not es_jefe:
-        pendiente = _cambio_pendiente_de(telefono)
-        if pendiente:
+        varios = len(_alumnos_con_telefono(telefono)) > 1
+        pendientes = _cambios_pendientes_de(telefono)
+        if pendientes:
+            detalle = "; ".join(
+                f"id={c.id}" + (f", de {_nombre_de(c)}" if varios else "") + f": '{c.propuesta}'"
+                for c in pendientes)
             mensajes.append({
                 "role": "system",
                 "content": (
-                    f"IMPORTANTE - ACCIÓN OBLIGATORIA: este alumno tiene un cambio "
-                    f"pendiente sin resolver (id={pendiente.id}): '{pendiente.propuesta}'. "
+                    f"IMPORTANTE - ACCIÓN OBLIGATORIA: hay {'cambios pendientes' if len(pendientes) > 1 else 'un cambio pendiente'} "
+                    f"sin resolver ({detalle}). "
                     "SIN IMPORTAR lo que diga en su mensaje, tu respuesta DEBE "
                     "mencionar esta propuesta y preguntarle si la acepta, ANTES de "
                     "cualquier otra cosa."
+                    + (" Cuando conteste, usá resolver_cambio_pendiente con el cambio_id que corresponde."
+                       if len(pendientes) > 1 else "")
                 ),
             })
-        pedido = _pedido_propio_de(telefono)
-        if pedido:
+        for alumno, pedido in _pedidos_propios_de(telefono):
+            de_quien = f" para {alumno.nombre}" if varios else ""
             mensajes.append({
                 "role": "system",
                 "content": (
-                    f"Este alumno ya pidió un cambio de días que espera la aprobación del "
+                    f"Ya hay un pedido de cambio de días{de_quien} que espera la aprobación del "
                     f"encargado: '{pedido.propuesta}'. Si pregunta, decile que está pendiente. "
                     "NO digas que está aprobado ni que ya cambió."
                 ),
@@ -489,7 +553,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
         elif nombre == "anotar_en_clase":
             resultado = _anotar_en_clase(telefono, args)  # el alumno sale del número, nunca de args
         elif nombre == "estado_cuota":
-            resultado = _estado_cuota(telefono)  # nunca con args: solo el que escribe
+            resultado = _estado_cuota(telefono, args)  # del número que escribe; args solo elige entre sus hijos
         elif nombre == "agendar_clase_suelta":
             resultado = _agendar_clase_suelta(telefono, args)
         elif nombre == "cancelar_clase_suelta":
@@ -606,11 +670,13 @@ def _historial(telefono: str) -> list[dict]:
     return [{"role": m.rol, "content": m.contenido} for m in reversed(mensajes)]
 
 
-def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
-    """Por los últimos 10 dígitos: se guarda con el teléfono de la base (sin 549) y WhatsApp manda con 549."""
+def _cambios_pendientes_de(telefono: str) -> list[CambioPendiente]:
+    """Los que esperan respuesta de quien escribe, de todos los alumnos del número (más nuevo primero).
+    Los viejos sin alumno_id se buscan por los últimos 10 dígitos del teléfono guardado."""
     t = planilla._tel(telefono)
     if not t:
-        return None
+        return []
+    ids = {a.id for a in _alumnos_con_telefono(telefono)}
     # solo los que esperan la respuesta del alumno (los viejos no tienen 'espera')
     pendientes = (
         CambioPendiente.query.filter_by(estado="pendiente")
@@ -618,16 +684,23 @@ def _cambio_pendiente_de(telefono: str) -> CambioPendiente | None:
         .order_by(CambioPendiente.creado_en.desc(), CambioPendiente.id.desc())
         .all()
     )
-    return next((c for c in pendientes if planilla._tel(c.alumno_telefono) == t), None)
+    return [c for c in pendientes
+            if c.alumno_id in ids or (c.alumno_id is None and planilla._tel(c.alumno_telefono) == t)]
 
 
-def _pedido_propio_de(telefono: str) -> CambioPendiente | None:
-    """El cambio de días que pidió el alumno y todavía no resolvió el encargado."""
-    alumno = _alumno_por_telefono(telefono)
-    if not alumno:
-        return None
-    pedidos = cd.pendientes_del_alumno(alumno.id, espera="encargado")
-    return pedidos[0] if pedidos else None
+def _nombre_de(cambio: CambioPendiente) -> str:
+    alumno = db.session.get(Alumno, cambio.alumno_id) if cambio.alumno_id else None
+    return alumno.nombre if alumno else (cambio.alumno_telefono or "?")
+
+
+def _pedidos_propios_de(telefono: str) -> list[tuple[Alumno, CambioPendiente]]:
+    """El cambio de días que pidió cada alumno del número y todavía no resolvió el encargado."""
+    salida = []
+    for alumno in _alumnos_con_telefono(telefono):
+        pedidos = cd.pendientes_del_alumno(alumno.id, espera="encargado")
+        if pedidos:
+            salida.append((alumno, pedidos[0]))
+    return salida
 
 
 # ---------------------------------------------------------------- tools
@@ -931,13 +1004,15 @@ def _derivar_al_encargado(telefono: str, args: dict, texto: str) -> dict:
                        "de este tema (ni modalidad, ni turno, ni personas)."}
 
 
-def _estado_cuota(telefono: str) -> dict:
-    """Siempre con el número que escribe, nunca con uno que diga el modelo."""
-    a = _alumno_por_telefono(telefono)
-    if not a:
+def _estado_cuota(telefono: str, args: dict) -> dict:
+    """Siempre con el número que escribe. 'alumno' solo elige entre los hijos de ese número."""
+    a, error = _elegir_alumno(telefono, (args or {}).get("alumno"))
+    if error and error.get("status") == "no_alumno":
         return {"encontrado": False,
                 "mensaje": "No encuentro a ningún alumno con este número. Decile con buena onda que no lo "
                            "ubicás y ofrecele pasarle la consulta al encargado. No des montos ni datos de nadie."}
+    if error:
+        return error
     mes = planilla._ahora().date().replace(day=1)
     cuota = db.session.query(db.func.coalesce(db.func.sum(CuotaMes.monto), 0)).filter(
         CuotaMes.alumno_id == a.id, CuotaMes.mes == mes).scalar()
@@ -1019,10 +1094,15 @@ def _anotar_en_clase(telefono: str, args: dict) -> dict:
     """Anota al que escribe (sale del número de WhatsApp, nunca de lo que diga el modelo).
     Idempotente: si ya está anotado no se duplica."""
     alumnos = _alumnos_con_telefono(telefono)
-    if len(alumnos) > 1:
-        return {"error": "Este número figura en más de un alumno. NO anotes a nadie: decile que "
-                         "se lo pasás al encargado para que lo revise."}
-    alumno = alumnos[0] if alumnos else None
+    alumno = None
+    if alumnos:
+        dicho = (args.get("alumno") or args.get("nombre") or "").strip()
+        if _es_otro_alumno(dicho, alumnos):
+            # un hermano que todavía no es alumno: lo da de alta el encargado, no el agente
+            return _alta_de_hermano(telefono, dicho, alumnos, args)
+        alumno, error = _elegir_alumno(telefono, dicho)
+        if error:
+            return error
     nivel = (args.get("nivel") or "").strip() or (alumno.categoria if alumno else "")
 
     clase, error = _buscar_clase(args, nivel)
@@ -1275,13 +1355,31 @@ def _crear_cambio_pendiente(args: dict, es_jefe: bool) -> dict:
 
 
 def _resolver_cambio_pendiente(telefono: str, args: dict) -> dict:
-    cambio = _cambio_pendiente_de(telefono)
-    if not cambio:
+    cambios = _cambios_pendientes_de(telefono)
+    if not cambios:
         return {"error": "No hay ningún cambio pendiente para vos"}
 
+    cambio_id = _entero(args.get("cambio_id"))
+    if cambio_id:
+        cambio = next((c for c in cambios if c.id == cambio_id), None)
+        if not cambio:
+            return {"error": "Ese cambio_id no es de este número. Usá uno de los que te pasé."}
+    elif len(cambios) == 1:
+        cambio = cambios[0]
+    else:
+        # varios: si hay un hijo elegido en la charla y tiene uno solo, es ese
+        activo = _alumno_por_telefono(telefono)
+        del_activo = [c for c in cambios if activo and c.alumno_id == activo.id]
+        if len(del_activo) != 1:
+            return {"status": "elegir_cambio",
+                    "cambios": [{"cambio_id": c.id, "alumno": _nombre_de(c), "propuesta": c.propuesta}
+                                for c in cambios],
+                    "mensaje": "NO resolviste nada. Hay más de un cambio pendiente: preguntale de cuál "
+                               "habla y volvé a llamar con ese cambio_id."}
+        cambio = del_activo[0]
+
     acepta = args.get("decision") == "si_acepto"
-    alumno = _alumno_por_telefono(telefono)
-    nombre = alumno.nombre if alumno else telefono
+    nombre = _nombre_de(cambio)
 
     if acepta and cambio.tipo == "cambio_dias":
         # sigue pendiente, ahora del encargado: lo aplica desde el panel (vuelve a mirar el cupo)
@@ -1456,11 +1554,13 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
         }
 
     existentes = _alumnos_con_telefono(telefono)
-    if len(existentes) > 1:
-        return {"error": "Este número ya figura en más de un alumno. No registres a nadie: "
-                         "decile que se lo pasás al encargado."}
     if existentes:
-        return {"status": "ya_registrado", "alumno": existentes[0].nombre}
+        if _es_otro_alumno(nombre, existentes):
+            return _alta_de_hermano(telefono, nombre, existentes, args)
+        nombrados = _mencionados(nombre, existentes)
+        if len(nombrados) == 1:
+            return {"status": "ya_registrado", "alumno": nombrados[0].nombre}
+        return {"status": "ya_registrado", "alumnos": [a.nombre for a in existentes]}
 
     categoria_cruda = args.get("categoria", "")
     categoria = _nivel_canonico(categoria_cruda) or categoria_cruda
@@ -1472,6 +1572,8 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
         planilla="adultos",
     )
     db.session.add(alumno)
+    db.session.flush()  # para tener el id del contacto
+    contactos.crear_contacto(alumno, telefono, "propio")
     db.session.commit()
 
     _notificar(f"Nuevo alumno registrado: {nombre} ({telefono}), categoría {categoria}", tipo="alta_alumno")
@@ -1579,16 +1681,38 @@ def _elegir_alumno(telefono: str, nombre) -> tuple[Alumno | None, dict | None]:
                       "mensaje": "NO registraste nada. " + _RESPUESTA_TOOL}
     if len(alumnos) == 1:
         return alumnos[0], None
-    palabras = set(planilla._norm(nombre).split())
-    if palabras:
-        elegidos = [a for a in alumnos if palabras <= set(planilla._norm(a.nombre).split())]
+    # varios: primero el nombre que vino, después el que quedó elegido en la charla
+    activo = contactos.alumno_activo(telefono, alumnos, SESION_HORAS)
+    if _palabras(nombre):
+        elegidos = _mencionados(nombre, alumnos)
         if len(elegidos) == 1:
+            contactos.fijar_alumno_activo(telefono, elegidos[0].id)
             return elegidos[0], None
-    nombres = [a.nombre for a in alumnos]
-    return None, {"status": "elegir_alumno", "alumnos": nombres,
-                  "decile": f"Este número lo tengo con {' y '.join(nombres)}. ¿De quién me hablás?",
+        # dijo solo el apellido que comparten (no distingue a nadie): sigo con el de la charla
+        if activo and (activo in elegidos or (not elegidos and not _es_otro_alumno(nombre, alumnos))):
+            return activo, None
+    elif activo:
+        return activo, None
+    return None, {"status": "elegir_alumno", "alumnos": [a.nombre for a in alumnos],
+                  "decile": f"Este número lo tengo con {_nombres(alumnos)}. ¿De quién me hablás?",
                   "mensaje": "NO registraste nada. Preguntale de cuál de ellos habla y volvé a llamar "
                              "la tool con alumno=<ese nombre>."}
+
+
+def _alta_de_hermano(telefono: str, nombre: str, alumnos: list[Alumno], args: dict) -> dict:
+    """Quieren sumar a alguien que no es ninguno de los alumnos del número: va al encargado."""
+    detalle = ""
+    if args.get("clase_id") or args.get("dia"):
+        clase, error = _buscar_clase(args, (args.get("nivel") or "").strip())
+        if clase and not error:
+            d = _datos_clase(clase)
+            detalle = f" Quiere la clase del {d['dia']} {d['hora']} ({d['nivel']})."
+    _notificar(f"Quiere sumar a {nombre} (hermano/a de {_nombres(alumnos)}).{detalle} "
+               "Hay que darlo de alta y cargarle el contacto.",
+               tipo="consulta_derivada", telefono=telefono, tema="alta de hermano")
+    return {"status": "derivado",
+            "decile": f"Para sumar a {nombre} se lo paso al encargado, que lo da de alta y te confirma \U0001F60A",
+            "mensaje": "NO anotaste ni registraste a nadie. " + _RESPUESTA_TOOL}
 
 
 def _clases_del_alumno_el(alumno_id: int, fecha: date) -> list[Clase]:
@@ -1882,9 +2006,11 @@ def _avisar_viaje(telefono: str, args: dict) -> dict:
 
 
 def _dar_de_baja(telefono: str, args: dict) -> dict:
-    alumno = _alumno_por_telefono(telefono)
-    if not alumno:
+    alumno, error = _elegir_alumno(telefono, args.get("alumno"))
+    if error and error.get("status") == "no_alumno":
         return {"error": "No encontré tu registro como alumno."}
+    if error:
+        return error
 
     alumno.estado = "baja"
     alumno.motivo_baja = args["motivo"]
