@@ -27,3 +27,32 @@
 .alu-badge.nada { background: var(--fondo); color: var(--suave); }
 .alu-msg { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; background: var(--mal-fondo); color: var(--mal); }
 .alu-vacio { color: var(--suave); padding: 24px 0; text-align: center; }
+/* solapas Planilla / Fichas, igual que las de Pendientes */
+.alu-solapas { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; }
+.alu-solapa { flex: none; min-height: 40px; padding: 8px 16px; border-radius: 20px; border: 1px solid #c4c8b8; background: #fff; color: var(--tinta); font: inherit; font-weight: 600; cursor: pointer; }
+.alu-solapa:hover { border-color: var(--verde); }
+.alu-solapa.activo { background: var(--verde); border-color: var(--verde); color: #fff; }
+
+/* fichas */
+.fic-tabla .fic-tels { white-space: normal; min-width: 200px; }
+.fic-tabla .fic-par { color: var(--suave); font-size: .82rem; }
+.fic-tabla .fic-sin { color: var(--suave); font-style: italic; }
+.fic-tabla .fic-acciones { text-align: right; }
+.fic-ok { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; background: var(--ok-fondo); color: var(--ok); }
+
+/* modal de contactos */
+.fic-velo { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .4); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; overflow-y: auto; }
+.fic-modal { background: var(--tarjeta); color: var(--tinta); border-radius: var(--radio); padding: 20px; width: 100%; max-width: 620px; box-shadow: 0 10px 40px rgba(0, 0, 0, .25); }
+.fic-modal h2 { margin: 0 0 4px; font-size: 1.2rem; }
+.fic-ayuda { color: var(--suave); font-size: .9rem; margin: 0 0 14px; }
+.fic-contacto { border: 1px solid var(--linea); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.fic-campos { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 8px; align-items: end; }
+.fic-campos label { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; color: var(--suave); }
+.fic-campos input, .fic-campos select { padding: 8px 10px; border: 1px solid var(--linea); border-radius: 8px; font: inherit; font-size: .95rem; background: var(--tarjeta); color: var(--tinta); min-width: 0; }
+.fic-aviso { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: #fff6d6; color: #7a5a00; font-size: .85rem; }
+.fic-error { margin: 10px 0 0; }
+@media (max-width: 600px) {
+  .fic-campos { grid-template-columns: 1fr 1fr; }
+  .fic-campos label:first-child { grid-column: 1 / -1; }
+  .fic-sacar { grid-column: 1 / -1; }
+}

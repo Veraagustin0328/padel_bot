@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
+import AlumnosFichas from "./AlumnosFichas.jsx";
 import "./alumnos.css";
 
 const MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
@@ -15,7 +16,8 @@ function Celda({ m }) {
   return <td className="num raro">{m.texto}</td>;
 }
 
-export default function Alumnos() {
+// la de siempre: el listado de la planilla, solo para mirar
+function ListadoPlanilla() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [buscar, setBuscar] = useState("");
@@ -63,7 +65,6 @@ export default function Alumnos() {
 
   return (
     <div>
-      <h1>Alumnos</h1>
       <p style={{ color: "#5b6672" }}>Igual que tu listado de la planilla. Por ahora es solo para mirar.</p>
 
       {error && <div className="alu-msg">{error}</div>}
@@ -134,6 +135,29 @@ export default function Alumnos() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+const SOLAPAS = [
+  { clave: "planilla", t: "Planilla" },
+  { clave: "fichas", t: "Fichas" },
+];
+
+export default function Alumnos() {
+  const [solapa, setSolapa] = useState("planilla");
+  return (
+    <div>
+      <h1>Alumnos</h1>
+      <div className="alu-solapas" role="tablist" aria-label="Alumnos">
+        {SOLAPAS.map((s) => (
+          <button key={s.clave} role="tab" aria-selected={solapa === s.clave}
+                  className={"alu-solapa" + (solapa === s.clave ? " activo" : "")} onClick={() => setSolapa(s.clave)}>
+            {s.t}
+          </button>
+        ))}
+      </div>
+      {solapa === "planilla" ? <ListadoPlanilla /> : <AlumnosFichas />}
     </div>
   );
 }
