@@ -7,12 +7,33 @@ class Alumno(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(120), nullable=False)
-    telefono = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    # teléfono principal. No es único: hermanos comparten el de los papás (los contactos van en ContactoAlumno)
+    telefono = db.Column(db.String(20), nullable=False, index=True)
     categoria = db.Column(db.String(20), nullable=False)
     planilla = db.Column(db.String(30), nullable=False)  # adultos, kids, kids_pro, etc.
     estado = db.Column(db.String(20), default="activo")  # activo / baja
     fecha_inscripcion = db.Column(db.DateTime, default=datetime.utcnow)
     motivo_baja = db.Column(db.String(20), nullable=True)
+
+
+PARENTESCOS = ("propio", "padre", "madre", "tutor")
+
+
+class ContactoAlumno(db.Model):
+    """Teléfonos desde los que nos puede escribir alguien por un alumno.
+    Un adulto tiene el suyo (propio); un kid, los de padre y madre. Un mismo número puede
+    ser de varios alumnos (hermanos). La tabla y el pase de datos los hace migrar_contactos.py.
+    """
+    __tablename__ = "contactos_alumno"
+    __table_args__ = (db.UniqueConstraint("alumno_id", "tel10", name="uq_contacto_alumno_tel"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id", ondelete="CASCADE"), nullable=False, index=True)
+    telefono = db.Column(db.String(20), nullable=False)          # tal cual se cargó
+    tel10 = db.Column(db.String(10), nullable=False, index=True)  # últimos 10 dígitos, para buscar
+    parentesco = db.Column(db.String(10), nullable=False, default="propio")  # ver PARENTESCOS
+    nombre = db.Column(db.String(80), nullable=True)              # ej. "Laura", la mamá
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class Grupo(db.Model):
