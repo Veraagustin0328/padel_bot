@@ -27,7 +27,8 @@ from app.models import Alumno
 
 ZONA = ZoneInfo(os.environ.get("ZONA_HORARIA", "America/Argentina/Buenos_Aires"))
 
-REGLAS_DEFAULT = {"aviso_horas": 24, "recupera_mismo_mes": True, "max_recuperaciones_mes": 1}
+REGLAS_DEFAULT = {"aviso_horas": 24, "recupera_mismo_mes": True, "max_recuperaciones_mes": 1,
+                  "contacto_club_alquiler": ""}  # WhatsApp del club para alquiler de canchas
 ACTIVAS = ("confirmada", "pendiente")   # las que ocupan la falta y cuentan para el tope
 
 

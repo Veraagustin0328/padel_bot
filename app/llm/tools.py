@@ -240,19 +240,31 @@ _TOOLS_BASE = [
         "function": {
             "name": "derivar_al_encargado",
             "description": (
-                "Le pasa al encargado una consulta que vos no manejás: alquiler de canchas, venta "
-                "o alquiler de paletas y pelotas, torneos, eventos u otro tema que no sea clases, "
-                "cuotas, pagos, faltas, recuperaciones, cambios de días o viajes. Después decile "
-                "solo lo que diga 'decile', sin precios ni plazos."
+                "Le pasa al encargado una consulta que vos no manejás: venta o alquiler de "
+                "paletas y pelotas, torneos, eventos u otro tema que no sea clases, cuotas, pagos, "
+                "faltas, recuperaciones, cambios de días o viajes. NO para alquiler de canchas "
+                "(eso es contacto_club). Después decile solo lo que diga 'decile', sin precios ni plazos."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "tema": {"type": "string", "description": "Tema corto (ej. 'alquiler de canchas', 'paletas')."},
+                    "tema": {"type": "string", "description": "Tema corto (ej. 'paletas', 'torneos')."},
                     "consulta": {"type": "string", "description": "Qué preguntó el alumno, en una frase."},
                 },
                 "required": ["tema"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "contacto_club",
+            "description": (
+                "Alquiler o reserva de canchas: eso no lo maneja la academia sino el club. Devuelve "
+                "el contacto del club. Después decile solo lo que diga 'decile', sin inventar "
+                "números, precios ni horarios."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {

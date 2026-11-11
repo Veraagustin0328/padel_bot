@@ -173,7 +173,10 @@ PROMPT_ALUMNO_PARTE_1 = (
     "- Vos manejás: clases grupales y particulares, lugar y horarios, anotarse, precios de "
     "las clases, cuotas y pagos, comprobantes de pago, faltas y recuperaciones, cambios de "
     "días y avisos de viaje. Eso lo resolvés con tus tools: NO lo derives.\n"
-    "- Para CUALQUIER otro tema (alquiler de canchas, venta o alquiler de paletas o pelotas, "
+    "- Alquiler o reserva de canchas NO lo maneja la academia, lo maneja el club: llamá "
+    "contacto_club y contale solo lo que diga 'decile'. NO lo derives al encargado, NO "
+    "inventes números de teléfono y NUNCA des precios, horarios ni disponibilidad de canchas.\n"
+    "- Para CUALQUIER otro tema (venta o alquiler de paletas o pelotas, "
     "torneos, eventos, etc.) llamá derivar_al_encargado con el tema y contale solo lo que "
     "diga 'decile'. NUNCA des precios, horarios, plazos ni disponibilidad de esos temas, y "
     "no uses consultar_precio para eso.\n"
@@ -452,6 +455,9 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
     # si en el mismo turno derivó, no hay precio que dar de ese tema (ej. "cuánto sale el torneo")
     derivada = any(re.sub(r"[^A-Za-z_]", "", tc.function.name or "") == "derivar_al_encargado"
                    for tc in mensaje_modelo.tool_calls)
+    # lo mismo si es de canchas: eso lo cobra el club, no hay precio nuestro
+    del_club = any(re.sub(r"[^A-Za-z_]", "", tc.function.name or "") == "contacto_club"
+                   for tc in mensaje_modelo.tool_calls)
 
     conocidas = {t["function"]["name"] for t in tools}  # solo las de su rol
     for tool_call in mensaje_modelo.tool_calls:
@@ -468,11 +474,18 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             # la tool vieja: por si el modelo la sigue mandando, va a consultar_cupos
             resultado = _consultar_cupos({"dia": args.get("dia"), "nivel": args.get("nivel_juego")})
         elif nombre == "consultar_precio":
-            resultado = PRECIO_DERIVADO if derivada else _consultar_precio(args)
+            resultado = (PRECIO_CLUB if del_club else PRECIO_DERIVADO if derivada
+                         else _consultar_precio(args))
         elif nombre == "consultar_cupos":
             resultado = _consultar_cupos(args)
+        elif nombre == "contacto_club":
+            resultado = _contacto_club()
         elif nombre == "derivar_al_encargado":
-            resultado = _derivar_al_encargado(telefono, args, texto)
+            # si el modelo igual deriva algo de canchas, va al club y no le llega al encargado
+            if es_tema_club(args.get("tema"), args.get("consulta"), texto):
+                resultado = _contacto_club()
+            else:
+                resultado = _derivar_al_encargado(telefono, args, texto)
         elif nombre == "anotar_en_clase":
             resultado = _anotar_en_clase(telefono, args)  # el alumno sale del número, nunca de args
         elif nombre == "estado_cuota":
@@ -549,7 +562,7 @@ def _guardar_mensaje(telefono: str, rol: str, contenido: str) -> None:
 # ---------------------------------------------------------------- nombre de tool mal escrito
 # Solo las de lectura se pueden adivinar: si le pifia, no se rompe nada.
 # Las que escriben (anotar, ausencias, recuperaciones, cambios, comprobantes...) nunca se adivinan.
-TOOLS_LECTURA = {"consultar_cupos", "consultar_precio", "estado_cuota", "consultar_estado_pago"}
+TOOLS_LECTURA = {"consultar_cupos", "consultar_precio", "estado_cuota", "consultar_estado_pago", "contacto_club"}
 NOMBRES_VIEJOS = {"buscar_grupo_disponible", "reprogramar_clase"}  # el despacho los sigue aceptando
 UMBRAL_NOMBRE = 0.85   # bien alto: 'consult_cupos' da 0.93
 UMBRAL_PARECIDO = 0.7  # de acá para arriba es un intento de una tool que escribe
@@ -868,6 +881,35 @@ def _consultar_cupos(args: dict) -> dict:
 
 PRECIO_DERIVADO = {"error": "Esta consulta ya se la pasaste al encargado. NO des ningún precio ni le "
                             "preguntes datos para un precio: decile solo que el encargado le responde."}
+PRECIO_CLUB = {"error": "Eso lo maneja el club, no la academia. NO des ningún precio ni le preguntes "
+                        "datos para un precio: pasale solo lo que dijo contacto_club."}
+
+_RX_CANCHA = re.compile(r"\bcanchas?\b")
+
+
+def es_tema_club(*textos) -> bool:
+    """Alquiler o reserva de canchas: lo maneja el club, no la academia."""
+    return any(_RX_CANCHA.search(planilla._norm(str(t or ""))) for t in textos)
+
+
+def respuesta_contacto_club(contacto) -> dict:
+    """Arma lo que le dice el agente. El número sale de la config, nunca del modelo."""
+    contacto = str(contacto or "").strip()
+    if contacto:
+        decile = (f"El alquiler de canchas no lo maneja la academia, lo maneja el club. "
+                  f"Escribiles a este WhatsApp: {contacto}")
+        extra = f"Pasale el número tal cual: {contacto}. No inventes otro."
+    else:
+        decile = "El alquiler de canchas no lo maneja la academia, lo maneja el club directamente."
+        extra = "No tenés el número del club: NO inventes ninguno ni digas que se lo pasás a alguien."
+    return {"ok": True, "decile": decile,
+            "mensaje": "Contale solo eso, con buena onda. " + extra + " NO des precios, horarios ni "
+                       "disponibilidad de canchas, y no le preguntes nada más de este tema."}
+
+
+def _contacto_club() -> dict:
+    """Sin notificación: el encargado no tiene nada que hacer con esto."""
+    return respuesta_contacto_club(rec.regla("contacto_club_alquiler"))
 
 
 def _derivar_al_encargado(telefono: str, args: dict, texto: str) -> dict:
