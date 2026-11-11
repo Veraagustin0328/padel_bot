@@ -3,30 +3,9 @@ from app.planilla import TOOLS_PLANILLA_ALUMNO, TOOLS_PLANILLA_JEFE
 DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]
 NIVELES = ["1era", "1ra", "2da", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "principiante"]
 
+# buscar_grupo_disponible ya no está: leía la tabla vieja Grupo. Si el modelo la manda igual,
+# el agente la pasa a consultar_cupos.
 _TOOLS_BASE = [
-    {
-        "type": "function",
-        "function": {
-            "name": "buscar_grupo_disponible",
-            "description": (
-                "Busca un grupo GRUPAL de pádel disponible por nivel de juego y, "
-                "opcionalmente, día. Con el nivel de juego alcanza para buscar — "
-                "no hace falta ningún otro dato adicional."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "nivel_juego": {
-                        "type": "string",
-                        "enum": NIVELES,
-                        "description": "Nivel de juego del alumno (1era o 1ra son lo mismo), NO el tipo de clase.",
-                    },
-                    "dia": {"type": "string", "description": "Opcional. Solo si el alumno mencionó un día."},
-                },
-                "required": ["nivel_juego"],
-            },
-        },
-    },
     {
         "type": "function",
         "function": {
@@ -221,10 +200,11 @@ _TOOLS_BASE = [
         "function": {
             "name": "consultar_cupos",
             "description": (
-                "Solo lectura. Devuelve las clases GRUPALES de un día y turno que todavía "
-                "tienen lugar (cupo menos alumnos anotados en esa fecha: hoy, o 'desde' si "
-                "lo mandás). Usala cuando pregunten si hay lugar, cupo o vacante en un día. "
-                "No anota a nadie."
+                "Solo lectura. Devuelve las clases GRUPALES REALES de un día que todavía tienen "
+                "lugar, con día, hora y nivel. Si no hay lugar, trae alternativas cercanas del "
+                "mismo nivel. Llamala apenas el alumno diga un día, cuando quiera anotarse o "
+                "pregunte por lugar, cupo u horarios. Con el día alcanza: NO preguntes turno ni "
+                "nivel antes. No anota a nadie."
             ),
             "parameters": {
                 "type": "object",
@@ -237,7 +217,8 @@ _TOOLS_BASE = [
                     "franja": {
                         "type": "string",
                         "enum": ["manana", "tarde", "kids"],
-                        "description": "Turno: manana, tarde o kids. Si el día es sábado, poné manana.",
+                        "description": "Opcional. Turno, SOLO si el alumno lo dijo. Sin turno trae todo el día. "
+                                       "El sábado no lo mandes: es siempre a la mañana.",
                     },
                     "nivel": {
                         "type": "string",
@@ -250,7 +231,27 @@ _TOOLS_BASE = [
                                        "tal cual lo dijo (ej. 'diciembre' o '1/12'). Si no, no lo mandes.",
                     },
                 },
-                "required": ["dia", "franja"],
+                "required": ["dia"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "derivar_al_encargado",
+            "description": (
+                "Le pasa al encargado una consulta que vos no manejás: alquiler de canchas, venta "
+                "o alquiler de paletas y pelotas, torneos, eventos u otro tema que no sea clases, "
+                "cuotas, pagos, faltas, recuperaciones, cambios de días o viajes. Después decile "
+                "solo lo que diga 'decile', sin precios ni plazos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tema": {"type": "string", "description": "Tema corto (ej. 'alquiler de canchas', 'paletas')."},
+                    "consulta": {"type": "string", "description": "Qué preguntó el alumno, en una frase."},
+                },
+                "required": ["tema"],
             },
         },
     },

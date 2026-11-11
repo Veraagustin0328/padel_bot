@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import date, datetime, timedelta
+from difflib import SequenceMatcher
 from sqlalchemy.exc import IntegrityError
 from app.extensions import db
 from app.llm.client import client, MODEL
@@ -14,7 +15,7 @@ from app.cuotas import (
 from app.models_academia import AusenciaLapso, Clase, ConfigAcademia, Inscripcion, RecuperacionClase
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
-    Grupo, ClaseSuelta, Conversacion, Alumno,
+    ClaseSuelta, Conversacion, Alumno,
     CambioPendiente, Notificacion, EstadoChat,
 )
 
@@ -48,14 +49,6 @@ def _nivel_canonico(texto: str) -> str | None:
         if t in formas:
             return canonico
     return None
-
-
-def _variantes_nivel(texto: str) -> list[str]:
-    canonico = _nivel_canonico(texto)
-    if not canonico:
-        return [(texto or "").strip().lower()]
-    return _NIVELES[canonico]
-
 
 
 # ---------------------------------------------------------------- precios
@@ -139,17 +132,22 @@ PROMPT_ALUMNO_PARTE_1 = (
     "correspondiente (quinta = 5ta). Un número como '5ta' es un NIVEL, nunca un "
     "día ni una hora.\n\n"
     "Disponibilidad:\n"
-    "- Para buscar_grupo_disponible solo hacen falta el nivel de juego y, si lo "
-    "dijo, el día. NO inventes que falta otro dato ('tipo de clase', 'categoría "
-    "de torneo'): eso no existe.\n"
+    "- Si quiere anotarse o pregunta por clases, lugar u horarios y dijo un día, llamá "
+    "consultar_cupos YA con ese día (y el turno y el nivel SOLO si los dijo). NO le "
+    "preguntes nivel, turno ni hora antes de consultar. El sábado es siempre a la mañana: "
+    "nunca preguntes el turno del sábado.\n"
+    "- Mostrale las clases que te devolvió la tool con día, hora y nivel, y que elija. Si no "
+    "hay lugar, ofrecele las 'alternativas' que te dio. Nunca inventes clases ni horarios "
+    "que no vinieron de la tool.\n"
+    "- Si no dijo ningún día, preguntale solo qué día le queda mejor.\n"
+    "- Si ya le mostraste opciones y elige una ('dale', 'esa', 'la de las 18'), llamá "
+    "anotar_en_clase directo con el día y la hora de esa clase. NO vuelvas a consultar cupos.\n"
     "- Si piden clase particular, preguntá día y hora, y si quieren algún profe "
     "en particular, ANTES de usar agendar_clase_suelta. No agendes con datos que "
     "no te dieron.\n"
-    "- Si preguntan si hay lugar o cupo en una clase, usá consultar_cupos con el día y el "
-    "turno (y el nivel si lo dijo). Que haya lugar no lo anota.\n"
-    "- Si confirma que quiere anotarse a una clase grupal, usá anotar_en_clase con el "
-    "clase_id que te dio consultar_cupos (o con el día y la hora). Solo decile que quedó "
-    "anotado si la tool devolvió status 'anotado' o 'ya_anotado'.\n\n"
+    "- Que haya lugar no lo anota. Cuando elija una clase y confirme que quiere anotarse, "
+    "usá anotar_en_clase con el clase_id que te dio consultar_cupos (o con el día y la "
+    "hora). Solo decile que quedó anotado si la tool devolvió status 'anotado' o 'ya_anotado'.\n\n"
     "Precios:\n"
     "- Para CUALQUIER precio usá la tool consultar_precio. Nunca digas un precio "
     "de memoria ni lo calcules vos.\n"
@@ -170,7 +168,15 @@ PROMPT_ALUMNO_PARTE_1 = (
     "el nombre y apenas te lo diga llamá anotar_en_clase con la clase y ese nombre "
     "(y el nivel si lo mencionó).\n"
     "- Si quiere cancelar una clase particular que ya tenía, usá "
-    "cancelar_clase_suelta (con el día si tiene más de una).\n"
+    "cancelar_clase_suelta (con el día si tiene más de una).\n\n"
+    "Temas:\n"
+    "- Vos manejás: clases grupales y particulares, lugar y horarios, anotarse, precios de "
+    "las clases, cuotas y pagos, comprobantes de pago, faltas y recuperaciones, cambios de "
+    "días y avisos de viaje. Eso lo resolvés con tus tools: NO lo derives.\n"
+    "- Para CUALQUIER otro tema (alquiler de canchas, venta o alquiler de paletas o pelotas, "
+    "torneos, eventos, etc.) llamá derivar_al_encargado con el tema y contale solo lo que "
+    "diga 'decile'. NUNCA des precios, horarios, plazos ni disponibilidad de esos temas, y "
+    "no uses consultar_precio para eso.\n"
 )
 
 BLOQUE_PAGOS_CON_DATOS = (
@@ -256,16 +262,13 @@ PROMPT_ALUMNO_PARTE_2 = (
     "\nFormato (obligatorio, tiene prioridad sobre todo lo demás):\n"
     "- Escribí en frases cortas, sin listas. NUNCA uses listas numeradas ni emojis "
     "numerados. Si tenés que preguntar varias cosas, hacelo en una sola frase "
-    "corrida: '¿Te interesa grupo armado o clase particular, qué turno te queda "
-    "mejor y cuántas veces por semana querés venir?'\n"
+    "corrida: '¿Desde qué día y hasta qué día te vas?'\n"
     "- Voseo siempre: 'preferís', 'querés', 'podés', 'tenés', 'decime'. Jamás "
     "'prefieres', 'quieres', 'puedes', 'tienes'.\n"
     "- Si el alumno solo está preguntando, NO le pidas el nombre ni el registro. "
     "Pedilo recién cuando confirme que quiere anotarse.\n"
     "- Respondé primero lo que preguntó, y recién después, si hace falta, "
     "preguntá una sola cosa.\n"
-    "- Si preguntan qué clases o qué horarios tienen, preguntales primero su nivel "
-    "de juego y qué día les queda mejor, para buscarles un grupo.\n"
 )
 
 SYSTEM_PROMPT_ALUMNO = PROMPT_ALUMNO_PARTE_1 + BLOQUE_PAGOS + BLOQUE_PLANILLA + PROMPT_ALUMNO_PARTE_2
@@ -446,19 +449,30 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
 
     mensajes.append(mensaje_modelo.model_dump())
 
+    # si en el mismo turno derivó, no hay precio que dar de ese tema (ej. "cuánto sale el torneo")
+    derivada = any(re.sub(r"[^A-Za-z_]", "", tc.function.name or "") == "derivar_al_encargado"
+                   for tc in mensaje_modelo.tool_calls)
+
+    conocidas = {t["function"]["name"] for t in tools}  # solo las de su rol
     for tool_call in mensaje_modelo.tool_calls:
         nombre = re.sub(r"[^A-Za-z_]", "", tool_call.function.name or "")
+        nombre, error_nombre = _corregir_nombre_tool(nombre, conocidas)
         try:
             args = json.loads(tool_call.function.arguments or "{}")
         except json.JSONDecodeError:
             args = {}
 
-        if nombre == "buscar_grupo_disponible":
-            resultado = _buscar_grupo_disponible(args)
+        if error_nombre:
+            resultado = error_nombre
+        elif nombre == "buscar_grupo_disponible":
+            # la tool vieja: por si el modelo la sigue mandando, va a consultar_cupos
+            resultado = _consultar_cupos({"dia": args.get("dia"), "nivel": args.get("nivel_juego")})
         elif nombre == "consultar_precio":
-            resultado = _consultar_precio(args)
+            resultado = PRECIO_DERIVADO if derivada else _consultar_precio(args)
         elif nombre == "consultar_cupos":
             resultado = _consultar_cupos(args)
+        elif nombre == "derivar_al_encargado":
+            resultado = _derivar_al_encargado(telefono, args, texto)
         elif nombre == "anotar_en_clase":
             resultado = _anotar_en_clase(telefono, args)  # el alumno sale del número, nunca de args
         elif nombre == "estado_cuota":
@@ -532,6 +546,33 @@ def _guardar_mensaje(telefono: str, rol: str, contenido: str) -> None:
     db.session.commit()
 
 
+# ---------------------------------------------------------------- nombre de tool mal escrito
+# Solo las de lectura se pueden adivinar: si le pifia, no se rompe nada.
+# Las que escriben (anotar, ausencias, recuperaciones, cambios, comprobantes...) nunca se adivinan.
+TOOLS_LECTURA = {"consultar_cupos", "consultar_precio", "estado_cuota", "consultar_estado_pago"}
+NOMBRES_VIEJOS = {"buscar_grupo_disponible", "reprogramar_clase"}  # el despacho los sigue aceptando
+UMBRAL_NOMBRE = 0.85   # bien alto: 'consult_cupos' da 0.93
+UMBRAL_PARECIDO = 0.7  # de acá para arriba es un intento de una tool que escribe
+
+
+def _corregir_nombre_tool(nombre: str, conocidas: set[str]) -> tuple[str, dict | None]:
+    """(nombre a usar, None) o (nombre, error para el modelo) si se parece a una tool que escribe."""
+    if nombre in conocidas or nombre in NOMBRES_VIEJOS:
+        return nombre, None
+    parecidos = sorted(((SequenceMatcher(None, nombre, c).ratio(), c) for c in conocidas), reverse=True)
+    if not parecidos:
+        return nombre, None
+    ratio, mejor = parecidos[0]
+    segundo = parecidos[1][0] if len(parecidos) > 1 else 0
+    if mejor in TOOLS_LECTURA and ratio >= UMBRAL_NOMBRE and ratio - segundo >= 0.05:
+        print(f"[tool] nombre corregido: {nombre!r} -> {mejor!r} ({ratio:.2f})", flush=True)
+        return mejor, None
+    if ratio >= UMBRAL_PARECIDO:
+        return nombre, {"error": f"La tool '{nombre}' no existe (la correcta es '{mejor}'). NO se hizo nada. "
+                                 "No le digas al alumno que quedó hecho: pedile que te lo confirme de nuevo."}
+    return nombre, None  # cae en 'Tool desconocida'
+
+
 def _notificar(mensaje: str, tipo: str) -> None:
     db.session.add(Notificacion(mensaje=mensaje, tipo=tipo))
     db.session.commit()
@@ -575,23 +616,6 @@ def _pedido_propio_de(telefono: str) -> CambioPendiente | None:
 
 
 # ---------------------------------------------------------------- tools
-def _buscar_grupo_disponible(args: dict) -> dict:
-    variantes = _variantes_nivel(args.get("nivel_juego", ""))
-    dia = (args.get("dia") or "").strip().lower()
-
-    query = Grupo.query.filter(db.func.lower(Grupo.categoria).in_(variantes))
-    if dia:
-        query = query.filter(db.func.lower(Grupo.dia) == dia)
-
-    grupos = query.all()
-    return {
-        "grupos": [
-            {"dia": g.dia, "horario": g.horario, "cupo_max": g.cupo_max}
-            for g in grupos
-        ]
-    }
-
-
 def _inscripcion() -> int:
     cfg = db.session.get(ConfigAcademia, "inscripcion")
     try:
@@ -648,6 +672,8 @@ def _modalidad_y_turno(args: dict) -> tuple[str | None, str | None, dict]:
         m_vieja, t_vieja, extras = TIPOS_VIEJOS[tipo]
         modalidad = modalidad or m_vieja
         turno = turno or t_vieja
+    if not turno and _DIAS.get(planilla._norm(args.get("dia"))) == 5:
+        turno = "sabado"  # el sábado es siempre a la mañana: no hay turno que preguntar
     if "academia" in modalidad or "grupal" in modalidad:
         modalidad = "academia"
     elif "particular" in modalidad:
@@ -751,14 +777,56 @@ def _anotados_hoy(clase_ids: list[int], hoy) -> dict[int, int]:
     )
 
 
+MAX_CLASES_CUPOS = 10  # para no inflar tokens cuando pide el día entero
+MAX_ALTERNATIVAS = 4
+_FRANJAS_ADULTOS = ("manana", "tarde", "sabado")  # kids solo si lo pide
+
+
+def _ambitos_de(franjas) -> list[str]:
+    return [a for a, f in FRANJA_POR_AMBITO.items() if f in franjas]
+
+
+def _con_lugar(clases: list[Clase], fecha) -> list[dict]:
+    """Compacto: sin profe ni alumnos, solo lo que el alumno necesita (el id es para anotar_en_clase)."""
+    anotados = _anotados_hoy([c.id for c in clases], fecha)
+    vistas = {}  # mismo día, hora y nivel en otra cancha: para el alumno es la misma, dejo la de más lugares
+    for c in clases:
+        libres = c.cupo - anotados.get(c.id, 0)
+        clave = (c.dia_semana, c.hora_inicio, planilla._norm(c.nivel))
+        if libres > 0 and (clave not in vistas or libres > vistas[clave]["lugares"]):
+            vistas[clave] = {"clase_id": c.id, "dia": _NOMBRE_DIA[c.dia_semana],
+                             "hora": c.hora_inicio.strftime("%H:%M"), "nivel": c.nivel or "sin nivel",
+                             "lugares": libres}
+    return list(vistas.values())  # dict mantiene el orden de entrada
+
+
+def _alternativas(dia: int, franja: str | None, nivel: str | None, ya_vistas: set[int], fecha) -> list[dict]:
+    """Lo más cercano con lugar: primero otro horario del mismo día, después los días más
+    cercanos (mismo turno antes que otro). Mismo nivel si lo dijo."""
+    franjas = ("kids",) if franja == "kids" else _FRANJAS_ADULTOS
+    clases = Clase.query.filter(
+        Clase.activa.is_(True), Clase.tipo == "grupal", Clase.ambito.in_(_ambitos_de(franjas)),
+    ).all()
+    clases = [c for c in clases if c.id not in ya_vistas and (not nivel or _nivel_de_clase(c.nivel, nivel))]
+
+    def _cercania(c):
+        otro_turno = bool(franja) and FRANJA_POR_AMBITO.get(c.ambito) != franja
+        return (abs(c.dia_semana - dia), otro_turno, c.dia_semana, c.hora_inicio)
+
+    return _con_lugar(sorted(clases, key=_cercania), fecha)[:MAX_ALTERNATIVAS]
+
+
 def _consultar_cupos(args: dict) -> dict:
-    dia = _DIAS.get((args.get("dia") or "").strip().lower())
-    franja = (args.get("franja") or "").strip().lower()
-    if dia is None or not franja:
-        return {"error": "Falta el día o el turno. Preguntaselo al alumno antes de buscar."}
-    if dia == 5:
-        franja = "sabado"
-    ambitos = [a for a, f in FRANJA_POR_AMBITO.items() if f == franja]
+    dia = _DIAS.get(planilla._norm(args.get("dia")))
+    if dia is None:
+        return {"error": "Falta el día. Preguntale solo qué día le queda mejor y volvé a buscar."}
+    franja = planilla._norm(args.get("franja")).replace(" ", "") or None
+    franja = {"mananas": "manana", "tardes": "tarde"}.get(franja, franja)
+    if franja not in (None, "manana", "tarde", "kids"):
+        franja = None
+    if dia == 5 and franja != "kids":
+        franja = "sabado"  # el sábado es siempre a la mañana
+    franjas = (franja,) if franja else _FRANJAS_ADULTOS
     nivel = _nivel_canonico(args.get("nivel") or "")
 
     # si pregunta por más adelante, cuento los anotados en esa fecha (nunca antes de hoy)
@@ -766,31 +834,59 @@ def _consultar_cupos(args: dict) -> dict:
     desde = cd.leer_fecha(args.get("desde"), hoy)
     if desde and desde > hoy:
         hoy = desde
+    fecha = {"desde": cd.fecha_corta(hoy)} if desde and desde == hoy else {}
+
     clases = Clase.query.filter(
         Clase.activa.is_(True), Clase.tipo == "grupal",
-        Clase.dia_semana == dia, Clase.ambito.in_(ambitos),
+        Clase.dia_semana == dia, Clase.ambito.in_(_ambitos_de(franjas)),
     ).order_by(Clase.hora_inicio).all()
     if nivel:
         clases = [c for c in clases if _nivel_de_clase(c.nivel, nivel)]
-    if not clases:
-        return {"clases_con_lugar": [], "mensaje": "No hay clases grupales ese día y turno"
-                + (" para ese nivel" if nivel else "") + ". Ofrecé buscar otro día."}
+    con_lugar = _con_lugar(clases, hoy)
 
-    anotados = _anotados_hoy([c.id for c in clases], hoy)
-    con_lugar = []
-    for c in clases:
-        libres = c.cupo - anotados.get(c.id, 0)
-        if libres > 0:
-            # sin profe ni alumnos: solo lo que el alumno necesita (el id es para anotar_en_clase)
-            con_lugar.append({"clase_id": c.id, "dia": _NOMBRE_DIA[c.dia_semana],
-                              "hora": c.hora_inicio.strftime("%H:%M"),
-                              "nivel": c.nivel or "sin nivel", "lugares_libres": libres})
-    fecha = {"desde": cd.fecha_corta(hoy)} if desde and desde == hoy else {}
-    if not con_lugar:
-        return {"clases_con_lugar": [], **fecha,
-                "mensaje": f"Las {len(clases)} clases de ese día y turno están llenas. Ofrecé buscar otro día."}
-    return {"clases_con_lugar": con_lugar, **fecha,
-            "mensaje": "Pasale las opciones. Que haya lugar no lo anota: no digas que quedó reservado."}
+    if con_lugar:
+        res = {"clases_con_lugar": con_lugar[:MAX_CLASES_CUPOS], **fecha,
+               "mensaje": "Pasale estas opciones con día, hora y nivel y que elija. Que haya lugar no lo "
+                          "anota: no digas que quedó reservado."}
+        if len(con_lugar) > MAX_CLASES_CUPOS:
+            res["mensaje"] += " Hay más: si no le sirve ninguna, preguntale turno o nivel para achicar."
+        return res
+
+    # no hay lugar (o no hay clases): ofrezco lo más cercano en vez de un "no hay" seco
+    motivo = "están llenas" if clases else "no hay clases grupales"
+    que = "ese día" + (" y turno" if franja and franja != "sabado" else "") + (" para ese nivel" if nivel else "")
+    alternativas = _alternativas(dia, franja, nivel, {c.id for c in clases}, hoy)
+    if alternativas:
+        return {"clases_con_lugar": [], "alternativas": alternativas, **fecha,
+                "mensaje": f"Para {que} {motivo}. Contale eso y ofrecele estas alternativas con día, hora y "
+                           "nivel para que elija. No inventes otras."}
+    return {"clases_con_lugar": [], "alternativas": [], **fecha,
+            "mensaje": f"Para {que} {motivo} y no hay lugar en otros días"
+                       + (" para ese nivel" if nivel else "") + ". Contale eso con buena onda y ofrecele "
+                       "pasarle la consulta al encargado. No inventes clases."}
+
+
+PRECIO_DERIVADO = {"error": "Esta consulta ya se la pasaste al encargado. NO des ningún precio ni le "
+                            "preguntes datos para un precio: decile solo que el encargado le responde."}
+
+
+def _derivar_al_encargado(telefono: str, args: dict, texto: str) -> dict:
+    """Temas que el agente no maneja: le llega al encargado con el tema y la consulta tal cual."""
+    tema = str(args.get("tema") or "").strip()[:80] or "otro tema"
+    # la consulta es el mensaje real del alumno; lo que resumió el modelo va solo si aporta
+    consulta = (texto or "").strip()[:500]
+    resumen = str(args.get("consulta") or "").strip()[:200]
+    if resumen and planilla._norm(resumen) != planilla._norm(consulta):
+        consulta = f"{consulta} (resumen: {resumen})" if consulta else resumen
+    a = _alumno_por_telefono(telefono)
+    quien = f"{a.nombre} ({telefono})" if a else telefono
+    _notificar(f"Consulta para el encargado de {quien}. Tema: {tema}. Consulta: {consulta or '(sin detalle)'}",
+               tipo="consulta_derivada")
+    return {"ok": True,
+            "decile": "Eso lo maneja el encargado: ya le pasé tu consulta y se comunica con vos.",
+            "mensaje": "Contale solo eso, con buena onda. NO des precios, horarios, disponibilidad ni "
+                       "plazos de este tema, ni prometas cuándo le responde. No le preguntes nada más "
+                       "de este tema (ni modalidad, ni turno, ni personas)."}
 
 
 def _estado_cuota(telefono: str) -> dict:
