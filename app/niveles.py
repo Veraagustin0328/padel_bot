@@ -8,33 +8,51 @@ Pendiente de clasificar = tiene perfil con nivel_declarado y sin nivel_confirmad
 Los alumnos viejos no tienen perfil, así que no quedan marcados.
 """
 import json
+import unicodedata
 from datetime import datetime
 
 from app.extensions import db
 from app.models import Alumno
 from app.models_academia import AlumnoPerfil, Auditoria, ConfigAcademia
 
-# forma canónica -> todas las formas que aceptamos (1ra y 1era son lo mismo)
-FORMAS = {
-    "1era": ["1era", "1ra", "1°", "primera", "1"],
-    "2da": ["2da", "2a", "2°", "segunda", "2"],
-    "3ra": ["3ra", "3era", "3°", "tercera", "3"],
-    "4ta": ["4ta", "4°", "cuarta", "4"],
-    "5ta": ["5ta", "5°", "quinta", "5"],
-    "6ta": ["6ta", "6°", "sexta", "6"],
-    "7ma": ["7ma", "7°", "septima", "séptima", "7"],
-    "8va": ["8va", "8°", "octava", "8"],
-    "principiante": ["principiante", "inicial", "principiantes"],
-}
-# orden del selector, de menor a mayor; cada club lo puede cambiar con config_academia 'niveles'
-NIVELES_DEFAULT = ["principiante", "8va", "7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1era"]
+# todas las formas que aceptamos de cada nivel (1ra y 1era son lo mismo).
+# Sirven para reconocer lo que escriben; el nombre que se guarda sale de la config.
+FORMAS = [
+    ["1era", "1ra", "1°", "primera", "1"],
+    ["2da", "2a", "2°", "segunda", "2"],
+    ["3ra", "3era", "3°", "tercera", "3"],
+    ["4ta", "4°", "cuarta", "4"],
+    ["5ta", "5°", "quinta", "5"],
+    ["6ta", "6°", "sexta", "6"],
+    ["7ma", "7°", "septima", "7"],
+    ["8va", "8°", "octava", "8"],
+    ["principiante", "principiantes", "inicial"],
+]
+# si el club no cargó 'orden_niveles': mismo formato que las clases, de menor a mayor
+NIVELES_DEFAULT = ["PRINCIPIANTES", "8VA", "7MA", "6TA", "5TA", "4TA", "3RA", "2DA", "1ERA"]
+
+
+def _clave(texto) -> str:
+    """Para comparar: minúsculas, sin tildes ni espacios."""
+    t = unicodedata.normalize("NFD", str(texto or ""))
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return t.lower().replace(" ", "").strip()
 
 
 def nivel_canonico(texto) -> str | None:
-    t = str(texto or "").strip().lower().replace(" ", "")
-    for canonico, formas in FORMAS.items():
-        if t in formas:
-            return canonico
+    """'6ta', 'sexta', '6TA' -> '6TA' (tal cual está en orden_niveles). Si no es un nivel, None."""
+    t = _clave(texto)
+    if not t:
+        return None
+    lista = niveles()
+    for n in lista:
+        if _clave(n) == t:
+            return n
+    grupo = next((formas for formas in FORMAS if t in formas), None)
+    if grupo:
+        for n in lista:
+            if _clave(n) in grupo:
+                return n
     return None
 
 
@@ -49,10 +67,10 @@ def _config(clave):
 
 
 def niveles() -> list[str]:
-    """Los niveles que se pueden elegir en el selector, ya normalizados."""
-    lista = _config("niveles")
+    """Los niveles del selector, con el formato y el orden de config_academia 'orden_niveles'."""
+    lista = _config("orden_niveles")
     if isinstance(lista, list):
-        limpios = [nivel_canonico(n) or str(n).strip().lower() for n in lista if str(n).strip()]
+        limpios = [str(n).strip() for n in lista if str(n).strip()]
         if limpios:
             return limpios
     return list(NIVELES_DEFAULT)
@@ -74,6 +92,7 @@ def _perfil(alumno_id: int, crear=False) -> AlumnoPerfil | None:
 def registrar_declarado(alumno: Alumno, nivel: str) -> None:
     """Alumno nuevo: lo que dijo va a categoría y a nivel_declarado, y queda a clasificar.
     No hace commit: lo hace el que llama, junto con el alta."""
+    nivel = nivel_canonico(nivel) or nivel  # mismo formato que las clases ("6TA")
     alumno.categoria = nivel
     perfil = _perfil(alumno.id, crear=True)
     perfil.nivel_declarado = nivel
@@ -121,9 +140,12 @@ def datos_de(alumno_ids) -> dict[int, dict]:
     salida = {}
     for aid in ids:
         p = perfiles.get(aid)
+        cat = categorias.get(aid) or ""
+        declarado = (p.nivel_declarado or "") if p else ""
         salida[aid] = {
-            "nivel": categorias.get(aid) or "",
-            "nivel_declarado": (p.nivel_declarado or "") if p else "",
+            # por si quedó alguno viejo en minúscula, el panel siempre lo ve como la config
+            "nivel": nivel_canonico(cat) or cat,
+            "nivel_declarado": nivel_canonico(declarado) or declarado,
             "clasificar": bool(p and p.nivel_declarado and not p.nivel_confirmado),
         }
     return salida
