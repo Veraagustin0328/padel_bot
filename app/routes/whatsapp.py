@@ -5,6 +5,7 @@ from app.llm.agent import (
     _alumno_del_pago, _nombres, _pregunta_de_quien,
 )
 from app.models import Notificacion
+from app import contactos
 from app.whatsapp_client import enviar_mensaje_whatsapp, reenviar_archivo_whatsapp
 from app import planilla
 from app.extensions import db
@@ -12,6 +13,8 @@ from app.routes.auth import requiere_login
 from sqlalchemy import text
 
 whatsapp_bp = Blueprint("whatsapp", __name__, url_prefix="/webhook")
+
+TEMA_PAUSA = "familia pausada escribio"  # así lo ve el encargado en Consultas
 
 MENSAJE_NO_AUDIO = (
     "Perdón amigo, todavía no puedo escuchar audios 😅 ¿me lo podés escribir? "
@@ -45,21 +48,28 @@ def recibir_mensaje():
         return jsonify({"status": "duplicado"}), 200
 
     es_jefe = telefono == os.environ.get("ENCARGADO_TELEFONO")
+    # con la charla pausada el agente no contesta nada: ni audios, ni comprobantes, ni texto
+    pausado = not es_jefe and esta_pausado(telefono)
 
     if tipo == "audio":
+        if pausado:
+            _guardar_mensaje(telefono, "user", "[mandó un audio]")
+            _avisar_pausado(telefono, "[mandó un audio]")
+            return jsonify({"status": "bot_pausado_esperando_encargado"}), 200
         enviar_mensaje_whatsapp(telefono, MENSAJE_NO_AUDIO)
         return jsonify({"status": "ok"}), 200
 
     if tipo in ("image", "document"):
         if es_jefe:
             return jsonify({"status": "ignorado"}), 200
-        return _recibir_comprobante(telefono, data, tipo)
+        return _recibir_comprobante(telefono, data, tipo, pausado)
 
     if not texto:
         return jsonify({"status": "ignorado"}), 200
 
-    if not es_jefe and esta_pausado(telefono):
+    if pausado:
         _guardar_mensaje(telefono, "user", texto)
+        _avisar_pausado(telefono, texto)
         return jsonify({"status": "bot_pausado_esperando_encargado"}), 200
 
     respuesta = procesar_mensaje(telefono, texto, es_jefe)
@@ -74,9 +84,32 @@ def _monto_del_texto(texto: str):
     return montos[0] if len(montos) == 1 else None
 
 
-def _recibir_comprobante(telefono: str, data: dict, tipo: str):
+def _avisar_pausado(telefono: str, texto: str) -> None:
+    """Aviso en Consultas de que escribió alguien con el agente pausado.
+    Si ya hay uno abierto de ese número le sumo el mensaje, así no se llena de avisos."""
+    try:
+        abierta = (Notificacion.query
+                   .filter(Notificacion.tipo == "consulta_derivada", Notificacion.telefono == telefono,
+                           Notificacion.tema == TEMA_PAUSA, Notificacion.resuelta_en.is_(None))
+                   .order_by(Notificacion.id.desc()).first())
+        if abierta:
+            abierta.mensaje += f"\n{texto}"
+            abierta.leida = False
+            db.session.commit()
+            return
+        alumnos = contactos.alumnos_de_telefono(telefono)
+        quien = f"{_nombres(alumnos)} ({telefono})" if alumnos else telefono
+        _notificar(f"Escribió {quien} con el agente pausado:\n{texto}",
+                   tipo="consulta_derivada", telefono=telefono, tema=TEMA_PAUSA)
+    except Exception as e:
+        db.session.rollback()
+        print(f"[pausa] no pude avisar en Consultas: {e!r}", flush=True)
+
+
+def _recibir_comprobante(telefono: str, data: dict, tipo: str, pausado: bool = False):
     """Foto o PDF del comprobante: lo anota como PENDIENTE en la pestaña comprobantes
-    (avisar_comprobante no duplica si ya hay uno pendiente del mes) y se lo reenvía al encargado."""
+    (avisar_comprobante no duplica si ya hay uno pendiente del mes) y se lo reenvía al encargado.
+    Con la charla pausada se anota y se reenvía igual, pero no se le contesta a la familia."""
     mensaje = data["entry"][0]["changes"][0]["value"]["messages"][0]
     archivo = mensaje.get(tipo, {})
     media_id = archivo.get("id")
@@ -128,6 +161,12 @@ def _recibir_comprobante(telefono: str, data: dict, tipo: str):
         except Exception as e:
             print(f"[comprobante] no pude reenviar al encargado: {e!r}", flush=True)
 
+    recibido = "[envió el comprobante de pago]" + (f" {texto}" if texto else "")
+    if pausado:
+        _guardar_mensaje(telefono, "user", recibido)
+        _avisar_pausado(telefono, recibido)
+        return jsonify({"status": "bot_pausado_esperando_encargado"}), 200
+
     respuesta = "Recibí tu comprobante, gracias. El encargado lo revisa y te confirma el pago."
     if varios_montos:
         respuesta += " Vi más de un monto en tu mensaje: decime cuánto fue lo que transferiste así lo anoto."
@@ -138,7 +177,7 @@ def _recibir_comprobante(telefono: str, data: dict, tipo: str):
         respuesta += " Decime también cuánto fue así lo anoto."
     if planilla_ok and falta_quien:
         respuesta += " " + _pregunta_de_quien(alumnos)
-    _guardar_mensaje(telefono, "user", "[envió el comprobante de pago]" + (f" {texto}" if texto else ""))
+    _guardar_mensaje(telefono, "user", recibido)
     _guardar_mensaje(telefono, "assistant", respuesta)
     enviar_mensaje_whatsapp(telefono, respuesta)
     return jsonify({"status": "ok"}), 200
