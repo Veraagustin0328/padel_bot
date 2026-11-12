@@ -1,0 +1,26 @@
+/* nivel del alumno: marca de nuevo y selector de un toque (Mis clases, Clases y Fichas) */
+.niv-punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+.niv { display: grid; gap: 6px; justify-items: start; white-space: normal; }
+.niv-nuevo {
+  background: #fef3c7; color: #92400e; border: 1px solid #f5d27a;
+  font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+}
+.niv-actual {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 2px 9px;
+  border: 1px solid var(--linea); border-radius: 999px; background: var(--tarjeta); color: var(--tinta);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.niv-actual:hover { border-color: var(--verde-2); }
+.niv-lapiz { color: var(--suave); font-size: 11px; }
+
+/* chips grandes: se tocan con el dedo en el celu */
+.niv-opciones { display: flex; flex-wrap: wrap; gap: 6px; max-width: 360px; }
+.niv-opcion {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 4px 11px;
+  border: 1px solid #c4c8b8; border-radius: 999px; background: #fff; color: var(--tinta);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.niv-opcion:hover:not(:disabled) { border-color: var(--verde); }
+.niv-opcion.activo { background: var(--verde); border-color: var(--verde); color: #fff; font-weight: 700; }
+.niv-opcion:disabled { opacity: .6; cursor: default; }

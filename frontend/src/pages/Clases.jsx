@@ -1,32 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
+import { COLORES, NivelAlumno, ORDEN_LEYENDA, Punto, etiquetaNivel } from "../niveles.jsx";
 import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const AMBITOS = { adultos: "Adultos mañana", adultos_tarde: "Adultos tarde", sabados: "Sábados" };
 const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otro" };
 const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", otro: "Otro" };
-const COLORES = { rojo: "#dc2626", verde: "#16a34a", amarillo: "#eab308", azul: "#2563eb", rosado: "#ec4899" };
-const ORDEN_LEYENDA = ["rosado", "rojo", "verde", "amarillo", "azul"];
-const ALIAS_NIVEL = { "1RA": "1ERA" };
 
 const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const capital = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "");
-// "8VA" -> "8va", "PRINCIPIANTES" -> "Principiantes"
-const etiquetaNivel = (n) => (/^\d/.test(n) ? n.toLowerCase() : capital(n));
-
-// el punto de color sale del primer nivel de la clase (ej. "6TA/7MA" -> 6TA)
-function colorNivel(nivel, colores) {
-  if (!nivel) return null;
-  const primero = nivel.split("/")[0].trim().toUpperCase();
-  const clave = ALIAS_NIVEL[primero] || primero;
-  return COLORES[colores?.[clave]] || null;
-}
-
-function Punto({ nivel, colores }) {
-  const color = colorNivel(nivel, colores);
-  return color ? <span className="cla-punto" style={{ background: color }} /> : null;
-}
+// colores, punto y etiqueta del nivel viven en ../niveles.jsx (los comparten Mis clases y Fichas)
 
 function Leyenda({ colores }) {
   const grupos = {};
@@ -186,6 +170,26 @@ export default function Clases() {
     );
   }
 
+  // clasificar o recategorizar: se actualiza en todas las clases donde está el alumno
+  async function elegirNivel(a, nivel) {
+    setError("");
+    try {
+      const r = await api(`/api/alumnos/${a.id}/nivel`, { metodo: "POST", cuerpo: { nivel } });
+      const cambio = { nivel: r.nivel, nivel_declarado: r.nivel_declarado, clasificar: r.clasificar };
+      setDatos((d) => ({
+        ...d,
+        clases: d.clases.map((c) => ({
+          ...c,
+          alumnos: c.alumnos.map((x) => (x.id === a.id ? { ...x, ...cambio } : x)),
+        })),
+      }));
+      avisar(`${a.nombre} quedó en ${etiquetaNivel(r.nivel)}.`);
+    } catch (e) {
+      setError(`${a.nombre}: ${e.message}`);
+      throw e;
+    }
+  }
+
   function confirmarGrupales() {
     hacer(
       () => api("/api/clases/confirmar-grupales", { metodo: "POST" }),
@@ -267,6 +271,7 @@ export default function Clases() {
                       <td key={d}>
                         {(celdas[d + "|" + h] || []).map((c) => {
                           const n = c.alumnos.length;
+                          const nuevos = c.alumnos.filter((a) => a.clasificar).length;
                           const clase =
                             "cla-chip" +
                             (c.estimado ? " dudosa" : "") +
@@ -282,6 +287,9 @@ export default function Clases() {
                                 <i>{TIPO_CORTO[c.tipo] || c.tipo}</i>
                               </span>
                               <span className="cla-abajo">{c.nivel || "—"} · {n}/{c.cupo}</span>
+                              {nuevos > 0 && (
+                                <span className="cla-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
+                              )}
                             </button>
                           );
                         })}
@@ -342,7 +350,11 @@ export default function Clases() {
                 <ol className="cla-lista">
                   {sel.alumnos.map((a) => (
                     <li key={a.id}>
-                      <span>{a.nombre}</span>
+                      <div className="cla-alumno">
+                        <span>{a.nombre}</span>
+                        <NivelAlumno alumno={a} niveles={datos.niveles} colores={colores}
+                                     onElegir={(n) => elegirNivel(a, n)} />
+                      </div>
                       <button className="cla-quitar" onClick={() => sacar(a)} aria-label={`Sacar a ${a.nombre}`}>×</button>
                     </li>
                   ))}

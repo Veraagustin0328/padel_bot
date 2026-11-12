@@ -112,3 +112,9 @@
 
 .cla-filtros .cla-check input { min-width: 0; width: auto; }
 .cla-detalle { max-height: calc(100vh - 32px); overflow-y: auto; }
+
+/* nivel del alumno en la lista de la clase */
+.cla-alumno { display: grid; gap: 4px; min-width: 0; }
+.cla-lista li { align-items: flex-start; padding: 6px 0; }
+.cla-chip .cla-nuevos { display: block; margin-top: 3px; font-size: .72rem; font-weight: 700; color: #92400e; }
+.cla-arriba .niv-punto { margin-right: 2px; }

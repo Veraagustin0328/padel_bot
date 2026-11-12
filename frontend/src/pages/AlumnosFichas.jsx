@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
+import { NivelAlumno, etiquetaNivel } from "../niveles.jsx";
 
 // fichas de los alumnos de Neon (no la planilla). Por ahora: contactos.
 // la columna de acciones queda para sumar después "Cambiar días".
@@ -132,6 +133,7 @@ export default function AlumnosFichas() {
   const [estado, setEstado] = useState("activo"); // activo | baja | todos
   const [abierto, setAbierto] = useState(null); // id del alumno con el modal abierto
   const [ok, setOk] = useState("");
+  const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
 
   async function cargar() {
     setError("");
@@ -147,13 +149,34 @@ export default function AlumnosFichas() {
   const lista = useMemo(() => {
     const q = norm(buscar);
     return (datos?.alumnos || []).filter((a) => {
+      if (soloNuevos && !a.clasificar) return false;
       if (estado !== "todos" && norm(a.estado) !== estado) return false;
       if (q && !norm(a.nombre).includes(q)) return false;
       return true;
     });
-  }, [datos, buscar, estado]);
+  }, [datos, buscar, estado, soloNuevos]);
 
   const alumno = datos?.alumnos.find((a) => a.id === abierto);
+  const aClasificar = (datos?.alumnos || []).filter((a) => a.clasificar).length;
+
+  // clasificar o recategorizar desde la ficha
+  async function elegirNivel(a, nivel) {
+    setError("");
+    setOk("");
+    try {
+      const r = await api(`/api/alumnos/${a.id}/nivel`, { metodo: "POST", cuerpo: { nivel } });
+      setDatos((d) => ({
+        ...d,
+        alumnos: d.alumnos.map((x) => (x.id === a.id
+          ? { ...x, categoria: r.nivel, nivel_declarado: r.nivel_declarado, clasificar: r.clasificar }
+          : x)),
+      }));
+      setOk(`Listo, ${a.nombre} quedó en ${etiquetaNivel(r.nivel)}.`);
+    } catch (e) {
+      setError(`${a.nombre}: ${e.message}`);
+      throw e;
+    }
+  }
 
   function guardado(id, contactos) {
     setDatos((d) => ({ ...d, alumnos: d.alumnos.map((a) => (a.id === id ? { ...a, contactos } : a)) }));
@@ -176,13 +199,23 @@ export default function AlumnosFichas() {
           <option value="baja">De baja</option>
           <option value="todos">Todos</option>
         </select>
+        <button
+          type="button"
+          className={"fic-filtro-nuevos" + (soloNuevos ? " activo" : "")}
+          aria-pressed={soloNuevos}
+          onClick={() => setSoloNuevos(!soloNuevos)}
+        >
+          A clasificar <span className="fic-contador">{aClasificar}</span>
+        </button>
         <button className="boton chico claro" onClick={cargar}>Actualizar</button>
       </div>
 
       {datos === null ? (
         <div className="cargando">Cargando…</div>
       ) : lista.length === 0 ? (
-        <div className="alu-vacio">No hay alumnos con esos filtros.</div>
+        <div className="alu-vacio">
+          {soloNuevos ? "No hay alumnos nuevos para clasificar." : "No hay alumnos con esos filtros."}
+        </div>
       ) : (
         <div className="alu-scroll">
           <table className="alu-tabla fic-tabla">
@@ -199,7 +232,10 @@ export default function AlumnosFichas() {
               {lista.map((a) => (
                 <tr key={a.id} className={norm(a.estado) === "baja" ? "baja" : ""}>
                   <td className="nombre">{a.nombre}</td>
-                  <td>{a.categoria}</td>
+                  <td className="fic-nivel">
+                    <NivelAlumno alumno={{ ...a, nivel: a.categoria || "" }} niveles={datos.niveles}
+                                 colores={datos.colores_nivel} onElegir={(n) => elegirNivel(a, n)} />
+                  </td>
                   <td>{a.planilla}</td>
                   <td className="fic-tels">
                     {a.contactos.length === 0 ? (

@@ -4,6 +4,7 @@ import { useAuth } from "../auth.jsx";
 import { GESTION } from "../roles.js";
 import { MARCA } from "../marca.js";
 import { diaSemana, diasDeSemana, hoyEn, lunesDe, mesDe, numeroDia, sumarDias, ultimoDiaConClases } from "../fechas.js";
+import { NivelAlumno, etiquetaNivel } from "../niveles.jsx";
 import "./misclases.css";
 import { NovedadesVigentes } from "./Novedades.jsx";
 
@@ -82,7 +83,25 @@ function Clase({ clase, fecha, futuro, verProfe }) {
     }
   }
 
+  // clasificar al nuevo o recategorizar: el back chequea que esté en la lista de esta clase
+  async function elegirNivel(alumno, nivel) {
+    setError("");
+    try {
+      const r = await api(`/api/mis-clases/${clase.id}/nivel`, {
+        metodo: "POST",
+        cuerpo: { fecha, alumno_id: alumno.id, nivel },
+      });
+      cambiarLocal(alumno.id, { nivel: r.nivel, nivel_declarado: r.nivel_declarado, clasificar: r.clasificar });
+      setGuardando((g) => ({ ...g, [alumno.id]: `✓ ${etiquetaNivel(r.nivel)}` }));
+    } catch (e) {
+      setError(`${alumno.nombre}: ${e.message}`);
+      throw e;
+    }
+  }
+
   const presentes = datos ? datos.alumnos.filter((a) => a.estado === "presente").length : 0;
+  // con la clase abierta se cuenta en vivo (baja al clasificar); cerrada, lo que mandó el back
+  const nuevos = datos ? datos.alumnos.filter((a) => a.clasificar).length : clase.nuevos || 0;
   const marcados = datos ? datos.alumnos.filter((a) => a.estado).length : 0;
 
   return (
@@ -100,6 +119,9 @@ function Clase({ clase, fecha, futuro, verProfe }) {
               ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
               : resumen(clase)}
           </span>
+          {nuevos > 0 && (
+            <span className="mc-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
+          )}
         </span>
         <span className="mc-flecha">{abierta ? "▲" : "▼"}</span>
       </button>
@@ -117,6 +139,8 @@ function Clase({ clase, fecha, futuro, verProfe }) {
                 {a.etiqueta && <span className={"mc-tag" + (TAGS[a.etiqueta] || "")}>{a.etiqueta}</span>}
                 <span className="mc-guardado">{guardando[a.id]}</span>
               </div>
+              <NivelAlumno alumno={a} niveles={datos.niveles} colores={datos.colores_nivel}
+                           onElegir={(n) => elegirNivel(a, n)} />
               <div className="mc-botones">
                 {ESTADOS.map(([valor, texto]) => (
                   <button

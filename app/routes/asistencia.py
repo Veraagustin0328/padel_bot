@@ -113,9 +113,12 @@ def mis_clases():
     consulta = consulta.filter(m.Clase.dia_semana == fecha.weekday())
 
     salida = []
-    for c, profe in consulta:
-        vienen, no_vienen = recuperaciones.alumnos_del_dia(c, fecha)
+    listas = [(c, profe, *recuperaciones.alumnos_del_dia(c, fecha)) for c, profe in consulta]
+    # nuevos a clasificar: una sola consulta para todas las clases del día
+    nivel_de = niveles.datos_de([aid for *_, v, nv in listas for aid in (*v, *nv)])
+    for c, profe, vienen, no_vienen in listas:
         etiquetas = list(vienen.values())
+        nuevos = sum(1 for aid in {*vienen, *no_vienen} if nivel_de.get(aid, {}).get("clasificar"))
         salida.append({
             "id": c.id,
             "dia": c.dia_semana,
@@ -129,6 +132,7 @@ def mis_clases():
             "recuperan": etiquetas.count("recupera"),
             "reemplazos": etiquetas.count("reemplazo"),
             "no_vienen": len(no_vienen),
+            "nuevos": nuevos,
         })
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
     return jsonify({"hoy": hoy.isoformat(), "fecha": fecha.isoformat(), "clases": salida})
