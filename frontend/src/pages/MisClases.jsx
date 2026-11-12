@@ -4,7 +4,7 @@ import { useAuth } from "../auth.jsx";
 import { GESTION } from "../roles.js";
 import { MARCA } from "../marca.js";
 import { diaSemana, diasDeSemana, hoyEn, lunesDe, mesDe, numeroDia, sumarDias, ultimoDiaConClases } from "../fechas.js";
-import { NivelAlumno, etiquetaNivel } from "../niveles.jsx";
+import { NivelAlumno, Punto, etiquetaNivel } from "../niveles.jsx";
 import "./misclases.css";
 import { NovedadesVigentes } from "./Novedades.jsx";
 
@@ -110,6 +110,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
         <span className="mc-hora">{clase.hora}</span>
         <span className="mc-info">
           <span className="mc-titulo">
+            <Punto color={clase.color} hueco={!!clase.nivel} />
             {TIPOS[clase.tipo] || clase.tipo}
             {clase.nivel && ` · ${clase.nivel}`}
           </span>
@@ -139,7 +140,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
                 {a.etiqueta && <span className={"mc-tag" + (TAGS[a.etiqueta] || "")}>{a.etiqueta}</span>}
                 <span className="mc-guardado">{guardando[a.id]}</span>
               </div>
-              <NivelAlumno alumno={a} niveles={datos.niveles} colores={datos.colores_nivel}
+              <NivelAlumno alumno={a} niveles={datos.niveles} colores={datos.colores}
                            onElegir={(n) => elegirNivel(a, n)} />
               <div className="mc-botones">
                 {ESTADOS.map(([valor, texto]) => (

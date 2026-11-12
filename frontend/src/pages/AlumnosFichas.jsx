@@ -234,7 +234,7 @@ export default function AlumnosFichas() {
                   <td className="nombre">{a.nombre}</td>
                   <td className="fic-nivel">
                     <NivelAlumno alumno={{ ...a, nivel: a.categoria || "" }} niveles={datos.niveles}
-                                 colores={datos.colores_nivel} onElegir={(n) => elegirNivel(a, n)} />
+                                 colores={datos.colores} onElegir={(n) => elegirNivel(a, n)} />
                   </td>
                   <td>{a.planilla}</td>
                   <td className="fic-tels">

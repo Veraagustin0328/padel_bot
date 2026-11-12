@@ -1,5 +1,11 @@
 /* nivel del alumno: marca de nuevo y selector de un toque (Mis clases, Clases y Fichas) */
-.niv-punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+/* el borde finito ayuda a que el amarillo se lea sobre blanco */
+.niv-punto {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18);
+}
+/* sin rama o mixta: hueco gris */
+.niv-punto.hueco { background: transparent; box-shadow: inset 0 0 0 2px #9ca3af; }
 
 .niv { display: grid; gap: 6px; justify-items: start; white-space: normal; }
 .niv-nuevo {

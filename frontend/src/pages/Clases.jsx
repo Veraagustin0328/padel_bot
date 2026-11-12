@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
-import { COLORES, NivelAlumno, ORDEN_LEYENDA, Punto, etiquetaNivel } from "../niveles.jsx";
+import { NivelAlumno, Punto, RAMAS, etiquetaNivel, rangoNivel } from "../niveles.jsx";
 import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -10,19 +10,25 @@ const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", otro: "Ot
 
 const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const capital = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "");
-// colores, punto y etiqueta del nivel viven en ../niveles.jsx (los comparten Mis clases y Fichas)
+// punto y etiqueta del nivel viven en ../niveles.jsx (los comparten Mis clases y Fichas)
 
-function Leyenda({ colores }) {
-  const grupos = {};
-  for (const [nivel, color] of Object.entries(colores || {})) (grupos[color] ||= []).push(nivel);
+// una columna de la tabla en texto: "Cab. 7ma-6ta · Damas 6ta"
+const textoColumna = (col) =>
+  [col.caballeros.length && `Cab. ${rangoNivel(col.caballeros)}`, col.damas.length && `Damas ${rangoNivel(col.damas)}`]
+    .filter(Boolean).join(" · ");
+
+function Leyenda({ colores, sinRama }) {
   return (
     <div className="cla-leyenda">
-      {ORDEN_LEYENDA.filter((c) => grupos[c]).map((c) => (
-        <span key={c} className="cla-ley">
-          <span className="cla-punto" style={{ background: COLORES[c] }} />
-          {grupos[c].map(etiquetaNivel).join(" · ")}
+      {(colores?.columnas || []).map((col) => (
+        <span key={col.n} className="cla-ley">
+          <Punto color={col.color} />
+          {textoColumna(col)}
         </span>
       ))}
+      <span className="cla-ley">
+        <Punto hueco />Sin rama o mixta{sinRama > 0 && ` (${sinRama} grupales sin rama)`}
+      </span>
       <span className="cla-ley"><span className="cla-muestra dudosa" />Tipo por confirmar</span>
       <span className="cla-ley"><span className="cla-muestra llena" />Cupo completo</span>
       <span className="cla-ley"><span className="cla-muestra pasada" />Más alumnos que cupo</span>
@@ -49,7 +55,7 @@ export default function Clases() {
       setDatos(await api("/api/clases"));
     } catch (e) {
       setError(e.message);
-      setDatos({ clases: [], colores_nivel: {} });
+      setDatos({ clases: [], colores: { columnas: [], por_rama: {} } });
     }
   }
   useEffect(() => { cargar(); }, []);
@@ -78,7 +84,8 @@ export default function Clases() {
     () => (datos?.clases || []).filter((c) => verInactivas || c.activa),
     [datos, verInactivas]
   );
-  const colores = datos?.colores_nivel || {};
+  const colores = datos?.colores || { columnas: [], por_rama: {} };
+  const sinRama = clases.filter((c) => c.activa && c.tipo === "grupal" && !c.rama).length;
 
   const ambitos = Object.keys(AMBITOS).filter((a) => clases.some((c) => c.ambito === a));
   const delAmbito = useMemo(() => clases.filter((c) => c.ambito === ambito), [clases, ambito]);
@@ -142,6 +149,22 @@ export default function Clases() {
       cambios.profesor_id = form.profesor_id === "" ? null : Number(form.profesor_id);
     }
     hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: cambios }), "Cambios guardados.");
+  }
+
+  // rama y color: se guardan con un toque, sin pasar por "Guardar cambios"
+  function elegirRama(rama) {
+    const nueva = rama === sel.rama ? "" : rama; // tocar la que ya está la saca
+    hacer(
+      () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { rama: nueva } }),
+      nueva ? `Rama: ${RAMAS[nueva]}.` : "La clase quedó sin rama."
+    );
+  }
+
+  function elegirColumna(valor) {
+    hacer(
+      () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { columna: valor === "" ? null : Number(valor) } }),
+      valor === "" ? "Color automático." : "Color cambiado."
+    );
   }
 
   function confirmarTipo() {
@@ -247,7 +270,7 @@ export default function Clases() {
         <button className="boton chico claro" onClick={cargar}>Actualizar</button>
       </div>
 
-      <Leyenda colores={colores} />
+      <Leyenda colores={colores} sinRama={sinRama} />
 
       {datos === null ? (
         <div className="cargando">Cargando…</div>
@@ -282,7 +305,7 @@ export default function Clases() {
                           return (
                             <button key={c.id} className={clase} onClick={() => setAbierta(c.id)}>
                               <span className="cla-arriba">
-                                <Punto nivel={c.nivel} colores={colores} />
+                                <Punto color={c.color} hueco={!!c.nivel} />
                                 <b>{c.profe ? capital(c.profe) : "Sin profe"}</b>
                                 <i>{TIPO_CORTO[c.tipo] || c.tipo}</i>
                               </span>
@@ -306,10 +329,44 @@ export default function Clases() {
               <button className="cla-cerrar" onClick={() => setAbierta(null)} aria-label="Cerrar">×</button>
               <h2>{DIAS[sel.dia]} {sel.hora}</h2>
               <p className="cla-sub">
-                <Punto nivel={sel.nivel} colores={colores} />
+                <Punto color={sel.color} hueco={!!sel.nivel} />
                 {sel.profe ? capital(sel.profe) : "Sin profe"} · {sel.nivel || "Sin nivel"}
+                {sel.rama && ` · ${RAMAS[sel.rama] || sel.rama}`}
                 {!sel.activa && " · desactivada"}
               </p>
+
+              <div className="cla-rama">
+                <span className="cla-rama-titulo">Rama</span>
+                <div className="cla-rama-botones" role="group" aria-label="Rama de la clase">
+                  {Object.entries(RAMAS).map(([k, v]) => (
+                    <button key={k} type="button" className={"cla-rama-op" + (sel.rama === k ? " activo" : "")}
+                            aria-pressed={sel.rama === k} onClick={() => elegirRama(k)}>
+                      {v}
+                    </button>
+                  ))}
+                </div>
+                {!sel.rama && sel.rama_sugerida && (
+                  <div className="cla-sugerida">
+                    Sugerido: <b>{RAMAS[sel.rama_sugerida.rama]}</b>
+                    <span> ({sel.rama_sugerida.reconocidos} de {sel.rama_sugerida.total} nombres)</span>
+                    <button type="button" className="boton chico" onClick={() => elegirRama(sel.rama_sugerida.rama)}>
+                      Confirmar
+                    </button>
+                  </div>
+                )}
+                {(sel.rama === "damas" || sel.rama === "caballeros") && colores.columnas.length > 0 && (
+                  <label className="cla-columna">Color
+                    <select value={sel.columna_manual ?? ""} onChange={(e) => elegirColumna(e.target.value)}>
+                      <option value="">
+                        Automático{sel.columna_auto ? ` (${colores.columnas[sel.columna_auto - 1]?.nombre})` : " (sin color)"}
+                      </option>
+                      {colores.columnas.map((col) => (
+                        <option key={col.n} value={col.n}>{col.n} · {col.nombre}: {textoColumna(col)}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
 
               {sel.estimado && (
                 <div className="cla-alerta">

@@ -35,7 +35,6 @@
 .cla-arriba b { flex: 1; font-size: .9rem; }
 .cla-arriba i { font-style: normal; font-size: .75rem; background: #e6ebef; border-radius: 4px; padding: 1px 6px; }
 .cla-abajo { display: block; font-size: .78rem; color: #5b6672; margin-top: 2px; }
-.cla-punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; margin-right: 2px; }
 
 .cla-detalle { width: 300px; flex: none; background: #fff; border: 1px solid #e1e6ea; border-radius: 10px; padding: 16px; position: sticky; top: 16px; }
 .cla-detalle h2 { margin: 0 0 4px; }
@@ -119,3 +118,18 @@
 .cla-chip .cla-nuevos { display: block; margin-top: 3px; font-size: .72rem; font-weight: 700; color: #92400e; }
 .cla-arriba .niv-punto,
 .cla-sub .niv-punto { margin-right: 2px; }
+
+/* rama de la clase: botones de un toque, sugerencia por nombres y color a mano */
+.cla-rama { display: grid; gap: 8px; margin: 12px 0; padding: 10px 12px; background: #f7f9fa; border: 1px solid #e1e6ea; border-radius: 10px; }
+.cla-rama-titulo { font-size: .85rem; font-weight: 700; color: #3a4651; }
+.cla-rama-botones { display: flex; flex-wrap: wrap; gap: 6px; }
+.cla-rama-op {
+  min-height: 36px; padding: 4px 12px; border: 1px solid #c4c8b8; border-radius: 999px;
+  background: #fff; color: #1f2933; font: inherit; font-size: .85rem; cursor: pointer;
+}
+.cla-rama-op:hover { border-color: var(--verde, #1e6b3a); }
+.cla-rama-op.activo { background: var(--verde, #1e6b3a); border-color: var(--verde, #1e6b3a); color: #fff; font-weight: 700; }
+.cla-sugerida { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .85rem; color: #3a4651; }
+.cla-sugerida span { color: #5b6672; }
+.cla-columna { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: #3a4651; }
+.cla-columna select { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; max-width: 100%; }

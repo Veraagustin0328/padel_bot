@@ -88,3 +88,6 @@
 
 /* aviso en la tarjeta: alumnos nuevos que esperan el nivel */
 .mc-nuevos { display: block; margin-top: 3px; font-size: 12px; font-weight: 700; color: #92400e; }
+
+/* punto de color de la clase (nivel y rama) */
+.mc-titulo .niv-punto { margin-right: 6px; vertical-align: 1px; }
