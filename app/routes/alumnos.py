@@ -5,9 +5,9 @@ Las fichas salen de Neon: alumnos con sus teléfonos de contacto, que sí se edi
 import json
 import re
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
-from app import planilla
+from app import niveles, planilla
 from app.contactos import alumnos_de_telefono, tel10
 from app.extensions import db
 from app.models import PARENTESCOS, Alumno, ContactoAlumno
@@ -107,15 +107,20 @@ def fichas():
     contactos = {}
     for c in ContactoAlumno.query.order_by(ContactoAlumno.id).all():
         contactos.setdefault(c.alumno_id, []).append(_contacto_json(c))
+    nivel_de = niveles.datos_de([a.id for a in alumnos])
     return jsonify({
         "max_contactos": _max_contactos(),
         "parentescos": list(PARENTESCOS),
+        "niveles": niveles.niveles(),
+        "colores_nivel": niveles.colores(),
         "alumnos": [
             {
                 "id": a.id,
                 "nombre": a.nombre,
                 "telefono": a.telefono,
                 "categoria": a.categoria,
+                "nivel_declarado": nivel_de.get(a.id, {}).get("nivel_declarado", ""),
+                "clasificar": nivel_de.get(a.id, {}).get("clasificar", False),
                 "planilla": a.planilla,
                 "estado": a.estado or "activo",
                 "contactos": contactos.get(a.id, []),
@@ -123,6 +128,20 @@ def fichas():
             for a in alumnos
         ],
     })
+
+
+@alumnos_bp.post("/api/alumnos/<int:alumno_id>/nivel")
+@requiere_login("encargado")
+def clasificar_nivel(alumno_id):
+    """Encargado y dueño: clasificar al nuevo o recategorizar a cualquiera. El profe va por Mis clases."""
+    alumno = db.session.get(Alumno, alumno_id)
+    if not alumno:
+        return jsonify({"error": "No encontré el alumno"}), 404
+    datos = request.get_json(silent=True) or {}
+    resultado, msg = niveles.clasificar(alumno, datos.get("nivel"), g.usuario.id)
+    if msg:
+        return jsonify({"error": msg}), 400
+    return jsonify({"alumno_id": alumno.id, **resultado})
 
 
 @alumnos_bp.get("/api/alumnos/contactos/chequear")

@@ -7,6 +7,7 @@ import json
 from flask import Blueprint, g, jsonify, request
 
 from app import models_academia as m
+from app import niveles
 from app import recuperaciones
 from app.cambios_dias import vigente_en
 from app.extensions import db
@@ -79,6 +80,12 @@ def listar():
             {"id": alumno_id, "nombre": nombre, "desde": desde.isoformat() if desde else None}
         )
 
+    # nivel de cada alumno y si es nuevo a clasificar
+    nivel_de = niveles.datos_de([a["id"] for lista in inscriptos.values() for a in lista])
+    for lista in inscriptos.values():
+        for a in lista:
+            a.update(nivel_de.get(a["id"], {}))
+
     estimada, confirmada, notas = _estados()
 
     salida = []
@@ -102,7 +109,7 @@ def listar():
 
     cfg = db.session.get(m.ConfigAcademia, "colores_nivel")
     colores = json.loads(cfg.valor) if cfg else {}
-    return jsonify({"clases": salida, "colores_nivel": colores})
+    return jsonify({"clases": salida, "colores_nivel": colores, "niveles": niveles.niveles()})
 
 
 @clases_bp.get("/api/clases/profes")

@@ -10,6 +10,7 @@ from app import planilla
 from app import recuperaciones as rec
 from app import cambios_dias as cd
 from app import contactos
+from app import niveles as niveles_mod
 from app.cuotas import (
     DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
 )
@@ -30,26 +31,8 @@ DATOS_DE_PAGO = (
 )
 
 # ---------------------------------------------------------------- niveles
-# Forma canónica -> todas las formas que aceptamos (1ra y 1era son lo mismo).
-_NIVELES = {
-    "1era": ["1era", "1ra", "1°", "primera", "1"],
-    "2da": ["2da", "2a", "2°", "segunda", "2"],
-    "3ra": ["3ra", "3era", "3°", "tercera", "3"],
-    "4ta": ["4ta", "4°", "cuarta", "4"],
-    "5ta": ["5ta", "5°", "quinta", "5"],
-    "6ta": ["6ta", "6°", "sexta", "6"],
-    "7ma": ["7ma", "7°", "septima", "séptima", "7"],
-    "8va": ["8va", "8°", "octava", "8"],
-    "principiante": ["principiante", "inicial", "principiantes"],
-}
-
-
-def _nivel_canonico(texto: str) -> str | None:
-    t = (texto or "").strip().lower().replace(" ", "")
-    for canonico, formas in _NIVELES.items():
-        if t in formas:
-            return canonico
-    return None
+# las formas de cada nivel viven en app/niveles.py (las usa también el panel)
+_nivel_canonico = niveles_mod.nivel_canonico
 
 
 # ---------------------------------------------------------------- precios
@@ -134,9 +117,10 @@ PROMPT_ALUMNO_PARTE_1 = (
     "día ni una hora.\n\n"
     "Disponibilidad:\n"
     "- Si quiere anotarse o pregunta por clases, lugar u horarios y dijo un día, llamá "
-    "consultar_cupos YA con ese día (y el turno y el nivel SOLO si los dijo). NO le "
-    "preguntes nivel, turno ni hora antes de consultar. El sábado es siempre a la mañana: "
-    "nunca preguntes el turno del sábado.\n"
+    "consultar_cupos YA con ese día (y el turno SOLO si lo dijo). Si ya es alumno, NO le "
+    "preguntes el nivel: lo pone el sistema. Si NO es alumno, primero preguntale el nivel "
+    "(más abajo te explico cómo). No preguntes turno ni hora antes de consultar. El sábado "
+    "es siempre a la mañana: nunca preguntes el turno del sábado.\n"
     "- Mostrale las clases que te devolvió la tool con día, hora y nivel, y que elija. Si no "
     "hay lugar, ofrecele las 'alternativas' que te dio. Nunca inventes clases ni horarios "
     "que no vinieron de la tool.\n"
@@ -166,8 +150,11 @@ PROMPT_ALUMNO_PARTE_1 = (
     "registrado si no llamaste a la tool correspondiente y devolvió ok.\n"
     "- Si un alumno confirma que quiere anotarse a un grupo y NO está registrado "
     "(más abajo te aviso si lo está), NO le repitas día ni hora: preguntale SOLO "
-    "el nombre y apenas te lo diga llamá anotar_en_clase con la clase y ese nombre "
-    "(y el nivel si lo mencionó).\n"
+    "el nombre y apenas te lo diga llamá anotar_en_clase con la clase, ese nombre "
+    "y el nivel que te dijo.\n"
+    "- Si anotar_en_clase te dice que la clase es de otro nivel, preguntale si quiere que "
+    "lo consultes con el encargado. Si dice que sí, llamá derivar_al_encargado con "
+    "tema='clase de otro nivel' y en consulta la clase (día, hora y nivel) y su nivel.\n"
     "- Si quiere cancelar una clase particular que ya tenía, usá "
     "cancelar_clase_suelta (con el día si tiene más de una).\n\n"
     "Temas:\n"
@@ -378,8 +365,18 @@ def _nota_registro(telefono: str) -> str:
     alumnos = _alumnos_con_telefono(telefono)
     if not alumnos:
         return (
-            "Este número NO está registrado todavía como alumno. Si quiere anotarse "
-            "a una clase, pedile el nombre y pasáselo a anotar_en_clase, que lo registra y lo anota."
+            "Este número NO está registrado todavía como alumno. Lo PRIMERO, antes de ofrecerle "
+            "o buscarle clases, es preguntarle en una sola frase su nivel de juego con ejemplos "
+            "y si quiere clase grupal o particular, por ejemplo: 'Decime tu nivel de juego (por "
+            "ejemplo 8va, 7ma, 6ta...) y si buscás clase grupal o particular'. Sin el nivel NO "
+            "llames consultar_cupos ni le ofrezcas nada. Si ya lo dijo en la charla, no lo vuelvas "
+            "a preguntar.\n"
+            "- Grupal: con el nivel llamá consultar_cupos con el día (si no dijo día, preguntale "
+            "cuál le queda mejor) y el nivel, y proponele una clase de las que vinieron, por "
+            "ejemplo 'Tengo el miércoles a las 10, ¿te sirve?'. Cuando confirme, pedile el nombre "
+            "y llamá anotar_en_clase con la clase, el nombre y el nivel que dijo, que lo registra "
+            "y lo anota.\n"
+            "- Particular: seguí como siempre con agendar_clase_suelta."
         )
     otro = ("Si quiere anotar a otra persona que no es ninguno de estos (por ejemplo otro hijo o hija), "
             "llamá anotar_en_clase con nombre=<el nombre que te dijo>: la tool se lo pasa al encargado.")
@@ -538,12 +535,12 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             resultado = error_nombre
         elif nombre == "buscar_grupo_disponible":
             # la tool vieja: por si el modelo la sigue mandando, va a consultar_cupos
-            resultado = _consultar_cupos({"dia": args.get("dia"), "nivel": args.get("nivel_juego")})
+            resultado = _consultar_cupos_de(telefono, {"dia": args.get("dia"), "nivel": args.get("nivel_juego")})
         elif nombre == "consultar_precio":
             resultado = (PRECIO_CLUB if del_club else PRECIO_DERIVADO if derivada
                          else _consultar_precio(args))
         elif nombre == "consultar_cupos":
-            resultado = _consultar_cupos(args)
+            resultado = _consultar_cupos_de(telefono, args)  # el nivel del alumno lo pone el código
         elif nombre == "contacto_club":
             resultado = _contacto_club()
         elif nombre == "derivar_al_encargado":
@@ -847,8 +844,80 @@ _NOMBRE_DIA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", 
 
 def _nivel_de_clase(nivel_clase: str, canonico: str) -> bool:
     """'6TA/7MA' sirve para 6ta y para 7ma; 'PRINCIPIANTES' para principiante."""
-    partes = re.split(r"[/,\s-]+", (nivel_clase or "").lower())
-    return any(_nivel_canonico(p) == canonico for p in partes if p)
+    return canonico in _niveles_de_texto(nivel_clase)
+
+
+def _niveles_de_texto(texto) -> set[str]:
+    """'6TA/7MA' -> {'6ta', '7ma'}. Lo que no es nivel (ej. PRESURIZACION) se ignora."""
+    partes = re.split(r"[/,\s-]+", (texto or "").lower())
+    return {n for n in (_nivel_canonico(p) for p in partes if p) if n}
+
+
+def _coincide(nivel_clase, niveles: set[str] | None) -> bool:
+    """Para buscar cupos: sin niveles no filtro; con niveles, la clase tiene que tener uno de esos
+    (una clase sin nivel cargado no se ofrece, como antes)."""
+    if not niveles:
+        return True
+    return bool(_niveles_de_texto(nivel_clase) & niveles)
+
+
+def _es_de_otro_nivel(clase: Clase, niveles: set[str] | None) -> bool:
+    """Para anotar: solo frena si los dos niveles se conocen y no se cruzan."""
+    de_clase = _niveles_de_texto(clase.nivel)
+    return bool(niveles) and bool(de_clase) and not (de_clase & niveles)
+
+
+def _niveles_del_alumno(alumno: Alumno) -> set[str]:
+    """Por código, nunca de lo que diga el modelo: su categoría y, si está vacía, el nivel
+    de su clase fija (solo para filtrar, no se guarda)."""
+    canonico = _nivel_canonico(alumno.categoria or "")
+    if canonico:
+        return {canonico}
+    hoy = planilla._ahora().date()
+    clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
+              .filter(Inscripcion.alumno_id == alumno.id, cd.vigente_en(hoy),
+                      Clase.activa.is_(True), Clase.tipo == "grupal").all())
+    niveles = set()
+    for c in clases:
+        niveles |= _niveles_de_texto(c.nivel)
+    return niveles
+
+
+PEDIR_NIVEL = {"status": "falta_nivel",
+               "decile": "Decime tu nivel de juego (por ejemplo 8va, 7ma, 6ta...).",
+               "mensaje": "Todavía no sabés su nivel: NO le ofrezcas ni anotes nada. Preguntale eso y, "
+                          "cuando te lo diga, volvé a llamar con el nivel."}
+
+
+def _niveles_para(telefono: str, nivel_dicho) -> tuple[set[str] | None, dict | None]:
+    """(niveles para filtrar, None) o (None, error para el modelo).
+    Alumno: sale de su ficha. Número nuevo: lo que dijo, y si no dijo, hay que preguntarlo."""
+    alumnos = _alumnos_con_telefono(telefono)
+    if not alumnos:
+        canonico = _nivel_canonico(nivel_dicho or "")
+        return ({canonico}, None) if canonico else (None, PEDIR_NIVEL)
+    if len(alumnos) == 1:
+        return _niveles_del_alumno(alumnos[0]), None
+    activo = contactos.alumno_activo(telefono, alumnos, SESION_HORAS)
+    if activo:
+        return _niveles_del_alumno(activo), None
+    todos = [_niveles_del_alumno(a) for a in alumnos]
+    if all(n == todos[0] for n in todos):
+        return todos[0], None  # los hermanos juegan en lo mismo: da igual de cuál habla
+    return None, {"status": "elegir_alumno", "alumnos": [a.nombre for a in alumnos],
+                  "decile": f"Este número lo tengo con {_nombres(alumnos)}. ¿Para quién buscás lugar?",
+                  "mensaje": "NO buscaste nada. Preguntale para cuál de ellos y volvé a llamar."}
+
+
+def _consultar_cupos_de(telefono: str, args: dict) -> dict:
+    if planilla._norm(args.get("tipo")) == "particular":
+        return {"status": "particular",
+                "mensaje": "Las particulares no se buscan con esta tool: preguntale día, hora y si quiere "
+                           "algún profe, y usá agendar_clase_suelta."}
+    niveles, error = _niveles_para(telefono, args.get("nivel"))
+    if error:
+        return error
+    return _consultar_cupos({**args, "_niveles": niveles})
 
 
 def _vigente(hoy):
@@ -889,14 +958,14 @@ def _con_lugar(clases: list[Clase], fecha) -> list[dict]:
     return list(vistas.values())  # dict mantiene el orden de entrada
 
 
-def _alternativas(dia: int, franja: str | None, nivel: str | None, ya_vistas: set[int], fecha) -> list[dict]:
+def _alternativas(dia: int, franja: str | None, niveles: set[str] | None, ya_vistas: set[int], fecha) -> list[dict]:
     """Lo más cercano con lugar: primero otro horario del mismo día, después los días más
-    cercanos (mismo turno antes que otro). Mismo nivel si lo dijo."""
+    cercanos (mismo turno antes que otro). Mismo nivel si se sabe."""
     franjas = ("kids",) if franja == "kids" else _FRANJAS_ADULTOS
     clases = Clase.query.filter(
         Clase.activa.is_(True), Clase.tipo == "grupal", Clase.ambito.in_(_ambitos_de(franjas)),
     ).all()
-    clases = [c for c in clases if c.id not in ya_vistas and (not nivel or _nivel_de_clase(c.nivel, nivel))]
+    clases = [c for c in clases if c.id not in ya_vistas and _coincide(c.nivel, niveles)]
 
     def _cercania(c):
         otro_turno = bool(franja) and FRANJA_POR_AMBITO.get(c.ambito) != franja
@@ -906,6 +975,7 @@ def _alternativas(dia: int, franja: str | None, nivel: str | None, ya_vistas: se
 
 
 def _consultar_cupos(args: dict) -> dict:
+    """Busca lugar. Los niveles vienen ya resueltos en '_niveles' (ver _consultar_cupos_de)."""
     dia = _DIAS.get(planilla._norm(args.get("dia")))
     if dia is None:
         return {"error": "Falta el día. Preguntale solo qué día le queda mejor y volvé a buscar."}
@@ -916,7 +986,7 @@ def _consultar_cupos(args: dict) -> dict:
     if dia == 5 and franja != "kids":
         franja = "sabado"  # el sábado es siempre a la mañana
     franjas = (franja,) if franja else _FRANJAS_ADULTOS
-    nivel = _nivel_canonico(args.get("nivel") or "")
+    nivel = args.get("_niveles") or None  # set de niveles; vacío = sin filtro
 
     # si pregunta por más adelante, cuento los anotados en esa fecha (nunca antes de hoy)
     hoy = planilla._ahora().date()
@@ -930,7 +1000,7 @@ def _consultar_cupos(args: dict) -> dict:
         Clase.dia_semana == dia, Clase.ambito.in_(_ambitos_de(franjas)),
     ).order_by(Clase.hora_inicio).all()
     if nivel:
-        clases = [c for c in clases if _nivel_de_clase(c.nivel, nivel)]
+        clases = [c for c in clases if _coincide(c.nivel, nivel)]
     con_lugar = _con_lugar(clases, hoy)
 
     if con_lugar:
@@ -1104,13 +1174,27 @@ def _anotar_en_clase(telefono: str, args: dict) -> dict:
         alumno, error = _elegir_alumno(telefono, dicho)
         if error:
             return error
-    nivel = (args.get("nivel") or "").strip() or (alumno.categoria if alumno else "")
+        niveles = _niveles_del_alumno(alumno)  # por código, nunca lo que mande el modelo
+    else:
+        # número nuevo: el nivel es el que dijo él, nunca el de la clase
+        canonico = _nivel_canonico(args.get("nivel") or "")
+        if not canonico:
+            return PEDIR_NIVEL
+        niveles = {canonico}
+    nivel = next(iter(niveles)) if len(niveles) == 1 else ""  # para elegir entre clases a la misma hora
 
     clase, error = _buscar_clase(args, nivel)
     if error:
         return error
     datos = _datos_clase(clase)
     hoy = planilla._ahora().date()
+
+    if _es_de_otro_nivel(clase, niveles):
+        return {"status": "otro_nivel", **datos,
+                "decile": "Esa clase es de otro nivel, ¿querés que lo consulte con el encargado?",
+                "mensaje": "NO lo anotaste. Preguntale eso. Si dice que sí, llamá derivar_al_encargado "
+                           "con tema='clase de otro nivel' y en consulta la clase (día, hora y nivel) y "
+                           "el nivel del alumno."}
 
     def _ya_anotado(a):
         return Inscripcion.query.filter(
@@ -1126,7 +1210,7 @@ def _anotar_en_clase(telefono: str, args: dict) -> dict:
 
     # el cupo lo miro antes de pedir el nombre: no tiene sentido registrarlo para una clase llena
     if _esta_llena(clase, hoy):
-        otras = _consultar_cupos({"dia": datos["dia"], "nivel": nivel,
+        otras = _consultar_cupos({"dia": datos["dia"], "_niveles": niveles,
                                   "franja": FRANJA_POR_AMBITO.get(clase.ambito, "manana")})
         return {"status": "sin_cupo", **datos, "otras_opciones": otras.get("clases_con_lugar", []),
                 "mensaje": "Esa clase está llena y NO lo anotaste. Contale con buena onda y ofrecele "
@@ -1139,7 +1223,7 @@ def _anotar_en_clase(telefono: str, args: dict) -> dict:
             return {"status": "falta_nombre", **datos,
                     "mensaje": "Este número todavía no es alumno y NO está anotado. Preguntale SOLO el "
                                "nombre y volvé a llamar anotar_en_clase con la misma clase y el nombre."}
-        reg = _registrar_alumno(telefono, {"nombre": nombre, "categoria": nivel or clase.nivel or ""})
+        reg = _registrar_alumno(telefono, {"nombre": nombre, "categoria": nivel})
         if "error" in reg:
             return reg
         alumno = _alumno_por_telefono(telefono)
@@ -1377,9 +1461,10 @@ def _actualizar_categoria(args: dict, es_jefe: bool) -> dict:
     if not alumno:
         return {"error": f"No encontré ningún alumno llamado '{args['alumno_nombre']}'"}
 
-    nueva = args["nueva_categoria"]
-    alumno.categoria = _nivel_canonico(nueva) or nueva
-    db.session.commit()
+    # mismo camino que el panel: queda en Auditoria y, si era nuevo, ya no queda a clasificar
+    _, error = niveles_mod.clasificar(alumno, args.get("nueva_categoria"), None, origen="whatsapp")
+    if error:
+        return {"error": f"{error}. Los niveles válidos son: {', '.join(niveles_mod.niveles())}"}
     return {"status": "actualizado", "alumno": alumno.nombre, "categoria": alumno.categoria}
 
 
@@ -1630,8 +1715,10 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
             return {"status": "ya_registrado", "alumno": nombrados[0].nombre}
         return {"status": "ya_registrado", "alumnos": [a.nombre for a in existentes]}
 
-    categoria_cruda = args.get("categoria", "")
-    categoria = _nivel_canonico(categoria_cruda) or categoria_cruda
+    # el nivel es el que dijo el alumno; sin eso no se registra (nunca se copia el de la clase)
+    categoria = _nivel_canonico(args.get("categoria") or "")
+    if not categoria:
+        return PEDIR_NIVEL
 
     alumno = Alumno(
         nombre=nombre,
@@ -1640,11 +1727,13 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
         planilla="adultos",
     )
     db.session.add(alumno)
-    db.session.flush()  # para tener el id del contacto
+    db.session.flush()  # para tener el id del contacto y del perfil
     contactos.crear_contacto(alumno, telefono, "propio")
+    niveles_mod.registrar_declarado(alumno, categoria)  # queda "nuevo, nivel a clasificar"
     db.session.commit()
 
-    _notificar(f"Nuevo alumno registrado: {nombre} ({telefono}), categoría {categoria}", tipo="alta_alumno")
+    _notificar(f"Nuevo alumno registrado: {nombre} ({telefono}), dijo categoría {categoria} "
+               "(a clasificar en sus clases)", tipo="alta_alumno")
     return {"status": "registrado", "alumno": alumno.nombre}
 
 

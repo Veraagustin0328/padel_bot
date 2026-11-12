@@ -103,14 +103,14 @@ _TOOLS_BASE = [
             "description": (
                 "Registra a un alumno nuevo que todavía no está en el sistema. "
                 "Llamala SOLO cuando ya tengas el nombre real que te dijo el alumno "
-                "(nunca placeholders ni texto entre corchetes) y su nivel de juego "
-                "ya mencionado en la charla."
+                "(nunca placeholders ni texto entre corchetes) y el nivel de juego "
+                "que él te dijo en la charla (nunca el de una clase)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "nombre": {"type": "string", "description": "Nombre real del alumno, tal como te lo dijo"},
-                    "categoria": {"type": "string", "description": "Nivel de juego ya mencionado en la charla (ej: 5ta, 1era)"},
+                    "categoria": {"type": "string", "description": "Nivel de juego que te dijo el alumno (ej: 8va, 7ma, 6ta)"},
                 },
                 "required": ["nombre", "categoria"],
             },
@@ -207,8 +207,9 @@ _TOOLS_BASE = [
                 "Solo lectura. Devuelve las clases GRUPALES REALES de un día que todavía tienen "
                 "lugar, con día, hora y nivel. Si no hay lugar, trae alternativas cercanas del "
                 "mismo nivel. Llamala apenas el alumno diga un día, cuando quiera anotarse o "
-                "pregunte por lugar, cupo u horarios. Con el día alcanza: NO preguntes turno ni "
-                "nivel antes. No anota a nadie."
+                "pregunte por lugar, cupo u horarios. No preguntes turno antes. Si ya es alumno, "
+                "el nivel lo pone el sistema: no se lo preguntes. Si NO es alumno, primero "
+                "preguntale su nivel y mandalo. No anota a nadie."
             ),
             "parameters": {
                 "type": "object",
@@ -227,7 +228,12 @@ _TOOLS_BASE = [
                     "nivel": {
                         "type": "string",
                         "enum": NIVELES,
-                        "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo.",
+                        "description": "Nivel de juego que dijo la persona. Obligatorio si no es alumno.",
+                    },
+                    "tipo": {
+                        "type": "string",
+                        "enum": ["grupal", "particular"],
+                        "description": "Opcional. Si pidió clase grupal o particular, SOLO si lo dijo.",
                     },
                     "desde": {
                         "type": "string",
@@ -246,7 +252,8 @@ _TOOLS_BASE = [
             "description": (
                 "Le pasa al encargado una consulta que vos no manejás: venta o alquiler de "
                 "paletas y pelotas, torneos, eventos u otro tema que no sea clases, cuotas, pagos, "
-                "faltas, recuperaciones, cambios de días o viajes. NO para alquiler de canchas "
+                "faltas, recuperaciones, cambios de días o viajes. También cuando quiere una clase "
+                "de otro nivel y acepta que lo consultes. NO para alquiler de canchas "
                 "(eso es contacto_club). Después decile solo lo que diga 'decile', sin precios ni plazos."
             ),
             "parameters": {
@@ -293,7 +300,7 @@ _TOOLS_BASE = [
                     "hora": {"type": "string", "description": "Hora de la clase (ej. '10' o '18:30'), si no tenés el clase_id."},
                     "nombre": {"type": "string", "description": "Nombre real del alumno, SOLO si la tool te lo pidió y él te lo dijo, o si quiere anotar a otra persona (ej. otro hijo)."},
                     "alumno": {"type": "string", "description": "Nombre del alumno, SOLO si la tool te pidió elegir entre varios."},
-                    "nivel": {"type": "string", "enum": NIVELES, "description": "Opcional. Nivel de juego, SOLO si el alumno lo dijo."},
+                    "nivel": {"type": "string", "enum": NIVELES, "description": "Nivel de juego que dijo la persona. Obligatorio si el número no es alumno."},
                 },
                 "required": [],
             },

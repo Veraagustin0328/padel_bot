@@ -9,6 +9,7 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 
 from app import models_academia as m
+from app import niveles
 from app import recuperaciones
 from app.extensions import db
 from app.models import Alumno
@@ -76,6 +77,18 @@ def _dictada(clase, fecha):
     return m.ClaseDictada.query.filter_by(clase_id=clase.id, fecha=fecha).first()
 
 
+def _lista_del_dia(clase, fecha):
+    """La lista que ve el profe: los del día más los que ya tienen marca. (ids, dictada, marcas)"""
+    ids = _alumnos_del_dia(clase, fecha)
+    dictada = _dictada(clase, fecha)
+    marcas = {}
+    if dictada:
+        for a in m.Asistencia.query.filter_by(clase_dictada_id=dictada.id):
+            marcas[a.alumno_id] = a
+            ids.setdefault(a.alumno_id, "fijo")  # por si lo sacaron de la clase después
+    return ids, dictada, marcas
+
+
 @asistencia_bp.get("/api/mis-clases")
 @requiere_login("profe", "encargado")
 def mis_clases():
@@ -131,13 +144,7 @@ def ver_asistencia(clase_id):
     if msg:
         return jsonify({"error": msg}), 400
 
-    ids = _alumnos_del_dia(clase, fecha)
-    dictada = _dictada(clase, fecha)
-    marcas = {}
-    if dictada:
-        for a in m.Asistencia.query.filter_by(clase_dictada_id=dictada.id):
-            marcas[a.alumno_id] = a
-            ids.setdefault(a.alumno_id, "fijo")  # por si lo sacaron de la clase después
+    ids, dictada, marcas = _lista_del_dia(clase, fecha)
 
     # "avisó" solo si avisó de verdad: la falta que puso el profe como 'Ausente' no cuenta
     avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=clase.id, fecha=fecha)}
@@ -149,9 +156,11 @@ def ver_asistencia(clase_id):
         return {"recupera": "recupera", "reemplazo": "reemplaza", "viaje": "de viaje"}.get(tipo)
 
     nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(Alumno.id.in_(ids)).all()) if ids else {}
+    nivel_de = niveles.datos_de(ids)
     alumnos = [{
         "id": aid,
         "nombre": nombres.get(aid, "?"),
+        **nivel_de.get(aid, {"nivel": "", "nivel_declarado": "", "clasificar": False}),
         "recupera": tipo == "recupera",
         "viene": tipo not in ("viaje", "falta"),
         "etiqueta": etiqueta(aid, tipo),
@@ -160,7 +169,35 @@ def ver_asistencia(clase_id):
     } for aid, tipo in ids.items()]
     # primero los que vienen, después los que avisaron o están de viaje
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
-    return jsonify({"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos})
+    return jsonify({"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos,
+                    "niveles": niveles.niveles(), "colores_nivel": niveles.colores()})
+
+
+@asistencia_bp.post("/api/mis-clases/<int:clase_id>/nivel")
+@requiere_login("profe", "encargado")
+def clasificar_nivel(clase_id):
+    """Clasificar o recategorizar desde Mis clases. El profe solo puede con alumnos que
+    figuran en la lista de SU clase ese día (fijos, recuperan o reemplazan)."""
+    clase, error = _clase_o_error(clase_id)  # acá se frena si la clase no es del profe
+    if error:
+        return error
+    datos = request.get_json(silent=True) or {}
+    fecha, msg = _leer_fecha(datos.get("fecha"), clase)
+    if msg:
+        return jsonify({"error": msg}), 400
+    try:
+        alumno = db.session.get(Alumno, int(datos.get("alumno_id") or 0))
+    except (TypeError, ValueError):
+        alumno = None
+    if not alumno:
+        return jsonify({"error": "No encontré el alumno"}), 404
+    ids, _, _ = _lista_del_dia(clase, fecha)
+    if alumno.id not in ids:
+        return jsonify({"error": "Ese alumno no está en la lista de esta clase"}), 403
+    resultado, msg = niveles.clasificar(alumno, datos.get("nivel"), g.usuario.id)
+    if msg:
+        return jsonify({"error": msg}), 400
+    return jsonify({"alumno_id": alumno.id, **resultado})
 
 
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/asistencia")
