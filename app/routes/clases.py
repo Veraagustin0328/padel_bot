@@ -13,6 +13,7 @@ from app.cambios_dias import vigente_en
 from app.extensions import db
 from app.models import Alumno
 from app.models_plataforma import Profesor
+from app.nombres_pila import sugerir_rama
 from app.routes.auth import requiere_login
 
 clases_bp = Blueprint("clases_panel", __name__)
@@ -82,14 +83,16 @@ def listar():
 
     # nivel de cada alumno y si es nuevo a clasificar
     nivel_de = niveles.datos_de([a["id"] for lista in inscriptos.values() for a in lista])
-    for lista in inscriptos.values():
-        for a in lista:
-            a.update(nivel_de.get(a["id"], {}))
 
     estimada, confirmada, notas = _estados()
+    tabla = niveles.tabla()
 
     salida = []
     for c, profe in filas:
+        alumnos = [
+            {**a, **nivel_de.get(a["id"], {}), "rama": niveles.rama_en_clase(nivel_de.get(a["id"], {}), c.rama)}
+            for a in inscriptos.get(c.id, [])
+        ]
         salida.append({
             "id": c.id,
             "ambito": c.ambito,
@@ -103,13 +106,16 @@ def listar():
             "activa": bool(c.activa),
             "estimado": c.id in estimada and c.id not in confirmada,
             "nota": notas.get(c.id, ""),
-            "alumnos": inscriptos.get(c.id, []),
+            "rama": c.rama or "",
+            # ayuda para cargar la rama: sale de los nombres de pila, se confirma con un toque
+            "rama_sugerida": None if c.rama else sugerir_rama(a["nombre"] for a in alumnos),
+            **niveles.color_clase(c.nivel, c.rama, c.columna_color, tabla),
+            "columna_manual": c.columna_color,
+            "alumnos": alumnos,
         })
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
 
-    cfg = db.session.get(m.ConfigAcademia, "colores_nivel")
-    colores = json.loads(cfg.valor) if cfg else {}
-    return jsonify({"clases": salida, "colores_nivel": colores, "niveles": niveles.niveles()})
+    return jsonify({"clases": salida, "colores": niveles.colores_panel(tabla), "niveles": niveles.niveles()})
 
 
 @clases_bp.get("/api/clases/profes")
@@ -170,6 +176,22 @@ def editar(clase_id):
         cambiar("profesor_id", pid)
     if "activa" in datos:
         cambiar("activa", bool(datos["activa"]))
+    if "rama" in datos:
+        rama = str(datos["rama"] or "").strip().lower() or None
+        if rama is not None and rama not in niveles.RAMAS:
+            return jsonify({"error": "La rama tiene que ser damas, caballeros o mixto"}), 400
+        cambiar("rama", rama)
+    if "columna" in datos:
+        # vacía = la automática según nivel y rama
+        col = datos["columna"]
+        if col not in (None, ""):
+            try:
+                col = int(col)
+            except (TypeError, ValueError):
+                return jsonify({"error": "La columna de color tiene que ser un número"}), 400
+            if not 1 <= col <= len(niveles.tabla()["columnas"]):
+                return jsonify({"error": "Esa columna de color no existe"}), 400
+        cambiar("columna_color", col or None)
 
     if despues:
         _auditar(c.id, "editar", antes, despues)

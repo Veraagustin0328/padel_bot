@@ -95,6 +95,7 @@ class Clase(db.Model):
     tipo = db.Column(db.String(12), nullable=False, default="grupal")  # grupal / particular / particular_2 / otro
     nivel = db.Column(db.String(20), nullable=True)               # 5TA, 6TA/7MA, PRINCIPIANTES...
     rama = db.Column(db.String(10), nullable=True)                # damas / caballeros / mixto
+    columna_color = db.Column(db.SmallInteger, nullable=True)     # elegida a mano; vacía = la automática
     cupo = db.Column(db.SmallInteger, nullable=False, default=4)
     activa = db.Column(db.Boolean, nullable=False, default=True)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)

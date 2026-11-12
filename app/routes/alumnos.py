@@ -112,7 +112,7 @@ def fichas():
         "max_contactos": _max_contactos(),
         "parentescos": list(PARENTESCOS),
         "niveles": niveles.niveles(),
-        "colores_nivel": niveles.colores(),
+        "colores": niveles.colores_panel(),
         "alumnos": [
             {
                 "id": a.id,
@@ -121,6 +121,7 @@ def fichas():
                 "categoria": a.categoria,
                 "nivel_declarado": nivel_de.get(a.id, {}).get("nivel_declarado", ""),
                 "clasificar": nivel_de.get(a.id, {}).get("clasificar", False),
+                "rama": nivel_de.get(a.id, {}).get("rama", ""),
                 "planilla": a.planilla,
                 "estado": a.estado or "activo",
                 "contactos": contactos.get(a.id, []),

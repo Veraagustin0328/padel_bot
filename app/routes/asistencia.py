@@ -116,6 +116,7 @@ def mis_clases():
     listas = [(c, profe, *recuperaciones.alumnos_del_dia(c, fecha)) for c, profe in consulta]
     # nuevos a clasificar: una sola consulta para todas las clases del día
     nivel_de = niveles.datos_de([aid for *_, v, nv in listas for aid in (*v, *nv)])
+    tabla = niveles.tabla()
     for c, profe, vienen, no_vienen in listas:
         etiquetas = list(vienen.values())
         nuevos = sum(1 for aid in {*vienen, *no_vienen} if nivel_de.get(aid, {}).get("clasificar"))
@@ -133,6 +134,7 @@ def mis_clases():
             "reemplazos": etiquetas.count("reemplazo"),
             "no_vienen": len(no_vienen),
             "nuevos": nuevos,
+            "color": niveles.color_clase(c.nivel, c.rama, c.columna_color, tabla)["color"],
         })
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
     return jsonify({"hoy": hoy.isoformat(), "fecha": fecha.isoformat(), "clases": salida})
@@ -165,6 +167,7 @@ def ver_asistencia(clase_id):
         "id": aid,
         "nombre": nombres.get(aid, "?"),
         **nivel_de.get(aid, {"nivel": "", "nivel_declarado": "", "clasificar": False}),
+        "rama": niveles.rama_en_clase(nivel_de.get(aid, {}), clase.rama),
         "recupera": tipo == "recupera",
         "viene": tipo not in ("viaje", "falta"),
         "etiqueta": etiqueta(aid, tipo),
@@ -174,7 +177,7 @@ def ver_asistencia(clase_id):
     # primero los que vienen, después los que avisaron o están de viaje
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
     return jsonify({"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos,
-                    "niveles": niveles.niveles(), "colores_nivel": niveles.colores()})
+                    "niveles": niveles.niveles(), "colores": niveles.colores_panel()})
 
 
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/nivel")
