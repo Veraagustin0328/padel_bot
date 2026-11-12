@@ -616,8 +616,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
 
 
 def esta_pausado(telefono: str) -> bool:
-    estado = contactos.estado_chat(telefono)  # por tel10, venga con 549 o sin
-    return bool(estado and estado.modo == "humano")
+    return contactos.esta_pausado(telefono)  # por tel10 y con vencimiento
 
 
 def _guardar_mensaje(telefono: str, rol: str, contenido: str) -> None:
@@ -2116,10 +2115,14 @@ def _cambiar_modo_alumno(args: dict, modo: str) -> dict:
     if not telefonos:
         return {"error": f"{alumno.nombre} no tiene ningún teléfono cargado."}
     for t, _ in telefonos:
-        contactos.estado_chat(t, crear=True).modo = modo
+        contactos.poner_modo(t, modo)
     db.session.commit()
-    return {"status": "pausado" if modo == "humano" else "reanudado", "alumno": alumno.nombre,
-            "telefonos": [f"{t} ({etiqueta})" for t, etiqueta in telefonos]}
+    r = {"status": "pausado" if modo == "humano" else "reanudado", "alumno": alumno.nombre,
+         "telefonos": [f"{t} ({etiqueta})" for t, etiqueta in telefonos]}
+    if modo == "humano":
+        horas = contactos.horas_pausa()
+        r["vence"] = f"el agente vuelve solo en {horas} hs si no lo reanudás antes" if horas else "no vence sola"
+    return r
 
 
 def _pausar_bot(args: dict, es_jefe: bool) -> dict:

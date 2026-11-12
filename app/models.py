@@ -142,3 +142,5 @@ class EstadoChat(db.Model):
     # de qué hijo se está hablando cuando el número es de varios (lo agrega migrar_contactos.py)
     alumno_activo_id = db.Column(db.Integer, db.ForeignKey("alumnos.id", ondelete="SET NULL"), nullable=True)
     alumno_activo_en = db.Column(db.DateTime, nullable=True)
+    # cuándo lo pausó el encargado, para que la pausa venza sola (lo agrega migrar_pausa.py)
+    pausado_en = db.Column(db.DateTime, nullable=True)
