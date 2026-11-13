@@ -127,6 +127,8 @@ class Profesor(db.Model):
     nombre = db.Column(db.String(120), nullable=False)
     telefono = db.Column(db.String(20), nullable=True)
     activo = db.Column(db.Boolean, default=True)
+    # sus particulares de mañana se cobran con la franja "head_coach" de Tarifa (la marca la pone el dueño)
+    es_head_coach = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
     valores_hora = db.relationship("ValorHora", backref="profesor", order_by="ValorHora.vigente_desde.desc()")
     horas = db.relationship("HoraDictada", backref="profesor")

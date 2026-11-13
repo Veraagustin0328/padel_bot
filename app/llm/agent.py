@@ -12,8 +12,11 @@ from app import cambios_dias as cd
 from app import contactos
 from app import niveles as niveles_mod
 from app.cuotas import (
-    DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
+    DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HEAD_COACH_ANTES_QUE_PROMO, HORA_HEAD_COACH_DESDE, HORA_HEAD_COACH_HASTA,
+    HORA_PROMO_DESDE, HORA_PROMO_HASTA, cargar_tarifas, precio_bucket,
 )
+from app.models_plataforma import Profesor
+from app.models_tarifas import FRANJA_HEAD_COACH
 from app.models_academia import AusenciaLapso, Clase, ConfigAcademia, Inscripcion, RecuperacionClase
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
@@ -724,6 +727,22 @@ def _fuera_de_promo(args: dict) -> bool:
     return bool(m) and not (HORA_PROMO_DESDE <= int(m.group(1)) < HORA_PROMO_HASTA)
 
 
+def _fuera_de_head_coach(args: dict) -> bool:
+    """True solo si el alumno dijo una hora que no entra en la franja del head coach (7 a 12)."""
+    m = re.match(r"\s*(\d{1,2})", str(args.get("hora") or ""))
+    return bool(m) and not (HORA_HEAD_COACH_DESDE <= int(m.group(1)) < HORA_HEAD_COACH_HASTA)
+
+
+def _bucket_head_coach():
+    """Como BUCKETS_PRECIO, con el nombre del profe sacado de la base. None si nadie está marcado."""
+    profe = Profesor.query.filter(Profesor.es_head_coach.is_(True), Profesor.activo.is_(True)).first()
+    if not profe:
+        return None
+    return (FRANJA_HEAD_COACH, "particular", None, True,
+            f"Clase particular con {profe.nombre}, el Head Coach, de mañana "
+            f"({HORA_HEAD_COACH_DESDE} a {HORA_HEAD_COACH_HASTA} hs). El alumno decide cómo formar el grupo.")
+
+
 def _en_promo(args: dict) -> bool:
     """True solo si dijo día Y hora y los dos entran en el 2x1 (igual que el panel)."""
     return bool((args.get("dia") or "").strip() and re.match(r"\s*\d", str(args.get("hora") or ""))) \
@@ -775,20 +794,35 @@ def _consultar_precio(args: dict) -> dict:
     promo = _si(args.get("promo_2x1")) or extras.get("promo_2x1", False)
     head_coach = _si(args.get("head_coach")) or extras.get("head_coach", False)
 
+    # el head coach tiene precio propio solo en particulares: el Modo Academia sale igual con cualquier profe
+    if head_coach and modalidad == "academia":
+        head_coach = False
+    # PROVISORIO (falta confirmar con la dueña): si pide las dos cosas, gana lo que diga HEAD_COACH_ANTES_QUE_PROMO
+    if head_coach and promo:
+        if HEAD_COACH_ANTES_QUE_PROMO:
+            promo = False
+        else:
+            head_coach = False
+
     # la promo y el head coach son siempre particulares de mañana
     if promo or head_coach:
         modalidad = modalidad or "particular"
-    if promo:
         turno = turno or "manana"
+    if head_coach and (turno != "manana" or _fuera_de_head_coach(args)):
+        return _al_encargado(f"El head coach tiene precio propio solo en particulares de mañana "
+                             f"({HORA_HEAD_COACH_DESDE} a {HORA_HEAD_COACH_HASTA} hs) y esto no entra.")
+    if promo:
         if turno != "manana" or modalidad != "particular" or _fuera_de_promo(args):
             return {"error": "La promo 2x1 es solo lunes, miércoles y viernes de 9 a 12 hs, y lo que pidió "
                              "el alumno no entra. Contale eso con buena onda y, si quiere ese horario igual, "
                              "consultá de nuevo con modalidad particular, turno mañana y 2 personas, sin promo_2x1."}
 
     if head_coach:
-        return _al_encargado("Las clases con el head coach no tienen tarifa cargada.")
-
-    if modalidad and turno and not promo:
+        bucket = _bucket_head_coach()
+        if bucket is None:
+            return _al_encargado("No hay ningún profe marcado como head coach.")
+        franja, tipo_tarifa, personas_fijas, pide_veces, descripcion = bucket
+    elif modalidad and turno and not promo:
         franja, tipo_tarifa, personas_fijas, pide_veces, descripcion = BUCKETS_PRECIO[(modalidad, turno)]
     elif promo:
         franja, tipo_tarifa, personas_fijas, pide_veces, descripcion = PROMO_2X1
@@ -816,7 +850,9 @@ def _consultar_precio(args: dict) -> dict:
                          "en UNA sola frase corta: " + "; ".join(faltan) + "."}
 
     # 2 personas de mañana en día y hora de promo: el panel lo cobra como 2x1
-    if (modalidad, turno, personas) == ("particular", "manana", 2) and _en_promo(args):
+    # con el head coach, la prioridad la marca HEAD_COACH_ANTES_QUE_PROMO (provisorio)
+    if ((modalidad, turno, personas) == ("particular", "manana", 2) and _en_promo(args)
+            and not (head_coach and HEAD_COACH_ANTES_QUE_PROMO)):
         franja, tipo_tarifa, personas, _, descripcion = PROMO_2X1
 
     if personas >= 3:
@@ -1498,7 +1534,7 @@ def _crear_cambio_pendiente(args: dict, es_jefe: bool) -> dict:
     armado, error = _armar_cambio(alumno, args, fecha)
     if error:
         return {**error, "mensaje": "NO se creó la propuesta. Contale esto al encargado con tus palabras."}
-    precio, _ = cd.precio_de(armado["quedan"])
+    precio, _ = cd.precio_de(armado["quedan"], fecha)
     cambio = cd.crear(alumno, armado["deja"], armado["nuevas"], fecha, origen="encargado",
                       espera="alumno", pedido_por="encargado", precio=precio)
     resultado = {"status": "propuesta creada", "cambio_id": cambio.id, "alumno": alumno.nombre,
@@ -1667,7 +1703,7 @@ def _pedir_cambio_dias(telefono: str, args: dict) -> dict:
 
     resumen = _resumen_cambio(armado, fecha)
     quedan = cd.texto_clases(armado["quedan"])
-    precio, _ = cd.precio_de(armado["quedan"])
+    precio, _ = cd.precio_de(armado["quedan"], fecha)
     if precio is None:
         # nunca inventar precios: sin tarifa exacta lo ve el encargado
         _notificar(f"Quiere cambiar de días ({resumen}), pero no hay tarifa exacta para quedar con "

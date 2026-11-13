@@ -5,7 +5,8 @@ from datetime import date
 from sqlalchemy import or_
 
 from app.models_academia import Clase, Inscripcion
-from app.models_tarifas import Tarifa
+from app.models_plataforma import Profesor
+from app.models_tarifas import FRANJA_HEAD_COACH, Tarifa
 
 FRANJA_POR_AMBITO = {
     "adultos": "manana",
@@ -29,20 +30,41 @@ def _es_promo(clase):
     )
 
 
-def bucket_de(clase):
-    """(franja, tipo de tarifa, personas) de una clase, o None si no sabemos cobrarla."""
+# Head Coach: las particulares de mañana (7 a 12) del profe titular marcado es_head_coach tienen tarifa propia.
+# Las grupales con él siguen como Modo Academia. Se mira el titular de la clase, no quién la dio ese día.
+HORA_HEAD_COACH_DESDE = 7
+HORA_HEAD_COACH_HASTA = 12
+# PROVISORIO, falta confirmar con la dueña: particular de 2 con el head coach en horario de promo.
+# True = paga Head Coach; False = paga promo 2x1.
+HEAD_COACH_ANTES_QUE_PROMO = True
+
+
+def _es_head_coach(clase, head_coach):
+    return (
+        clase.profesor_id in head_coach
+        and HORA_HEAD_COACH_DESDE <= clase.hora_inicio.hour < HORA_HEAD_COACH_HASTA
+    )
+
+
+def bucket_de(clase, head_coach=frozenset()):
+    """(franja, tipo de tarifa, personas) de una clase, o None si no sabemos cobrarla.
+    head_coach: ids de los profes head coach con tarifa vigente (vacío = se cobra como siempre)."""
     franja = FRANJA_POR_AMBITO.get(clase.ambito)
     if franja is None or clase.tipo == "otro":
         return None
     if clase.tipo == "grupal":
         # si la franja no tiene tarifa de academia cargada (hoy la tarde), queda "sin tarifa": nunca se cobra como otra cosa
         return (franja, "academia", 0)
+    hc = franja == "manana" and _es_head_coach(clase, head_coach)
     if clase.tipo == "particular_2":
-        if franja == "manana" and _es_promo(clase):
+        promo = franja == "manana" and _es_promo(clase)
+        if hc and (HEAD_COACH_ANTES_QUE_PROMO or not promo):
+            return (FRANJA_HEAD_COACH, "particular", 2)
+        if promo:
             return (franja, "promo_2x1", 0)
         return (franja, "particular", 2)
     if clase.tipo == "particular":
-        return (franja, "particular", 1)
+        return (FRANJA_HEAD_COACH if hc else franja, "particular", 1)
     return None
 
 
@@ -65,8 +87,14 @@ def clases_del_mes(inicio: date, alumno_id: int | None = None) -> dict[int, list
     return por_alumno
 
 
+class Tarifas(dict):
+    """{(franja, tipo, personas, veces_por_semana): precio}, más los ids de los profes head coach.
+    head_coach queda vacío si en esa fecha no rige ninguna tarifa de head coach: así se cobra como antes."""
+    head_coach = frozenset()
+
+
 def cargar_tarifas(fecha: date | None = None):
-    """{(franja, tipo, personas, veces_por_semana): precio} que rige en esa fecha (por defecto hoy).
+    """Tarifas que rigen en esa fecha (por defecto hoy).
     Para una cuota se pasa el 1 del mes: un aumento posterior no toca los meses anteriores."""
     if fecha is None:
         from app.recuperaciones import hoy
@@ -76,7 +104,11 @@ def cargar_tarifas(fecha: date | None = None):
              .order_by(Tarifa.vigente_desde, Tarifa.id))
     for t in filas:
         ultimas[(t.franja, t.tipo, t.personas, t.veces_por_semana)] = t  # la más nueva queda última
-    return {k: t.precio for k, t in ultimas.items() if t.activa}
+    tarifas = Tarifas({k: t.precio for k, t in ultimas.items() if t.activa})
+    if any(k[0] == FRANJA_HEAD_COACH for k in tarifas):
+        tarifas.head_coach = frozenset(
+            pid for (pid,) in Profesor.query.with_entities(Profesor.id).filter(Profesor.es_head_coach.is_(True)))
+    return tarifas
 
 
 def precio_bucket(tarifas, franja, tipo, personas, veces):
@@ -102,8 +134,9 @@ def cuota_de(clases, tarifas):
     """Cuota mensual de un alumno anotado en esas clases. Devuelve {total, lineas, avisos, sin_tarifa}.
     sin_tarifa = True si alguna clase no tiene precio: esa parte no se cobra y lo tiene que ver el encargado."""
     grupos, avisos, sin_tarifa = {}, [], False
+    head_coach = getattr(tarifas, "head_coach", frozenset())
     for c in clases:
-        b = bucket_de(c)
+        b = bucket_de(c, head_coach)
         if b is None:
             avisos.append(f"{SIN_TARIFA}: clase {c.tipo} de {c.ambito}, no se cobró")
             sin_tarifa = True

@@ -10,7 +10,9 @@ from datetime import date
 
 from app.extensions import db
 
-FRANJAS = ("manana", "tarde", "sabado", "kids")
+FRANJAS = ("manana", "tarde", "sabado", "kids", "head_coach")
+# head_coach: particulares de mañana del profe marcado es_head_coach (solo tipo particular)
+FRANJA_HEAD_COACH = "head_coach"
 TIPOS_TARIFA = ("academia", "particular", "promo_2x1")
 
 
@@ -21,7 +23,7 @@ class Tarifa(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    franja = db.Column(db.String(10), nullable=False)    # manana / tarde / sabado / kids
+    franja = db.Column(db.String(10), nullable=False)    # manana / tarde / sabado / kids / head_coach
     tipo = db.Column(db.String(12), nullable=False)      # academia / particular / promo_2x1
     personas = db.Column(db.SmallInteger, nullable=False, default=0)  # 0 = no aplica, 1, 2, 3 (3 = "3 o 4")
     veces_por_semana = db.Column(db.SmallInteger, nullable=False, default=1)

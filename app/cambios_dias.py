@@ -238,11 +238,12 @@ def armar(alumno_id: int, fecha: date, dias_nuevos: list[int], hora=None,
 
 
 # ---------------------------------------------------------------- precio
-def precio_de(clases: list[Clase]) -> tuple[int | None, str]:
-    """(cuota mensual, detalle). None si no hay una tarifa exacta: nunca se inventa."""
+def precio_de(clases: list[Clase], fecha: date | None = None) -> tuple[int | None, str]:
+    """(cuota mensual, detalle). None si no hay una tarifa exacta: nunca se inventa.
+    fecha: desde cuándo rige el cambio; se cotiza con las tarifas de ese mes (vacío = las de hoy)."""
     if not clases:
         return None, "sin clases"
-    r = cuota_de(clases, cargar_tarifas())
+    r = cuota_de(clases, cargar_tarifas(fecha.replace(day=1) if fecha else None))
     if r["total"] <= 0 or r["avisos"]:
         return None, "; ".join(r["avisos"]) or "sin tarifa"
     return int(r["total"]), "; ".join(r["lineas"])
