@@ -32,3 +32,30 @@ export async function api(ruta, { metodo = "GET", cuerpo } = {}) {
   if (!resp.ok) throw new Error(datos.error || "Algo salió mal");
   return datos;
 }
+
+// para archivos (CSV): misma sesión que api(), pero baja el archivo en vez de leer JSON
+export async function descargar(ruta, nombre) {
+  const token = leerToken();
+  let resp;
+  try {
+    resp = await fetch(BASE + ruta, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new Error("No pude conectar con el servidor");
+  }
+  if (resp.status === 401) {
+    borrarToken();
+    window.dispatchEvent(new Event("sesion-vencida"));
+  }
+  if (!resp.ok) {
+    const datos = await resp.json().catch(() => ({}));
+    throw new Error(datos.error || "Algo salió mal");
+  }
+  const url = URL.createObjectURL(await resp.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

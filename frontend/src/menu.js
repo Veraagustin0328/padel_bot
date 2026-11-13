@@ -10,6 +10,7 @@ import CambiosDias from "./pages/CambiosDias.jsx";
 import Comprobantes from "./pages/Comprobantes.jsx";
 import Consultas from "./pages/Consultas.jsx";
 import Planes from "./pages/Planes.jsx";
+import ProfesHoras from "./pages/ProfesHoras.jsx";
 import Solicitudes from "./pages/Solicitudes.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
 import Notas from "./pages/Notas.jsx";
@@ -68,7 +69,7 @@ export const MENU = [
     items: [
       { a: "/cuotas", t: "Cuotas", roles: GESTION, pagina: Cuotas },
       { a: "/planes", t: "Planes y precios", roles: GESTION, pagina: Planes },
-      { t: "Profes y horas", roles: [DUENO], pronto: true },
+      { a: "/profes-horas", t: "Profes y horas", roles: [DUENO], pagina: ProfesHoras },
     ],
   },
   {

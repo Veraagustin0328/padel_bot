@@ -1,0 +1,33 @@
+/* Profes y horas: usa la lista y los kpis de cuotas.css, acá solo lo propio */
+.ph-fila { grid-template-columns: minmax(0, 1.6fr) 90px 110px 120px 96px 24px; }
+button.ph-fila {
+  width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; cursor: pointer;
+  font: inherit; color: inherit;
+}
+button.ph-fila:hover { background: var(--fondo); }
+.ph-monto { font-weight: 800; }
+.ph-flecha { color: var(--suave); font-size: 12px; text-align: right; }
+.ph-tag { margin-left: 8px; vertical-align: middle; }
+.ph-total { font-weight: 800; background: var(--fondo); }
+.ph-ojo { background: #fff3d1; border-color: #e0b44c; }
+.ph-ojo b, .ph-ojo small { color: #8a5a00; }
+
+.ph-cuenta { font-weight: 700; color: var(--tinta); margin-left: 4px; }
+.ph-tabla { display: grid; background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 8px; }
+.ph-clase {
+  display: grid; grid-template-columns: 110px minmax(0, 1fr) 110px 64px 96px; gap: 10px; align-items: center;
+  padding: 8px 12px; border-top: 1px solid var(--linea); font-size: 13.5px; font-variant-numeric: tabular-nums;
+}
+.ph-clase:first-child { border-top: 0; }
+.ph-fecha { font-weight: 700; white-space: nowrap; }
+.ph-grupo { min-width: 0; overflow-wrap: anywhere; }
+.ph-dato { color: var(--suave); }
+.ph-dato.der { text-align: right; }
+.ph-falta { color: var(--mal); font-weight: 700; }
+
+@media (max-width: 820px) {
+  .ph-fila { grid-template-columns: minmax(0, 1fr) auto auto 20px; }
+  .ph-clase { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .ph-clase .ph-grupo { grid-column: 1 / -1; grid-row: 2; color: var(--suave); }
+  .ph-clase .ph-dato:not(.der) { display: none; }
+}
