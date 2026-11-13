@@ -8,11 +8,13 @@ const hoy = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).
 const fechaAR = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
 const numero = (txt) => Number(String(txt).replace(",", "."));
 
+const NUEVO_VACIO = { franja: "", tipo: "", personas: "1", veces: "1", precio: "", desde: hoy() };
+
 export default function Planes() {
   // el admin (encargado) solo mira; crear, cargar precios y aumentos es del dueño
   const { usuario } = useAuth();
   const editable = esDueno(usuario);
-  const [planes, setPlanes] = useState([]);
+  const [datos, setDatos] = useState({ franjas: [], tipos: [], tarifas: [] });
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
 
@@ -20,16 +22,16 @@ export default function Planes() {
   const [pct, setPct] = useState("10");
   const [redondeo, setRedondeo] = useState("100");
   const [desde, setDesde] = useState(hoy());
+  const [incluirKids, setIncluirKids] = useState(true);
   const [vista, setVista] = useState(null);
 
-  // plan nuevo
+  // tarifa nueva
   const [abierto, setAbierto] = useState(false);
-  const [nuevo, setNuevo] = useState({ nombre: "", grupales: "0", particulares: "0", precio: "" });
+  const [nuevo, setNuevo] = useState(NUEVO_VACIO);
 
   async function cargar() {
     try {
-      const lista = await api("/api/planes");
-      setPlanes(lista.filter((p) => p.activo));
+      setDatos(await api("/api/planes"));
     } catch (e) {
       setError(e.message);
     }
@@ -40,6 +42,7 @@ export default function Planes() {
     porcentaje: numero(pct),
     redondeo: numero(redondeo),
     vigente_desde: desde,
+    incluir_kids: incluirKids,
     confirmar,
   });
 
@@ -65,20 +68,22 @@ export default function Planes() {
     }
   }
 
-  async function crearPlan(e) {
+  async function crearTarifa(e) {
     e.preventDefault();
     setError(""); setAviso("");
     try {
       await api("/api/planes", {
         metodo: "POST",
         cuerpo: {
-          nombre: nuevo.nombre,
-          grupales_por_semana: numero(nuevo.grupales),
-          particulares_por_semana: numero(nuevo.particulares),
+          franja: nuevo.franja,
+          tipo: nuevo.tipo,
+          personas: numero(nuevo.personas),
+          veces_por_semana: numero(nuevo.veces),
           precio: numero(nuevo.precio),
+          vigente_desde: nuevo.desde,
         },
       });
-      setNuevo({ nombre: "", grupales: "0", particulares: "0", precio: "" });
+      setNuevo(NUEVO_VACIO);
       setAbierto(false);
       setAviso("Plan creado.");
       cargar();
@@ -89,6 +94,13 @@ export default function Planes() {
 
   // si cambia algún dato, la vista previa vieja ya no vale
   const cambiar = (setter) => (e) => { setter(e.target.value); setVista(null); };
+  const campo = (k) => (e) => setNuevo({ ...nuevo, [k]: e.target.value });
+
+  // solo las que rigen hoy o tienen un precio programado
+  const visibles = datos.tarifas.filter((t) => t.activo || t.precio_programado);
+  const grupos = datos.franjas
+    .map((f) => ({ ...f, tarifas: visibles.filter((t) => t.franja === f.id) }))
+    .filter((g) => g.tarifas.length > 0);
 
   return (
     <>
@@ -110,24 +122,44 @@ export default function Planes() {
       {aviso && <div className="msg-ok" role="status">{aviso}</div>}
 
       {editable && abierto && (
-        <form className="tarjeta" onSubmit={crearPlan}>
+        <form className="tarjeta" onSubmit={crearTarifa}>
           <h2>Nuevo plan</h2>
-          <div className="campos" style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
+          <div className="campos" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             <div className="campo">
-              <label htmlFor="n-nombre">Nombre</label>
-              <input id="n-nombre" value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} required />
+              <label htmlFor="n-franja">Franja</label>
+              <select id="n-franja" value={nuevo.franja} onChange={campo("franja")} required>
+                <option value="">Elegí…</option>
+                {datos.franjas.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+              </select>
             </div>
             <div className="campo">
-              <label htmlFor="n-g">Grupales por semana</label>
-              <input id="n-g" inputMode="numeric" value={nuevo.grupales} onChange={(e) => setNuevo({ ...nuevo, grupales: e.target.value })} />
+              <label htmlFor="n-tipo">Tipo</label>
+              <select id="n-tipo" value={nuevo.tipo} onChange={campo("tipo")} required>
+                <option value="">Elegí…</option>
+                {datos.tipos.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+              </select>
+            </div>
+            {nuevo.tipo === "particular" && (
+              <div className="campo">
+                <label htmlFor="n-personas">Personas</label>
+                <select id="n-personas" value={nuevo.personas} onChange={campo("personas")}>
+                  <option value="1">1</option>
+                  <option value="2">2 (c/u)</option>
+                  <option value="3">3 o 4 (c/u)</option>
+                </select>
+              </div>
+            )}
+            <div className="campo">
+              <label htmlFor="n-veces">Veces por semana</label>
+              <input id="n-veces" inputMode="numeric" value={nuevo.veces} onChange={campo("veces")} required />
             </div>
             <div className="campo">
-              <label htmlFor="n-p">Particulares por semana</label>
-              <input id="n-p" inputMode="numeric" value={nuevo.particulares} onChange={(e) => setNuevo({ ...nuevo, particulares: e.target.value })} />
+              <label htmlFor="n-precio">Precio por mes</label>
+              <input id="n-precio" inputMode="numeric" value={nuevo.precio} onChange={campo("precio")} required />
             </div>
             <div className="campo">
-              <label htmlFor="n-precio">Precio</label>
-              <input id="n-precio" inputMode="numeric" value={nuevo.precio} onChange={(e) => setNuevo({ ...nuevo, precio: e.target.value })} required />
+              <label htmlFor="n-desde">Desde</label>
+              <input id="n-desde" type="date" value={nuevo.desde} onChange={campo("desde")} required />
             </div>
           </div>
           <button className="boton">Crear plan</button>
@@ -137,24 +169,28 @@ export default function Planes() {
       <div className="grilla">
         <section className="tarjeta ancha" aria-label="Precios vigentes">
           <h2>Precios vigentes</h2>
-          <div className="fila titulos" style={{ marginTop: 12 }}>
-            <div className="nombre">PLAN</div>
-            <div className="num">PRECIO</div>
-            <div className="num">DESDE</div>
-          </div>
-          {planes.length === 0 && <div className="fila nota">Todavía no hay planes cargados.</div>}
-          {planes.map((p) => (
-            <div className="fila" key={p.id}>
-              <div className="nombre">
-                {p.nombre}
-                {p.precio_programado && (
-                  <div className="programado">
-                    {peso.format(p.precio_programado.monto)} desde el {fechaAR(p.precio_programado.desde)}
-                  </div>
-                )}
+          {grupos.length === 0 && <div className="fila nota">Todavía no hay planes cargados.</div>}
+          {grupos.map((g) => (
+            <div key={g.id} style={{ marginTop: 16 }}>
+              <div className="fila titulos">
+                <div className="nombre">{g.nombre.toUpperCase()}</div>
+                <div className="num">PRECIO</div>
+                <div className="num">DESDE</div>
               </div>
-              <div className="num fuerte">{p.precio_vigente != null ? peso.format(p.precio_vigente) : "—"}</div>
-              <div className="num suave">{fechaAR(p.vigente_desde)}</div>
+              {g.tarifas.map((t) => (
+                <div className="fila" key={t.id}>
+                  <div className="nombre">
+                    {t.nombre}
+                    {t.precio_programado && (
+                      <div className="programado">
+                        {peso.format(t.precio_programado.monto)} desde el {fechaAR(t.precio_programado.desde)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="num fuerte">{t.precio_vigente != null ? peso.format(t.precio_vigente) : "—"}</div>
+                  <div className="num suave">{fechaAR(t.vigente_desde)}</div>
+                </div>
+              ))}
             </div>
           ))}
         </section>
@@ -176,20 +212,28 @@ export default function Planes() {
               <input id="des" type="date" value={desde} onChange={cambiar(setDesde)} />
             </div>
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0" }}>
+            <input
+              type="checkbox"
+              checked={incluirKids}
+              onChange={(e) => { setIncluirKids(e.target.checked); setVista(null); }}
+            />
+            Incluir Kids
+          </label>
 
           {vista && (
             <>
               <div className="previa">
                 {vista.planes.map((p) => (
                   <div className="fila" key={p.id}>
-                    <div className="nombre">{p.nombre}</div>
+                    <div className="nombre">{p.franja}: {p.nombre}</div>
                     <div className="num suave">{peso.format(p.precio_actual)}</div>
                     <div className="num fuerte">{peso.format(p.precio_nuevo)}</div>
                   </div>
                 ))}
               </div>
               {vista.sin_precio.length > 0 && (
-                <p className="nota">Sin precio cargado (no se tocan): {vista.sin_precio.join(", ")}</p>
+                <p className="nota">Sin precio en esa fecha (no se tocan): {vista.sin_precio.join(", ")}</p>
               )}
               <p className="nota">Vista previa: todavía no se guardó nada. Las cuotas de meses anteriores no cambian.</p>
             </>

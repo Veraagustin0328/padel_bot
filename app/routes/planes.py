@@ -1,27 +1,30 @@
 """
-Planes y precios. Los precios guardan historial: cada cambio es una fila nueva
-con la fecha desde la que rige, nunca se pisa el valor anterior.
-Ver: encargado y dueño. Crear, editar, cargar precios y aumentos: solo el dueño.
+Planes y precios: la pantalla lee y escribe la tabla de tarifas (la misma que usan las cuotas y el agente).
+Una "tarifa" es franja + tipo + personas + veces por semana. Guarda historial: cada cambio es una
+fila nueva con la fecha desde la que rige, nunca se pisa el valor anterior.
+Plan y PrecioPlan quedan sin uso.
+Ver: encargado y dueño. Crear, cargar precios y aumentos: solo el dueño.
 """
-from datetime import date, datetime, timedelta
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models_plataforma import Plan, PrecioPlan
+from app.models_tarifas import FRANJAS, TIPOS_TARIFA, Tarifa
+from app.recuperaciones import hoy as _hoy
 from app.routes.auth import requiere_login
 
 planes_bp = Blueprint("planes", __name__)
 
+# textos para mostrar; el orden de las franjas es el de la pantalla
+NOMBRE_FRANJA = {"manana": "Mañana", "tarde": "Tarde", "sabado": "Sábado", "kids": "Kids"}
+NOMBRE_TIPO = {"academia": "Modo Academia", "particular": "Particular", "promo_2x1": "Promo 2x1"}
+PERSONAS_MAX = 3  # 3 = "3 o 4", pagan igual
+
 
 # ---------- ayudas ----------
-
-def _hoy():
-    # hora argentina (UTC-3), así el "hoy" no se corre de noche
-    return (datetime.utcnow() - timedelta(hours=3)).date()
-
 
 def _fecha(texto, defecto=None):
     if not texto:
@@ -46,16 +49,18 @@ def _monto(valor):
     m = _decimal(valor, "El monto")
     if m <= 0:
         raise ValueError("El monto tiene que ser mayor a cero")
-    return m.quantize(Decimal("0.01"))
+    if m != m.to_integral_value():
+        raise ValueError("El monto va sin centavos")
+    return int(m)
 
 
-def _entero(valor, campo):
+def _entero(valor, campo, minimo, maximo):
     try:
         n = int(valor)
     except (TypeError, ValueError):
         raise ValueError(f"{campo} tiene que ser un número entero")
-    if n < 0 or n > 14:
-        raise ValueError(f"{campo} está fuera de rango")
+    if n < minimo or n > maximo:
+        raise ValueError(f"{campo} tiene que estar entre {minimo} y {maximo}")
     return n
 
 
@@ -71,52 +76,78 @@ def _con_validacion(f):
     return envoltura
 
 
-def _precio_en(plan_id, fecha):
-    """Precio que rige en una fecha: el último con vigente_desde <= fecha."""
-    return (
-        PrecioPlan.query
-        .filter(PrecioPlan.plan_id == plan_id, PrecioPlan.vigente_desde <= fecha)
-        .order_by(PrecioPlan.vigente_desde.desc(), PrecioPlan.id.desc())
-        .first()
-    )
+def _clave(t):
+    return (t.franja, t.tipo, t.personas, t.veces_por_semana)
 
 
-def _guardar_precio(plan_id, monto, desde):
-    """Si ya hay un precio para esa misma fecha lo corrige, si no crea uno nuevo."""
-    existente = PrecioPlan.query.filter_by(plan_id=plan_id, vigente_desde=desde).first()
+def _filas_de(clave):
+    franja, tipo, personas, veces = clave
+    return Tarifa.query.filter_by(franja=franja, tipo=tipo, personas=personas, veces_por_semana=veces)
+
+
+def _guardar_precio(clave, monto, desde):
+    """Si ya hay una fila para esa misma fecha la corrige, si no crea una nueva. Las anteriores no se tocan."""
+    existente = _filas_de(clave).filter_by(vigente_desde=desde).first()
     if existente:
-        existente.monto = monto
-    else:
-        db.session.add(PrecioPlan(plan_id=plan_id, monto=monto, vigente_desde=desde))
+        existente.precio = monto
+        existente.activa = True
+        return existente
+    franja, tipo, personas, veces = clave
+    fila = Tarifa(franja=franja, tipo=tipo, personas=personas, veces_por_semana=veces,
+                  precio=monto, vigente_desde=desde, activa=True)
+    db.session.add(fila)
+    return fila
 
 
-def _plan_json(plan):
-    hoy = _hoy()
-    vigente = _precio_en(plan.id, hoy)
-    programado = (
-        PrecioPlan.query
-        .filter(PrecioPlan.plan_id == plan.id, PrecioPlan.vigente_desde > hoy)
-        .order_by(PrecioPlan.vigente_desde.asc())
-        .first()
-    )
+def _nombre(clave):
+    _franja, tipo, personas, veces = clave
+    partes = [NOMBRE_TIPO.get(tipo, tipo)]
+    if tipo == "particular":
+        partes.append({1: "1 persona", 2: "2 personas c/u"}.get(personas, "3 o 4 personas c/u"))
+    elif tipo == "promo_2x1":
+        partes.append("c/u")
+    partes.append("1 vez por semana" if veces == 1 else f"{veces} veces por semana")
+    return " · ".join(partes)
+
+
+def _tarifa_json(clave, hoy, filas=None):
+    """filas: todas las de esa clave ordenadas por (vigente_desde, id); si no vienen, se buscan."""
+    if filas is None:
+        filas = _filas_de(clave).order_by(Tarifa.vigente_desde, Tarifa.id).all()
+    pasadas = [f for f in filas if f.vigente_desde <= hoy]
+    futuras = [f for f in filas if f.vigente_desde > hoy]
+    vigente = pasadas[-1] if pasadas else None
+    programado = futuras[0] if futuras else None
+    ultima = filas[-1]
+    franja, tipo, personas, veces = clave
+    activa = bool(vigente and vigente.activa)
     return {
-        "id": plan.id,
-        "nombre": plan.nombre,
-        "grupales_por_semana": plan.grupales_por_semana,
-        "particulares_por_semana": plan.particulares_por_semana,
-        "descripcion": plan.descripcion,
-        "activo": plan.activo,
-        "precio_vigente": float(vigente.monto) if vigente else None,
-        "vigente_desde": vigente.vigente_desde.isoformat() if vigente else None,
+        "id": ultima.id,  # cualquier fila sirve para ubicar la tarifa; uso la última
+        "franja": franja,
+        "franja_nombre": NOMBRE_FRANJA.get(franja, franja),
+        "tipo": tipo,
+        "personas": personas,
+        "veces_por_semana": veces,
+        "nombre": _nombre(clave),
+        "activo": activa,
+        "precio_vigente": vigente.precio if activa else None,
+        "vigente_desde": vigente.vigente_desde.isoformat() if activa else None,
         "precio_programado": (
-            {"monto": float(programado.monto), "desde": programado.vigente_desde.isoformat()}
-            if programado else None
+            {"monto": programado.precio, "desde": programado.vigente_desde.isoformat()}
+            if programado and programado.activa else None
         ),
     }
 
 
-def _buscar_plan(plan_id):
-    return db.session.get(Plan, plan_id)
+def _orden(clave):
+    franja, tipo, personas, veces = clave
+    return (FRANJAS.index(franja) if franja in FRANJAS else 99,
+            TIPOS_TARIFA.index(tipo) if tipo in TIPOS_TARIFA else 99, personas, veces)
+
+
+def _buscar(tarifa_id):
+    t = db.session.get(Tarifa, tarifa_id)
+    return _clave(t) if t else None
 
 
 # ---------- rutas ----------
@@ -124,96 +155,71 @@ def _buscar_plan(plan_id):
 @planes_bp.get("/api/planes")
 @requiere_login("encargado")
 def listar_planes():
-    planes = Plan.query.order_by(Plan.grupales_por_semana, Plan.particulares_por_semana, Plan.id).all()
-    return jsonify([_plan_json(p) for p in planes])
+    hoy = _hoy()
+    por_clave = {}
+    for t in Tarifa.query.order_by(Tarifa.vigente_desde, Tarifa.id):  # una sola consulta
+        por_clave.setdefault(_clave(t), []).append(t)
+    return jsonify({
+        "franjas": [{"id": f, "nombre": NOMBRE_FRANJA.get(f, f)} for f in FRANJAS],
+        "tipos": [{"id": t, "nombre": NOMBRE_TIPO.get(t, t)} for t in TIPOS_TARIFA],
+        "tarifas": [_tarifa_json(c, hoy, por_clave[c]) for c in sorted(por_clave, key=_orden)],
+    })
 
 
 @planes_bp.post("/api/planes")
 @requiere_login("dueno")
 @_con_validacion
 def crear_plan():
+    """Tarifa nueva. Si esa combinación ya existe, se le carga precio con 'Subir precios' o /precios."""
     d = request.get_json(silent=True) or {}
-    nombre = (d.get("nombre") or "").strip()
-    if not nombre:
-        raise ValueError("Falta el nombre del plan")
-    grupales = _entero(d.get("grupales_por_semana", 0), "Las clases grupales")
-    particulares = _entero(d.get("particulares_por_semana", 0), "Las clases particulares")
-    if grupales + particulares == 0:
-        raise ValueError("El plan tiene que incluir al menos una clase por semana")
+    franja, tipo = d.get("franja"), d.get("tipo")
+    if franja not in FRANJAS:
+        raise ValueError("Elegí una franja")
+    if tipo not in TIPOS_TARIFA:
+        raise ValueError("Elegí un tipo")
+    if tipo == "particular":
+        personas = _entero(d.get("personas"), "Las personas", 1, PERSONAS_MAX)
+    else:
+        personas = 0  # academia y promo cobran por persona, no por grupo
+    veces = _entero(d.get("veces_por_semana"), "Las veces por semana", 1, 7)
     monto = _monto(d.get("precio"))
     desde = _fecha(d.get("vigente_desde"), _hoy())
 
-    plan = Plan(
-        nombre=nombre,
-        grupales_por_semana=grupales,
-        particulares_por_semana=particulares,
-        descripcion=(d.get("descripcion") or None),
-    )
-    db.session.add(plan)
-    db.session.flush()  # para tener el id antes de cargar el precio
-    _guardar_precio(plan.id, monto, desde)
+    clave = (franja, tipo, personas, veces)
+    if _filas_de(clave).first():
+        return jsonify({"error": f"Ya existe {NOMBRE_FRANJA[franja]}: {_nombre(clave)}. "
+                                 "Para cambiarle el precio usá Subir precios."}), 409
+    _guardar_precio(clave, monto, desde)
     db.session.commit()
-    return jsonify(_plan_json(plan)), 201
+    return jsonify(_tarifa_json(clave, _hoy())), 201
 
 
-@planes_bp.patch("/api/planes/<int:plan_id>")
-@requiere_login("dueno")
-@_con_validacion
-def editar_plan(plan_id):
-    plan = _buscar_plan(plan_id)
-    if not plan:
-        return jsonify({"error": "No existe ese plan"}), 404
-    d = request.get_json(silent=True) or {}
-
-    if "nombre" in d:
-        nombre = (d["nombre"] or "").strip()
-        if not nombre:
-            raise ValueError("El nombre no puede quedar vacío")
-        plan.nombre = nombre
-    if "grupales_por_semana" in d:
-        plan.grupales_por_semana = _entero(d["grupales_por_semana"], "Las clases grupales")
-    if "particulares_por_semana" in d:
-        plan.particulares_por_semana = _entero(d["particulares_por_semana"], "Las clases particulares")
-    if "descripcion" in d:
-        plan.descripcion = d["descripcion"] or None
-    if "activo" in d:
-        plan.activo = bool(d["activo"])
-    if plan.grupales_por_semana + plan.particulares_por_semana == 0:
-        raise ValueError("El plan tiene que incluir al menos una clase por semana")
-
-    db.session.commit()
-    return jsonify(_plan_json(plan))
-
-
-@planes_bp.get("/api/planes/<int:plan_id>/precios")
+@planes_bp.get("/api/planes/<int:tarifa_id>/precios")
 @requiere_login("encargado")
-def historial_precios(plan_id):
-    if not _buscar_plan(plan_id):
-        return jsonify({"error": "No existe ese plan"}), 404
-    filas = (
-        PrecioPlan.query.filter_by(plan_id=plan_id)
-        .order_by(PrecioPlan.vigente_desde.desc(), PrecioPlan.id.desc())
-        .all()
-    )
+def historial_precios(tarifa_id):
+    clave = _buscar(tarifa_id)
+    if not clave:
+        return jsonify({"error": "No existe esa tarifa"}), 404
+    filas = _filas_de(clave).order_by(Tarifa.vigente_desde.desc(), Tarifa.id.desc()).all()
     return jsonify([
-        {"id": f.id, "monto": float(f.monto), "vigente_desde": f.vigente_desde.isoformat()}
+        {"id": f.id, "monto": f.precio, "vigente_desde": f.vigente_desde.isoformat(), "activa": f.activa}
         for f in filas
     ])
 
 
-@planes_bp.post("/api/planes/<int:plan_id>/precios")
+@planes_bp.post("/api/planes/<int:tarifa_id>/precios")
 @requiere_login("dueno")
 @_con_validacion
-def cargar_precio(plan_id):
-    plan = _buscar_plan(plan_id)
-    if not plan:
-        return jsonify({"error": "No existe ese plan"}), 404
+def cargar_precio(tarifa_id):
+    clave = _buscar(tarifa_id)
+    if not clave:
+        return jsonify({"error": "No existe esa tarifa"}), 404
     d = request.get_json(silent=True) or {}
     monto = _monto(d.get("monto"))
     desde = _fecha(d.get("vigente_desde"), _hoy())
-    _guardar_precio(plan.id, monto, desde)
+    _guardar_precio(clave, monto, desde)
     db.session.commit()
-    return jsonify(_plan_json(plan)), 201
+    return jsonify(_tarifa_json(clave, _hoy())), 201
 
 
 @planes_bp.post("/api/planes/aumento")
@@ -221,7 +227,8 @@ def cargar_precio(plan_id):
 @_con_validacion
 def aumento_masivo():
     """
-    Sube (o baja) un porcentaje a todos los planes activos.
+    Sube (o baja) un porcentaje a todas las tarifas que rigen en la fecha elegida.
+    Crea filas nuevas con vigente_desde = esa fecha; las anteriores no se tocan.
     Sin "confirmar": true solo devuelve la vista previa y no guarda nada.
     """
     d = request.get_json(silent=True) or {}
@@ -233,20 +240,32 @@ def aumento_masivo():
         raise ValueError("El redondeo tiene que ser 1 o más")
     desde = _fecha(d.get("vigente_desde"), _hoy())
     confirmar = bool(d.get("confirmar", False))
+    incluir_kids = d.get("incluir_kids", True) is not False  # kids se cobra aparte: se puede dejar afuera
+
+    rige = {}  # clave -> fila que rige en "desde" (None si todavía no arrancó)
+    for t in Tarifa.query.order_by(Tarifa.vigente_desde, Tarifa.id):
+        rige.setdefault(_clave(t), None)
+        if t.vigente_desde <= desde:
+            rige[_clave(t)] = t
 
     filas, sin_precio = [], []
-    for plan in Plan.query.filter_by(activo=True).order_by(Plan.id).all():
-        actual = _precio_en(plan.id, desde)
-        if not actual:
-            sin_precio.append(plan.nombre)
+    for clave in sorted(rige, key=_orden):
+        if clave[0] == "kids" and not incluir_kids:
             continue
-        crudo = actual.monto * (Decimal(100) + pct) / Decimal(100)
-        nuevo = ((crudo / paso).quantize(Decimal(1), rounding=ROUND_HALF_UP) * paso).quantize(Decimal("0.01"))
-        filas.append((plan, actual.monto, nuevo))
+        actual = rige[clave]
+        if not actual or not actual.activa:
+            if actual is None:
+                sin_precio.append(f"{NOMBRE_FRANJA.get(clave[0], clave[0])}: {_nombre(clave)}")
+            continue  # dada de baja: no se aumenta
+        crudo = Decimal(actual.precio) * (Decimal(100) + pct) / Decimal(100)
+        nuevo = int((crudo / paso).quantize(Decimal(1), rounding=ROUND_HALF_UP) * paso)
+        if nuevo <= 0:
+            raise ValueError("Con ese porcentaje algún precio queda en cero")
+        filas.append((clave, actual.precio, nuevo))
 
     if confirmar:
-        for plan, _viejo, nuevo in filas:
-            _guardar_precio(plan.id, nuevo, desde)
+        for clave, _viejo, nuevo in filas:
+            _guardar_precio(clave, nuevo, desde)
         db.session.commit()
 
     return jsonify({
@@ -254,9 +273,11 @@ def aumento_masivo():
         "vigente_desde": desde.isoformat(),
         "porcentaje": float(pct),
         "redondeo": float(paso),
+        "incluir_kids": incluir_kids,
         "planes": [
-            {"id": p.id, "nombre": p.nombre, "precio_actual": float(v), "precio_nuevo": float(n)}
-            for p, v, n in filas
+            {"id": "|".join(map(str, c)), "franja": NOMBRE_FRANJA.get(c[0], c[0]),
+             "nombre": _nombre(c), "precio_actual": v, "precio_nuevo": n}
+            for c, v, n in filas
         ],
         "sin_precio": sin_precio,
     })
