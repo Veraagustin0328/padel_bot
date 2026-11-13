@@ -47,11 +47,16 @@ function Clase({ clase, fecha, futuro, verProfe }) {
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState({});
   const [notaAbierta, setNotaAbierta] = useState({});
+  const [laDio, setLaDio] = useState({ guardando: false, ok: "" }); // guardando el "la dio"
+  // reemplazo para la cabecera con la clase cerrada: el de la lista, o el último elegido acá
+  const [reemplazoCab, setReemplazoCab] = useState(clase.la_dio || "");
+  useEffect(() => setReemplazoCab(clase.la_dio || ""), [clase.la_dio, fecha]);
 
   // si cambia el día, se vuelve a cargar
   useEffect(() => {
     setDatos(null);
     setError("");
+    setLaDio({ guardando: false, ok: "" });
     if (!abierta || futuro) return; // el backend no deja ver ni marcar días que no llegaron
     api(`/api/mis-clases/${clase.id}/asistencia?fecha=${fecha}`)
       .then(setDatos)
@@ -99,6 +104,27 @@ function Clase({ clase, fecha, futuro, verProfe }) {
     }
   }
 
+  // reemplazo: quién la dio ese día (solo gestión lo cambia; la hora se le paga a ese)
+  async function cambiarLaDio(profesorId) {
+    setError("");
+    setLaDio({ guardando: true, ok: "" });
+    try {
+      const r = await api(`/api/mis-clases/${clase.id}/la-dio`, {
+        metodo: "POST",
+        cuerpo: { fecha, profesor_id: Number(profesorId) },
+      });
+      setDatos((d) => ({ ...d, la_dio_id: r.la_dio_id, la_dio: r.la_dio, dictada: true }));
+      setReemplazoCab(r.la_dio_id !== datos.titular_id ? r.la_dio : "");
+      setLaDio({ guardando: false, ok: "✓" });
+    } catch (e) {
+      setLaDio({ guardando: false, ok: "" });
+      setError(e.message);
+    }
+  }
+  const reemplazo = datos
+    ? (datos.la_dio_id && datos.la_dio_id !== datos.titular_id ? datos.la_dio : "")
+    : reemplazoCab;
+
   const presentes = datos ? datos.alumnos.filter((a) => a.estado === "presente").length : 0;
   // con la clase abierta se cuenta en vivo (baja al clasificar); cerrada, lo que mandó el back
   const nuevos = datos ? datos.alumnos.filter((a) => a.clasificar).length : clase.nuevos || 0;
@@ -115,7 +141,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
             {clase.nivel && ` · ${clase.nivel}`}
           </span>
           <span className="mc-sub">
-            {verProfe && clase.profe ? `${clase.profe} · ` : ""}
+            {verProfe && clase.profe ? `${clase.profe}${reemplazo ? ` → la dio ${reemplazo}` : ""} · ` : ""}
             {datos
               ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
               : resumen(clase)}
@@ -132,6 +158,26 @@ function Clase({ clase, fecha, futuro, verProfe }) {
           {futuro && <div className="nota">Todavía no llegó este día: la asistencia se marca ese día o después.</div>}
           {error && <div className="msg-error">{error}</div>}
           {!futuro && !datos && !error && <div className="nota">Cargando…</div>}
+          {datos?.profes && (
+            <label className="mc-la-dio">
+              <span>La dio</span>
+              <select
+                value={datos.la_dio_id || ""}
+                disabled={laDio.guardando}
+                onChange={(e) => e.target.value && cambiarLaDio(e.target.value)}
+              >
+                {!datos.la_dio_id && <option value="">Sin profe</option>}
+                {datos.profes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                    {p.id === datos.titular_id ? " (titular)" : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="mc-guardado">{laDio.guardando ? "…" : laDio.ok}</span>
+            </label>
+          )}
+          {datos && !datos.profes && reemplazo && <div className="nota">Esta clase la dio {reemplazo}.</div>}
           {datos && datos.alumnos.length === 0 && <div className="nota">No hay alumnos anotados ese día.</div>}
           {datos?.alumnos.map((a) => (
             <div key={a.id} className={"mc-alumno" + (a.viene === false ? " no-viene" : "")}>

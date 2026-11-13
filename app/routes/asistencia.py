@@ -2,10 +2,13 @@
 
 La asistencia cuelga de ClaseDictada (una por clase + fecha), así que marcar
 un alumno deja registrada la clase de ese día.
+Si la dio otro profe (reemplazo), gestión lo cambia en "la dio": la hora se le paga a ese.
 """
+import json
 from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, g, jsonify, request
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from app import models_academia as m
@@ -77,6 +80,11 @@ def _dictada(clase, fecha):
     return m.ClaseDictada.query.filter_by(clase_id=clase.id, fecha=fecha).first()
 
 
+def _la_dio(clase, dictada):
+    """Quién dio la clase: el de la dictada si ya hay, si no el titular."""
+    return dictada.profesor_id if dictada and dictada.profesor_id else clase.profesor_id
+
+
 def _lista_del_dia(clase, fecha):
     """La lista que ve el profe: los del día más los que ya tienen marca. (ids, dictada, marcas)"""
     ids = _alumnos_del_dia(clase, fecha)
@@ -114,6 +122,13 @@ def mis_clases():
 
     salida = []
     listas = [(c, profe, *recuperaciones.alumnos_del_dia(c, fecha)) for c, profe in consulta]
+    # reemplazos del día: una consulta para todas las clases
+    dio = {d.clase_id: d.profesor_id for d in m.ClaseDictada.query.filter(
+        m.ClaseDictada.clase_id.in_([c.id for c, *_ in listas] or [0]),
+        m.ClaseDictada.fecha == fecha, m.ClaseDictada.profesor_id.isnot(None))}
+    reemplazantes = {c.id: dio[c.id] for c, *_ in listas if c.id in dio and dio[c.id] != c.profesor_id}
+    nombre_profe = dict(db.session.query(Profesor.id, Profesor.nombre).filter(
+        Profesor.id.in_(set(reemplazantes.values())))) if reemplazantes else {}
     # nuevos a clasificar: una sola consulta para todas las clases del día
     nivel_de = niveles.datos_de([aid for *_, v, nv in listas for aid in (*v, *nv)])
     tabla = niveles.tabla()
@@ -126,6 +141,7 @@ def mis_clases():
             "hora": c.hora_inicio.strftime("%H:%M"),
             "duracion": c.duracion_min,
             "profe": profe or "",
+            "la_dio": nombre_profe.get(reemplazantes.get(c.id), ""),  # vacío = la dio el titular
             "tipo": c.tipo,
             "nivel": c.nivel or "",
             "ambito": c.ambito,
@@ -176,8 +192,63 @@ def ver_asistencia(clase_id):
     } for aid, tipo in ids.items()]
     # primero los que vienen, después los que avisaron o están de viaje
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
-    return jsonify({"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos,
-                    "niveles": niveles.niveles(), "colores": niveles.colores_panel()})
+    la_dio = _la_dio(clase, dictada)
+    salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos,
+              "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
+              "titular_id": clase.profesor_id, "la_dio_id": la_dio,
+              "la_dio": (db.session.get(Profesor, la_dio).nombre if la_dio else "")}
+    if g.usuario.rol in GESTION:
+        # para el selector: los activos, más el que figura aunque ya no esté activo
+        profes = Profesor.query.filter(or_(Profesor.activo.is_(True), Profesor.id == la_dio)).order_by(Profesor.nombre)
+        salida["profes"] = [{"id": p.id, "nombre": p.nombre} for p in profes]
+    return jsonify(salida)
+
+
+@asistencia_bp.post("/api/mis-clases/<int:clase_id>/la-dio")
+@requiere_login("encargado")
+def cambiar_la_dio(clase_id):
+    """Reemplazo: quién dio la clase ese día. Solo gestión. Si todavía no había dictada, se crea
+    (queda pendiente hasta que haya un presente, como cualquier otra)."""
+    clase, error = _clase_o_error(clase_id)
+    if error:
+        return error
+    datos = request.get_json(silent=True) or {}
+    fecha, msg = _leer_fecha(datos.get("fecha"), clase)
+    if msg:
+        return jsonify({"error": msg}), 400
+    try:
+        profe = db.session.get(Profesor, int(datos.get("profesor_id") or 0))
+    except (TypeError, ValueError):
+        profe = None
+    if not profe:
+        return jsonify({"error": "No encontré el profe"}), 404
+
+    for intento in range(2):
+        try:
+            dictada = _dictada(clase, fecha)
+            antes = _la_dio(clase, dictada)
+            if antes == profe.id:
+                return jsonify({"ok": True, "la_dio_id": profe.id, "la_dio": profe.nombre})
+            if not profe.activo and profe.id != clase.profesor_id:  # volver al titular siempre se puede
+                return jsonify({"error": "Ese profe está inactivo"}), 400
+            if not dictada:
+                dictada = m.ClaseDictada(clase_id=clase.id, fecha=fecha, marcada_por=g.usuario.id)
+                db.session.add(dictada)
+            dictada.profesor_id = profe.id
+            db.session.flush()
+            db.session.add(m.Auditoria(
+                entidad="clase_dictada", entidad_id=dictada.id, accion="la_dio",
+                antes=json.dumps({"clase_id": clase.id, "fecha": fecha.isoformat(), "profesor_id": antes}),
+                despues=json.dumps({"clase_id": clase.id, "fecha": fecha.isoformat(), "profesor_id": profe.id}),
+                usuario_id=g.usuario.id,
+            ))
+            db.session.commit()
+            return jsonify({"ok": True, "la_dio_id": profe.id, "la_dio": profe.nombre})
+        except IntegrityError:
+            # alguien creó la dictada justo al mismo tiempo: se reintenta una vez
+            db.session.rollback()
+            if intento:
+                raise
 
 
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/nivel")
