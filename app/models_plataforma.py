@@ -134,8 +134,9 @@ class Profesor(db.Model):
 
 class ValorHora(db.Model):
     """
-    Valor de la hora de cada profe, con historial como los precios de los planes.
-    profesor_id vacío = valor por defecto para todos los que no tengan uno propio.
+    Valor de la hora de cada profe, con historial: un aumento cierra la fila vieja
+    (vigente_hasta) y abre otra, así los meses pasados se siguen calculando con lo de antes.
+    Solo lo ve el dueño. Las horas sin fila vigente quedan "sin tarifa", no se inventa nada.
     """
     __tablename__ = "valores_hora"
 
@@ -143,6 +144,7 @@ class ValorHora(db.Model):
     profesor_id = db.Column(db.Integer, db.ForeignKey("profesores.id"), nullable=True, index=True)
     monto = db.Column(db.Numeric(12, 2), nullable=False)
     vigente_desde = db.Column(db.Date, nullable=False, index=True)
+    vigente_hasta = db.Column(db.Date, nullable=True)  # inclusive; vacío = sigue vigente
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
 
 
