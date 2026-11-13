@@ -35,8 +35,7 @@ def bucket_de(clase):
     if franja is None or clase.tipo == "otro":
         return None
     if clase.tipo == "grupal":
-        if franja == "tarde":
-            return (franja, "particular", 3)   # la tarde no tiene Modo Academia
+        # si la franja no tiene tarifa de academia cargada (hoy la tarde), queda "sin tarifa": nunca se cobra como otra cosa
         return (franja, "academia", 0)
     if clase.tipo == "particular_2":
         if franja == "manana" and _es_promo(clase):
@@ -96,13 +95,18 @@ def precio_bucket(tarifas, franja, tipo, personas, veces):
     return total, f"{veces} veces por semana no figura en las placas, se sumó con los precios que hay"
 
 
+SIN_TARIFA = "SIN TARIFA"  # marca en el detalle de la cuota, el panel la resalta
+
+
 def cuota_de(clases, tarifas):
-    """Cuota mensual de un alumno anotado en esas clases. Devuelve {total, lineas, avisos}."""
-    grupos, avisos = {}, []
+    """Cuota mensual de un alumno anotado en esas clases. Devuelve {total, lineas, avisos, sin_tarifa}.
+    sin_tarifa = True si alguna clase no tiene precio: esa parte no se cobra y lo tiene que ver el encargado."""
+    grupos, avisos, sin_tarifa = {}, [], False
     for c in clases:
         b = bucket_de(c)
         if b is None:
-            avisos.append(f"clase sin tarifa ({c.tipo}, {c.ambito})")
+            avisos.append(f"{SIN_TARIFA}: clase {c.tipo} de {c.ambito}, no se cobró")
+            sin_tarifa = True
             continue
         grupos.setdefault(b, []).append(c)
 
@@ -111,10 +115,11 @@ def cuota_de(clases, tarifas):
         precio, nota = precio_bucket(tarifas, franja, tipo, personas, len(cs))
         nombre = f"{franja} {tipo}" + (f" de {personas}" if personas else "")
         if precio is None:
-            avisos.append(f"{nombre} x{len(cs)}: {nota}")
+            avisos.append(f"{SIN_TARIFA}: {nombre} x{len(cs)}, no se cobró")
+            sin_tarifa = True
             continue
         total += precio
         lineas.append(f"{nombre} x{len(cs)} = {precio}")
         if nota:
             avisos.append(f"{nombre} x{len(cs)}: {nota}")
-    return {"total": total, "lineas": lineas, "avisos": avisos}
+    return {"total": total, "lineas": lineas, "avisos": avisos, "sin_tarifa": sin_tarifa}

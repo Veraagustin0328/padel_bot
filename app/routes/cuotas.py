@@ -2,7 +2,7 @@
 from datetime import date
 
 from flask import Blueprint, g, jsonify, request
-from app.cuotas import cargar_tarifas, clases_del_mes, cuota_de
+from app.cuotas import SIN_TARIFA, cargar_tarifas, clases_del_mes, cuota_de
 from app.extensions import db
 from app.models import Alumno
 from app.models_cuotas import CONCEPTOS, MEDIOS_PAGO, CuotaMes, PagoCuota
@@ -37,15 +37,17 @@ def generar_mes(inicio):
 
     ya = {c.alumno_id for c in CuotaMes.query.filter_by(mes=inicio, concepto="cuota")}
     tarifas = cargar_tarifas(inicio)  # las que rigen ese mes
-    creadas, existian, sin_precio = 0, 0, []
+    creadas, existian, sin_precio, incompletas = 0, 0, [], []
     for alumno_id, cs in por_alumno.items():
         if alumno_id in ya:
             existian += 1
             continue
         r = cuota_de(cs, tarifas)
         if r["total"] <= 0:
-            sin_precio.append(alumno_id)
+            sin_precio.append((alumno_id, r["avisos"]))
             continue
+        if r["sin_tarifa"]:
+            incompletas.append((alumno_id, r["avisos"]))  # se crea con lo que sí tiene precio, marcada
         detalle = "; ".join(r["lineas"] + [f"AVISO: {a}" for a in r["avisos"]])
         db.session.add(CuotaMes(
             alumno_id=alumno_id, mes=inicio, concepto="cuota",
@@ -53,7 +55,13 @@ def generar_mes(inicio):
         ))
         creadas += 1
     db.session.commit()
-    return {"creadas": creadas, "ya_existian": existian, "sin_precio": len(sin_precio)}
+
+    ids = [a for a, _ in sin_precio + incompletas]
+    nombres = {a.id: a.nombre for a in Alumno.query.filter(Alumno.id.in_(ids))} if ids else {}
+    def lista(filas):
+        return [{"alumno_id": a, "alumno": nombres.get(a, f"#{a}"), "motivo": "; ".join(av)} for a, av in filas]
+    return {"creadas": creadas, "ya_existian": existian, "sin_precio": len(sin_precio),
+            "sin_precio_detalle": lista(sin_precio), "incompletas": lista(incompletas)}
 
 
 @cuotas_bp.post("/api/cuotas/generar")
@@ -80,10 +88,12 @@ def listar():
     items = {}
     for a_id in ids:
         items[a_id] = {"alumno_id": a_id, "alumno": nombres.get(a_id, f"#{a_id}"),
-                       "cargos": [], "pagos": [], "cuota": 0, "pagado": 0}
+                       "cargos": [], "pagos": [], "cuota": 0, "pagado": 0, "sin_tarifa": False}
     for c in cuotas:
         it = items[c.alumno_id]
         it["cuota"] += c.monto
+        if SIN_TARIFA in (c.detalle or ""):
+            it["sin_tarifa"] = True  # alguna clase no se cobró: que lo revise el encargado
         it["cargos"].append({"id": c.id, "concepto": c.concepto, "monto": c.monto,
                              "calculado": c.monto_calculado, "nota": c.nota, "detalle": c.detalle})
     for p in pagos:

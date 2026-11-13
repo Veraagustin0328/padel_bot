@@ -28,7 +28,10 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
   return (
     <>
       <div className={"cu-fila " + (it.debe > 0 ? "debe" : "")}>
-        <div className="nom">{it.alumno}</div>
+        <div className="nom">
+          {it.alumno}
+          {it.sin_tarifa && <> <span className="cu-tag sin_tarifa" title="Alguna clase no tiene tarifa y no se cobró">Sin tarifa</span></>}
+        </div>
         <div className="der oculto">{plata(it.cuota)}</div>
         <div className="der oculto">{plata(it.pagado)}</div>
         <div className={"der " + (it.debe > 0 ? "cu-deuda" : "")}>{it.debe > 0 ? plata(it.debe) : "—"}</div>
@@ -53,7 +56,14 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
                     Guardar
                   </button>
                 </div>
-                {c.detalle && <div className="cu-chico">{c.detalle}{c.calculado !== null && c.calculado !== c.monto ? ` · calculado: ${plata(c.calculado)}` : ""}</div>}
+                {c.detalle && (
+                  <div className="cu-chico">
+                    {c.detalle.split("; ").map((l, i) => (
+                      <span key={i} className={l.includes("SIN TARIFA") ? "cu-alerta" : ""}>{i > 0 ? "; " : ""}{l}</span>
+                    ))}
+                    {c.calculado !== null && c.calculado !== c.monto ? ` · calculado: ${plata(c.calculado)}` : ""}
+                  </div>
+                )}
               </div>
             ))}
             <div className="cu-form" style={{ marginTop: 10 }}>
@@ -118,6 +128,7 @@ export default function Cuotas() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
+  const [revisar, setRevisar] = useState([]); // alumnos sin tarifa al generar el mes
   const [filtro, setFiltro] = useState("todos");
   const [q, setQ] = useState("");
   const [abierto, setAbierto] = useState(null);
@@ -133,6 +144,7 @@ export default function Cuotas() {
 
   useEffect(() => {
     setDatos(null);
+    setRevisar([]); // la lista era del mes anterior
     setError("");
     setAviso("");
     setAbierto(null);
@@ -178,6 +190,10 @@ export default function Cuotas() {
             hacer(async () => {
               const r = await api("/api/cuotas/generar", { metodo: "POST", cuerpo: { mes } });
               setAviso(`Se crearon ${r.creadas} cuotas nuevas (${r.ya_existian} ya estaban, ${r.sin_precio} sin precio).`);
+              setRevisar([
+                ...(r.sin_precio_detalle || []).map((x) => ({ ...x, que: "no se creó la cuota" })),
+                ...(r.incompletas || []).map((x) => ({ ...x, que: "se creó sin esa parte" })),
+              ]);
             })
           }
         >
@@ -187,6 +203,14 @@ export default function Cuotas() {
 
       {error && <div className="msg-error" role="alert">{error}</div>}
       {aviso && <div className="msg-ok">{aviso}</div>}
+      {revisar.length > 0 && (
+        <div className="cu-revisar" role="status">
+          <b>Para revisar a mano ({revisar.length}): clases sin tarifa, no se cobraron.</b>
+          {revisar.map((x) => (
+            <div key={x.alumno_id}>{x.alumno}: {x.que} ({x.motivo})</div>
+          ))}
+        </div>
+      )}
 
       {!datos && !error && <div className="cargando">Cargando…</div>}
 

@@ -41,11 +41,12 @@ _nivel_canonico = niveles_mod.nivel_canonico
 INSCRIPCION_DEFAULT = 25000  # si no está en config_academia; se cobra una sola vez
 
 # (modalidad, turno) -> (franja, tipo de tarifa, personas fijas o None si las pide, pide veces, descripción)
-# Igual que bucket_de en app/cuotas.py: la tarde no tiene Modo Academia, el grupal paga como particular de 3.
+# Igual que bucket_de en app/cuotas.py: el grupal busca la tarifa de academia de su franja.
+# Si no hay (hoy la tarde), no se da precio y se deriva al encargado; nunca se cobra como particular.
 BUCKETS_PRECIO = {
     ("academia", "manana"): ("manana", "academia", 0, True,
                              "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel."),
-    ("academia", "tarde"): ("tarde", "particular", 3, True,
+    ("academia", "tarde"): ("tarde", "academia", 0, True,
                             "Grupo de tarde (14:30, 15:30, 16:30 y 17:30 hs)."),
     ("academia", "sabado"): ("sabado", "academia", 0, False,
                              "Modo Academia del sábado a la mañana (8, 9, 10 y 11 hs)."),

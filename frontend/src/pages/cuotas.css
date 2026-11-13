@@ -44,6 +44,10 @@
 .cu-cargo input.monto, .cu-form input.monto { width: 120px; }
 .cu-cargo input.nota, .cu-form input.nota { flex: 1 1 160px; }
 .cu-chico { color: var(--suave); font-size: 12.5px; }
+/* clases sin tarifa: no se cobraron, las revisa el encargado */
+.cu-tag.sin_tarifa { background: #fff3d1; color: #8a5a00; margin-left: 6px; vertical-align: middle; }
+.cu-alerta { color: #8a5a00; font-weight: 700; }
+.cu-revisar { background: #fff3d1; color: #5c3d00; border-radius: 8px; padding: 10px 14px; margin: 8px 0; font-size: 13.5px; display: grid; gap: 4px; }
 .cu-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .cu-pago { display: flex; gap: 10px; align-items: center; padding: 4px 0; font-size: 13.5px; flex-wrap: wrap; }
 .cu-borrar { background: none; border: 1px solid var(--linea); color: var(--mal); border-radius: 8px; padding: 3px 10px; font-weight: 700; font-size: 12.5px; cursor: pointer; }
