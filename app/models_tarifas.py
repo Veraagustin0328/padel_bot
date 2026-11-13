@@ -2,6 +2,9 @@
 
 La cuota de un alumno es la suma de sus clases, cada una a su tarifa
 (ej. 1 grupal + 1 particular = tarifa de 1 grupal + tarifa de 1 particular).
+
+Guardan historial: un aumento es una fila nueva con su vigente_desde, nunca se pisa la anterior.
+En una fecha rige la última fila con vigente_desde <= esa fecha (si esa fila está inactiva, no hay precio).
 """
 from datetime import date
 
@@ -14,7 +17,7 @@ TIPOS_TARIFA = ("academia", "particular", "promo_2x1")
 class Tarifa(db.Model):
     __tablename__ = "tarifas"
     __table_args__ = (
-        db.UniqueConstraint("franja", "tipo", "personas", "veces_por_semana", name="uq_tarifa"),
+        db.UniqueConstraint("franja", "tipo", "personas", "veces_por_semana", "vigente_desde", name="uq_tarifa"),
     )
 
     id = db.Column(db.Integer, primary_key=True)

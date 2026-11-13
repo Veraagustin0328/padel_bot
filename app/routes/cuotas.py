@@ -36,7 +36,7 @@ def generar_mes(inicio):
     por_alumno = clases_del_mes(inicio)
 
     ya = {c.alumno_id for c in CuotaMes.query.filter_by(mes=inicio, concepto="cuota")}
-    tarifas = cargar_tarifas()
+    tarifas = cargar_tarifas(inicio)  # las que rigen ese mes
     creadas, existian, sin_precio = 0, 0, []
     for alumno_id, cs in por_alumno.items():
         if alumno_id in ya:

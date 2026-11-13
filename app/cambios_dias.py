@@ -341,7 +341,7 @@ def recalcular_cuota(alumno_id: int, mes: date) -> dict:
         return {"cuota": "con_pagos", "aviso": f"La cuota de {nombre_mes} ya tiene pagos: no la toqué, revisala a mano."}
     if cuota.monto_calculado is not None and cuota.monto != cuota.monto_calculado:
         return {"cuota": "ajustada", "aviso": f"La cuota de {nombre_mes} estaba ajustada a mano: no la toqué, revisala."}
-    r = cuota_de(clases_del_mes(mes, alumno_id).get(alumno_id, []), cargar_tarifas())
+    r = cuota_de(clases_del_mes(mes, alumno_id).get(alumno_id, []), cargar_tarifas(mes))
     if r["total"] <= 0:
         return {"cuota": "sin_tarifa", "aviso": f"No pude calcular la cuota de {nombre_mes}: revisala a mano."}
     antes = cuota.monto

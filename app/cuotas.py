@@ -66,12 +66,18 @@ def clases_del_mes(inicio: date, alumno_id: int | None = None) -> dict[int, list
     return por_alumno
 
 
-def cargar_tarifas():
-    """{(franja, tipo, personas, veces_por_semana): precio}"""
-    return {
-        (t.franja, t.tipo, t.personas, t.veces_por_semana): t.precio
-        for t in Tarifa.query.filter_by(activa=True)
-    }
+def cargar_tarifas(fecha: date | None = None):
+    """{(franja, tipo, personas, veces_por_semana): precio} que rige en esa fecha (por defecto hoy).
+    Para una cuota se pasa el 1 del mes: un aumento posterior no toca los meses anteriores."""
+    if fecha is None:
+        from app.recuperaciones import hoy
+        fecha = hoy()
+    ultimas = {}
+    filas = (Tarifa.query.filter(Tarifa.vigente_desde <= fecha)
+             .order_by(Tarifa.vigente_desde, Tarifa.id))
+    for t in filas:
+        ultimas[(t.franja, t.tipo, t.personas, t.veces_por_semana)] = t  # la más nueva queda última
+    return {k: t.precio for k, t in ultimas.items() if t.activa}
 
 
 def precio_bucket(tarifas, franja, tipo, personas, veces):
