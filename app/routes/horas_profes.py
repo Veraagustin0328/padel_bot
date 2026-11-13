@@ -11,6 +11,8 @@ from decimal import Decimal
 from flask import Blueprint, Response, g, jsonify, request
 
 from app import horas_profes
+from app.extensions import db
+from app.models_plataforma import Profesor
 from app.routes.auth import requiere_login
 
 horas_profes_bp = Blueprint("horas_profes", __name__)
@@ -40,7 +42,27 @@ def resumen():
     rango, error = _mes_o_error()
     if error:
         return error
-    return jsonify(_json(horas_profes.resumen_mes(*rango)))
+    datos = horas_profes.resumen_mes(*rango)
+    # la marca de head coach (sus particulares de mañana tienen tarifa propia en Planes y precios)
+    head_coach = {pid for (pid,) in db.session.query(Profesor.id).filter(Profesor.es_head_coach.is_(True))}
+    for p in datos["profes"]:
+        p["head_coach"] = p["profesor_id"] in head_coach
+    return jsonify(_json(datos))
+
+
+@horas_profes_bp.post("/api/profes/<int:profesor_id>/head-coach")
+@requiere_login("dueno")
+def marcar_head_coach(profesor_id):
+    """Prende o apaga la marca de head coach. Cambia la cuota de sus alumnos desde que rija su tarifa."""
+    profe = db.session.get(Profesor, profesor_id)
+    if not profe:
+        return jsonify({"error": "No existe ese profe"}), 404
+    d = request.get_json(silent=True) or {}
+    if not isinstance(d.get("activo"), bool):
+        return jsonify({"error": "Falta 'activo' (true o false)"}), 400
+    profe.es_head_coach = d["activo"]
+    db.session.commit()
+    return jsonify({"profesor_id": profe.id, "head_coach": profe.es_head_coach})
 
 
 def _num(valor):

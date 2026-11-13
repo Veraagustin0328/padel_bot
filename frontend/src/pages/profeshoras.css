@@ -31,3 +31,6 @@ button.ph-fila:hover { background: var(--fondo); }
   .ph-clase .ph-grupo { grid-column: 1 / -1; grid-row: 2; color: var(--suave); }
   .ph-clase .ph-dato:not(.der) { display: none; }
 }
+
+/* marca de head coach en el detalle del profe */
+.ph-hc { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; }

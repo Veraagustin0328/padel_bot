@@ -45,13 +45,30 @@ function Tabla({ titulo, filas, conPlata, conMotivo, nota }) {
   );
 }
 
-function Profe({ p, abierto, alAbrir }) {
+function Profe({ p, abierto, alAbrir, alMarcarHC }) {
   const pendientes = p.pendientes.length;
+  const [guardando, setGuardando] = useState(false);
+  const [errorHC, setErrorHC] = useState("");
+
+  async function cambiarHC(e) {
+    setGuardando(true);
+    setErrorHC("");
+    try {
+      const r = await api(`/api/profes/${p.profesor_id}/head-coach`, { metodo: "POST", cuerpo: { activo: e.target.checked } });
+      alMarcarHC(r.head_coach);
+    } catch (err) {
+      setErrorHC(err.message);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   return (
     <>
       <button className={"cu-fila ph-fila" + (p.sin_tarifa ? " debe" : "")} onClick={alAbrir} aria-expanded={abierto}>
         <div className="nom">
           {p.nombre}
+          {p.head_coach && <span className="cu-tag a_favor ph-tag">Head Coach</span>}
           {p.sin_tarifa && <span className="cu-tag debe ph-tag">sin tarifa</span>}
         </div>
         <div className="der">{horas(p.horas)}</div>
@@ -62,6 +79,13 @@ function Profe({ p, abierto, alAbrir }) {
       </button>
       {abierto && (
         <div className="cu-detalle">
+          {p.profesor_id != null && (
+            <label className="ph-hc">
+              <input type="checkbox" checked={!!p.head_coach} onChange={cambiarHC} disabled={guardando} />
+              Head Coach: sus particulares de mañana se cobran con la tarifa "Head Coach" de Planes y precios
+            </label>
+          )}
+          {errorHC && <div className="msg-error" role="alert">{errorHC}</div>}
           {p.sin_tarifa && (
             <div className="msg-error">
               Hay horas sin tarifa vigente: no suman al monto. Cargale la tarifa para que se calculen.
@@ -168,7 +192,11 @@ export default function ProfesHoras() {
                 const clave = p.profesor_id ?? "sin";
                 return (
                   <Profe key={clave} p={p} abierto={abierto === clave}
-                         alAbrir={() => setAbierto(abierto === clave ? null : clave)} />
+                         alAbrir={() => setAbierto(abierto === clave ? null : clave)}
+                         alMarcarHC={(hc) => setDatos({
+                           ...datos,
+                           profes: datos.profes.map((x) => (x.profesor_id === p.profesor_id ? { ...x, head_coach: hc } : x)),
+                         })} />
                 );
               })}
               <div className="cu-fila ph-fila ph-total">

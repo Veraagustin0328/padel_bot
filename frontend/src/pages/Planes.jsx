@@ -95,6 +95,12 @@ export default function Planes() {
   // si cambia algún dato, la vista previa vieja ya no vale
   const cambiar = (setter) => (e) => { setter(e.target.value); setVista(null); };
   const campo = (k) => (e) => setNuevo({ ...nuevo, [k]: e.target.value });
+  // algunas franjas aceptan solo ciertos tipos (Head Coach: solo particular)
+  const franjaElegida = datos.franjas.find((f) => f.id === nuevo.franja);
+  const elegirFranja = (e) => {
+    const f = datos.franjas.find((x) => x.id === e.target.value);
+    setNuevo({ ...nuevo, franja: e.target.value, tipo: f && !f.tipos.includes(nuevo.tipo) ? "" : nuevo.tipo });
+  };
 
   // solo las que rigen hoy o tienen un precio programado
   const visibles = datos.tarifas.filter((t) => t.activo || t.precio_programado);
@@ -127,7 +133,7 @@ export default function Planes() {
           <div className="campos" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             <div className="campo">
               <label htmlFor="n-franja">Franja</label>
-              <select id="n-franja" value={nuevo.franja} onChange={campo("franja")} required>
+              <select id="n-franja" value={nuevo.franja} onChange={elegirFranja} required>
                 <option value="">Elegí…</option>
                 {datos.franjas.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
               </select>
@@ -136,7 +142,9 @@ export default function Planes() {
               <label htmlFor="n-tipo">Tipo</label>
               <select id="n-tipo" value={nuevo.tipo} onChange={campo("tipo")} required>
                 <option value="">Elegí…</option>
-                {datos.tipos.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+                {datos.tipos
+                  .filter((t) => !franjaElegida || franjaElegida.tipos.includes(t.id))
+                  .map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
               </select>
             </div>
             {nuevo.tipo === "particular" && (

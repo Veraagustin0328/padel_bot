@@ -12,15 +12,18 @@ from functools import wraps
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models_tarifas import FRANJAS, TIPOS_TARIFA, Tarifa
+from app.models_tarifas import FRANJA_HEAD_COACH, FRANJAS, TIPOS_TARIFA, Tarifa
 from app.recuperaciones import hoy as _hoy
 from app.routes.auth import requiere_login
 
 planes_bp = Blueprint("planes", __name__)
 
 # textos para mostrar; el orden de las franjas es el de la pantalla
-NOMBRE_FRANJA = {"manana": "Mañana", "tarde": "Tarde", "sabado": "Sábado", "kids": "Kids"}
+NOMBRE_FRANJA = {"manana": "Mañana", "tarde": "Tarde", "sabado": "Sábado", "kids": "Kids",
+                 FRANJA_HEAD_COACH: "Head Coach"}
 NOMBRE_TIPO = {"academia": "Modo Academia", "particular": "Particular", "promo_2x1": "Promo 2x1"}
+# franjas que no aceptan todos los tipos (el head coach solo tiene particulares)
+TIPOS_POR_FRANJA = {FRANJA_HEAD_COACH: ("particular",)}
 PERSONAS_MAX = 3  # 3 = "3 o 4", pagan igual
 
 
@@ -160,7 +163,8 @@ def listar_planes():
     for t in Tarifa.query.order_by(Tarifa.vigente_desde, Tarifa.id):  # una sola consulta
         por_clave.setdefault(_clave(t), []).append(t)
     return jsonify({
-        "franjas": [{"id": f, "nombre": NOMBRE_FRANJA.get(f, f)} for f in FRANJAS],
+        "franjas": [{"id": f, "nombre": NOMBRE_FRANJA.get(f, f), "tipos": list(TIPOS_POR_FRANJA.get(f, TIPOS_TARIFA))}
+                    for f in FRANJAS],
         "tipos": [{"id": t, "nombre": NOMBRE_TIPO.get(t, t)} for t in TIPOS_TARIFA],
         "tarifas": [_tarifa_json(c, hoy, por_clave[c]) for c in sorted(por_clave, key=_orden)],
     })
@@ -177,6 +181,8 @@ def crear_plan():
         raise ValueError("Elegí una franja")
     if tipo not in TIPOS_TARIFA:
         raise ValueError("Elegí un tipo")
+    if tipo not in TIPOS_POR_FRANJA.get(franja, TIPOS_TARIFA):
+        raise ValueError(f"{NOMBRE_FRANJA[franja]} no tiene {NOMBRE_TIPO[tipo]}")
     if tipo == "particular":
         personas = _entero(d.get("personas"), "Las personas", 1, PERSONAS_MAX)
     else:
