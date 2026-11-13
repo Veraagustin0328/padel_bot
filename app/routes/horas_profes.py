@@ -1,13 +1,14 @@
 """Profes y horas: cuánto se le paga a cada profe en el mes. SOLO el dueño.
 
-Acá hay plata y tarifas: todo con @requiere_login("dueno"). El encargado y los profes
-reciben 403. La vista de cada profe con lo suyo va aparte (sin tarifas ajenas).
+Acá hay plata y tarifas: lo del dueño va con @requiere_login("dueno"); el encargado y los
+profes reciben 403. La única excepción es /api/mis-horas: cada profe ve SOLO lo suyo, y el
+profe sale siempre de g.usuario.profesor_id (nunca de lo que manda el panel).
 """
 import csv
 import io
 from decimal import Decimal
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, g, jsonify, request
 
 from app import horas_profes
 from app.routes.auth import requiere_login
@@ -79,3 +80,37 @@ def exportar_csv():
     # BOM para que Excel lea bien las tildes
     return Response("﻿" + salida.getvalue(), mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="horas_profes_{mes}.csv"'})
+
+
+# ---------- la vista de cada profe ----------
+
+@horas_profes_bp.get("/api/mis-horas")
+@requiere_login("profe")
+def mis_horas():
+    """Las horas del mes del profe logueado: sus clases, su tarifa y su monto. Nada de otros."""
+    profesor_id = g.usuario.profesor_id  # solo de acá: se ignora cualquier id que venga en la url
+    if not profesor_id:
+        return jsonify({"error": "Tu usuario no está vinculado a un profe"}), 403
+    rango, error = _mes_o_error()
+    if error:
+        return error
+    datos = horas_profes.resumen_mes(*rango, profesor_id=profesor_id)
+    # por las dudas, nos quedamos solo con su fila (el cálculo ya filtra por él)
+    suyo = next((p for p in datos["profes"] if p["profesor_id"] == profesor_id), None)
+    # sin clases en el mes igual mostramos su tarifa vigente al cierre
+    vacio = {"horas": 0, "monto": 0, "sin_tarifa": False, "horas_pendientes": 0,
+             "tarifa": horas_profes.tarifa_en(horas_profes._tarifas([profesor_id])[profesor_id], rango[1]),
+             "clases": [], "pendientes": [], "sin_alumnos": []}
+    p = suyo or vacio
+    return jsonify(_json({
+        "desde": datos["desde"],
+        "hasta": datos["hasta"],
+        "horas": p["horas"],
+        "monto": p["monto"],
+        "tarifa": p["tarifa"],
+        "sin_tarifa": p["sin_tarifa"],
+        "horas_pendientes": p["horas_pendientes"],
+        "clases": p["clases"],
+        "pendientes": p["pendientes"],
+        "sin_alumnos": p["sin_alumnos"],
+    }))

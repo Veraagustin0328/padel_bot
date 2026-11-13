@@ -97,3 +97,29 @@
 
 /* punto de color de la clase (nivel y rama) */
 .mc-titulo .niv-punto { margin-right: 6px; vertical-align: 1px; }
+
+/* Mis horas del mes (solo el profe) */
+.mc-horas { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); padding: 16px; display: grid; gap: 10px; }
+.mc-horas-cabeza { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.mc-horas-meses { display: flex; gap: 6px; }
+.mc-mes {
+  border: 1px solid #c4c8b8; background: #fff; color: var(--tinta); border-radius: 999px; padding: 6px 14px; min-height: 36px;
+  font: 600 13px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer; text-transform: capitalize;
+}
+.mc-mes.activo { background: var(--verde); color: #fff; border-color: var(--verde); }
+.mc-horas-numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mc-horas-numeros small { display: block; color: var(--suave); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.mc-horas-numeros b { font-size: 20px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mc-horas-lista { display: grid; border-top: 1px solid var(--linea); }
+.mc-horas-fila {
+  display: grid; grid-template-columns: 110px minmax(0, 1fr) 56px 96px; gap: 8px; padding: 8px 0;
+  border-bottom: 1px solid var(--linea); font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.mc-horas-fila .der { text-align: right; font-weight: 700; }
+.mc-horas-fila.apagada { color: var(--suave); }
+.mc-horas-fila.apagada .der { font-weight: 500; }
+.mc-horas-grupo { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .mc-horas-fila { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .mc-horas-grupo { grid-column: 1 / -1; grid-row: 2; color: var(--suave); }
+}

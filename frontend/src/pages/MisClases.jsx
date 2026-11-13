@@ -224,6 +224,96 @@ function Clase({ clase, fecha, futuro, verProfe }) {
   );
 }
 
+// "Mis horas del mes": solo lo del profe logueado (el back lo saca de su usuario, no de acá)
+const plata = (n) => (n === null || n === undefined ? "—" : "$" + Number(n).toLocaleString("es-AR", { maximumFractionDigits: 2 }));
+const horasTxt = (n) => Number(n || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 }) + " h";
+// "2026-11" -> el mes anterior
+function mesAnterior(mes) {
+  const [a, m] = mes.split("-").map(Number);
+  return m === 1 ? `${a - 1}-12` : `${a}-${String(m - 1).padStart(2, "0")}`;
+}
+
+function MisHoras({ hoy }) {
+  const actual = hoy.slice(0, 7);
+  const [mes, setMes] = useState(actual);
+  const [datos, setDatos] = useState(null);
+  const [error, setError] = useState("");
+  const [detalle, setDetalle] = useState(false);
+
+  useEffect(() => {
+    let vigente = true;
+    setDatos(null);
+    setError("");
+    api(`/api/mis-horas?mes=${mes}`)
+      .then((d) => vigente && setDatos(d))
+      .catch((e) => vigente && setError(e.message));
+    return () => {
+      vigente = false;
+    };
+  }, [mes]);
+
+  const nombreMes = (m) => MESES[Number(m.slice(5, 7)) - 1];
+  const filas = datos
+    ? [
+        ...datos.clases.map((c) => ({ ...c, estado: c.tarifa === null ? "sin tarifa" : plata(c.monto) })),
+        ...datos.pendientes.map((c) => ({ ...c, estado: "pendiente", pendiente: true })),
+        ...datos.sin_alumnos.map((c) => ({ ...c, estado: "sin alumnos", pendiente: true })),
+      ].sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora))
+    : [];
+
+  return (
+    <section className="mc-horas">
+      <div className="mc-horas-cabeza">
+        <h2>Mis horas del mes</h2>
+        <div className="mc-horas-meses" role="tablist">
+          {[mesAnterior(actual), actual].map((m) => (
+            <button key={m} role="tab" aria-selected={m === mes} className={"mc-mes" + (m === mes ? " activo" : "")}
+                    onClick={() => setMes(m)}>
+              {nombreMes(m)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error && <div className="msg-error">{error}</div>}
+      {!datos && !error && <div className="nota">Cargando…</div>}
+      {datos && (
+        <>
+          <div className="mc-horas-numeros">
+            <div><small>Horas</small><b>{horasTxt(datos.horas)}</b></div>
+            <div><small>Tarifa</small><b>{datos.tarifa === null ? "—" : plata(datos.tarifa)}</b></div>
+            <div><small>A cobrar</small><b>{plata(datos.monto)}</b></div>
+          </div>
+          {datos.sin_tarifa && <div className="nota">Hay horas sin tarifa cargada: avisale al encargado.</div>}
+          {datos.pendientes.length > 0 && (
+            <div className="nota">
+              {datos.pendientes.length === 1 ? "1 clase pendiente" : `${datos.pendientes.length} clases pendientes`} (
+              {horasTxt(datos.horas_pendientes)}): se suman cuando marcás al menos un presente.
+            </div>
+          )}
+          {filas.length > 0 && (
+            <button className="mc-agregar-nota" onClick={() => setDetalle(!detalle)} aria-expanded={detalle}>
+              {detalle ? "Ocultar detalle" : `Ver detalle (${filas.length} clases)`}
+            </button>
+          )}
+          {detalle && (
+            <div className="mc-horas-lista">
+              {filas.map((c) => (
+                <div key={`${c.clase_id}-${c.fecha}`} className={"mc-horas-fila" + (c.pendiente ? " apagada" : "")}>
+                  <span>{DIAS[(new Date(c.fecha + "T12:00").getDay() + 6) % 7].slice(0, 3)} {c.fecha.slice(8)}/{c.fecha.slice(5, 7)} {c.hora}</span>
+                  <span className="mc-horas-grupo">{c.grupo}</span>
+                  <span>{horasTxt(c.horas)}</span>
+                  <span className="der">{c.estado}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {filas.length === 0 && <div className="nota">Todavía no hay clases este mes.</div>}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function MisClases() {
   const { usuario } = useAuth();
   const verTodas = GESTION.includes(usuario.rol);
@@ -297,6 +387,7 @@ export default function MisClases() {
 
       {/* el profe no pasa por el Inicio, así que las novedades las ve acá */}
       {usuario.rol === "profe" && <NovedadesVigentes />}
+      {usuario.rol === "profe" && <MisHoras hoy={hoy} />}
 
       <div className="mc-semana">
         <button
