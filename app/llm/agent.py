@@ -17,7 +17,7 @@ from app.cuotas import (
 )
 from app.models_plataforma import Profesor
 from app.models_tarifas import FRANJA_HEAD_COACH
-from app.models_academia import AusenciaLapso, Clase, ConfigAcademia, Inscripcion, RecuperacionClase
+from app.models_academia import AusenciaLapso, Clase, Inscripcion, RecuperacionClase
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
     ClaseSuelta, Conversacion, Alumno,
@@ -27,11 +27,40 @@ from app.models import (
 MAX_HISTORIAL = 10
 SESION_HORAS = 24
 
-DATOS_DE_PAGO = (
-    "Alias: academiaarenapadel. Se paga por transferencia a ese alias. "
-    "Después el alumno te avisa por acá que transfirió, vos lo anotás y "
-    "el encargado confirma el pago."
-)
+# ---------------------------------------------------------------- datos del club
+# Nombre, inscripción y datos de pago salen de config_academia (cada club pone los suyos).
+# Si falta alguno, el agente no inventa: dice "la academia" o deriva al encargado.
+def _nombre_club() -> str | None:
+    nombre = rec.regla("nombre_academia")
+    return nombre.strip() if isinstance(nombre, str) and nombre.strip() else None
+
+
+def _datos_pago() -> str | None:
+    datos = rec.regla("datos_pago")
+    return datos.strip() if isinstance(datos, str) and datos.strip() else None
+
+
+def _inscripcion() -> int | None:
+    try:
+        monto = int(rec.regla("inscripcion"))
+    except (TypeError, ValueError):
+        return None
+    return monto if monto > 0 else None
+
+
+def _pesos(monto: int) -> str:
+    return "$" + f"{monto:,}".replace(",", ".")  # 25000 -> $25.000
+
+
+INSCRIPCION_SIN_DATO = "No está cargada: decile que el monto de la inscripción se lo confirma el encargado."
+
+
+def _dato_inscripcion() -> dict:
+    """Lo que devuelven las tools sobre la inscripción. Sin monto cargado, no se da número."""
+    monto = _inscripcion()
+    if monto is None:
+        return {"inscripcion_pago_unico": None, "inscripcion_nota": INSCRIPCION_SIN_DATO}
+    return {"inscripcion_pago_unico": monto}
 
 # ---------------------------------------------------------------- niveles
 # las formas de cada nivel viven en app/niveles.py (las usa también el panel)
@@ -41,7 +70,7 @@ _nivel_canonico = niveles_mod.nivel_canonico
 # ---------------------------------------------------------------- precios
 # Los precios salen de la tabla tarifas (la misma que usa el panel para las cuotas).
 # Acá solo está cómo se traduce modalidad + turno del agente a franja + tipo de tarifa.
-INSCRIPCION_DEFAULT = 25000  # si no está en config_academia; se cobra una sola vez
+# la inscripción (pago único) sale de config_academia 'inscripcion', ver _inscripcion()
 
 # (modalidad, turno) -> (franja, tipo de tarifa, personas fijas o None si las pide, pide veces, descripción)
 # Igual que bucket_de en app/cuotas.py: el grupal busca la tarifa de academia de su franja.
@@ -94,8 +123,9 @@ def _politicas() -> str:
     return texto
 
 # ---------------------------------------------------------------- prompts
+# __NOMBRE__ y __INSCRIPCION__ se reemplazan en prompt_alumno() con lo de config_academia
 PROMPT_ALUMNO_PARTE_1 = (
-    "Sos el asistente de WhatsApp de Academia Arena Pádel. Hablás como un profe "
+    "Sos el asistente de WhatsApp de __NOMBRE__. Hablás como un profe "
     "argentino de confianza: re amable, alegre, con muy buena onda y mucha "
     "energía, como alguien que se alegra de hablar con el alumno.\n\n"
     "Estilo:\n"
@@ -147,8 +177,7 @@ PROMPT_ALUMNO_PARTE_1 = (
     "- Si la tool te devuelve 'faltan', NO des ningún número: preguntale todo lo "
     "que falta en UNA sola frase corta y, cuando te conteste, volvé a llamarla.\n"
     "- Los precios son mensuales y cada alumno paga el suyo (por persona).\n"
-    "- La inscripción es de $25.000, pago único. Mencionala solo si preguntan o si "
-    "se están anotando.\n\n"
+    "__INSCRIPCION__\n\n"
     "Confirmaciones:\n"
     "- Nunca digas que una clase quedó agendada, cancelada o que alguien quedó "
     "registrado si no llamaste a la tool correspondiente y devolvió ok.\n"
@@ -174,9 +203,10 @@ PROMPT_ALUMNO_PARTE_1 = (
     "no uses consultar_precio para eso.\n"
 )
 
+# __DATOS_PAGO__ se reemplaza en prompt_alumno() con config_academia 'datos_pago'
 BLOQUE_PAGOS_CON_DATOS = (
     "Pagos: si preguntan cómo o dónde pagar, respondé con estos datos y nada más: "
-    + DATOS_DE_PAGO + "\n"
+    "__DATOS_PAGO__\n"
     "- Escribilo en voseo ('Podés transferir', no 'Podes').\n"
     "- Decile que cuando transfiera te avise con el monto y mande la foto o el PDF "
     "del comprobante por este chat: vos no lo leés, pero se lo pasás al encargado, "
@@ -188,7 +218,6 @@ BLOQUE_PAGOS_SIN_DATOS = (
     "Pagos: si preguntan cómo o dónde pagar, decí que el encargado les pasa los "
     "datos de pago. NO inventes alias, CBU, apps, lugares ni medios de pago.\n"
 )
-BLOQUE_PAGOS = BLOQUE_PAGOS_CON_DATOS if DATOS_DE_PAGO else BLOQUE_PAGOS_SIN_DATOS
 
 BLOQUE_PLANILLA = (
     "\nEstado de pago y número de teléfono:\n"
@@ -201,7 +230,7 @@ BLOQUE_PLANILLA = (
     "- Si el vínculo está pendiente de confirmación, NO des datos de pago: decile con "
     "buena onda que el encargado todavía no lo confirmó.\n"
     "- Si está vinculado y confirmado, decile si está al día o qué meses figuran sin "
-    "pago, y pasale el alias. El monto sacalo de estado_cuota; si no está, decile que el "
+    "pago, y __PASALE_PAGO__. El monto sacalo de estado_cuota; si no está, decile que el "
     "encargado se lo confirma. Nunca inventes un monto.\n"
     "- Si dice que ya pagó o transfirió, llamá avisar_comprobante (con el monto si lo "
     "dijo) y decile que quedó anotado para que el encargado lo confirme. NUNCA digas "
@@ -268,7 +297,26 @@ PROMPT_ALUMNO_PARTE_2 = (
     "preguntá una sola cosa.\n"
 )
 
-SYSTEM_PROMPT_ALUMNO = PROMPT_ALUMNO_PARTE_1 + BLOQUE_PAGOS + BLOQUE_PLANILLA + PROMPT_ALUMNO_PARTE_2
+INSCRIPCION_CON_MONTO = ("- La inscripción es de {monto}, pago único. Mencionala solo si preguntan o si "
+                         "se están anotando.")
+INSCRIPCION_SIN_MONTO = ("- Si preguntan por la inscripción, decí que el monto se lo confirma el encargado. "
+                         "NUNCA inventes un monto de inscripción.")
+
+
+def prompt_alumno() -> str:
+    """Se arma en cada mensaje: nombre, inscripción y pagos salen de config_academia."""
+    monto = _inscripcion()
+    datos = _datos_pago()
+    texto = PROMPT_ALUMNO_PARTE_1 + (BLOQUE_PAGOS_CON_DATOS if datos else BLOQUE_PAGOS_SIN_DATOS) \
+        + BLOQUE_PLANILLA + PROMPT_ALUMNO_PARTE_2
+    return (texto
+            .replace("__NOMBRE__", _nombre_club() or "la academia")
+            .replace("__INSCRIPCION__", INSCRIPCION_CON_MONTO.format(monto=_pesos(monto)) if monto
+                     else INSCRIPCION_SIN_MONTO)
+            .replace("__DATOS_PAGO__", datos or "")
+            .replace("__PASALE_PAGO__", "pasale el alias" if datos
+                     else "decile que el encargado le pasa los datos de pago"))
+
 
 def _saludo_primer_mensaje() -> str:
     """El saludo cambia según la hora de Argentina (UTC-3)."""
@@ -292,8 +340,8 @@ SALUDO_YA_SALUDASTE = (
     "respondé directo."
 )
 
-SYSTEM_PROMPT_JEFE = (
-    "Sos el asistente interno de Academia Arena Pádel, hablando con el encargado. "
+PROMPT_JEFE = (
+    "Sos el asistente interno de __NOMBRE__, hablando con el encargado. "
     "Podés ejecutar cambios administrativos como actualizar la categoría de un "
     "alumno, proponerle un cambio de día/horario con crear_cambio_pendiente (mandá "
     "dias_nuevos si es un cambio de días; queda pendiente de que el alumno lo confirme), "
@@ -302,6 +350,10 @@ SYSTEM_PROMPT_JEFE = (
     "y pasar a la planilla los que el encargado marcó como CONFIRMADO "
     "(aplicar_pagos_confirmados). Sé directo y breve, es un canal de trabajo."
 )
+
+
+def prompt_jefe() -> str:
+    return PROMPT_JEFE.replace("__NOMBRE__", _nombre_club() or "la academia")
 
 
 # ---------------------------------------------------------------- principal
@@ -444,7 +496,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             _guardar_mensaje(telefono, "assistant", respuesta_pago)
             return respuesta_pago
 
-    system_prompt = SYSTEM_PROMPT_JEFE if es_jefe else SYSTEM_PROMPT_ALUMNO
+    system_prompt = prompt_jefe() if es_jefe else prompt_alumno()
     tools = tools_para_rol(es_jefe)
 
     mensajes = [{"role": "system", "content": system_prompt}]
@@ -706,14 +758,6 @@ def _pedidos_propios_de(telefono: str) -> list[tuple[Alumno, CambioPendiente]]:
 
 
 # ---------------------------------------------------------------- tools
-def _inscripcion() -> int:
-    cfg = db.session.get(ConfigAcademia, "inscripcion")
-    try:
-        return int(json.loads(cfg.valor)) if cfg else INSCRIPCION_DEFAULT
-    except (TypeError, ValueError):
-        return INSCRIPCION_DEFAULT
-
-
 _DIAS = {"lunes": 0, "martes": 1, "miercoles": 2, "miércoles": 2, "jueves": 3,
          "viernes": 4, "sabado": 5, "sábado": 5, "domingo": 6}
 
@@ -870,7 +914,7 @@ def _consultar_precio(args: dict) -> dict:
         "descripcion": descripcion,
         "precio_mensual": precio,
         "por_persona": True,
-        "inscripcion_pago_unico": _inscripcion(),
+        **_dato_inscripcion(),
         "politicas": _politicas(),
     }
 
@@ -1288,8 +1332,10 @@ def _anotar_en_clase(telefono: str, args: dict) -> dict:
     resultado = {"status": "anotado", "alumno": alumno.nombre, **datos,
                  "mensaje": "Quedó anotado. Confirmale día y hora."}
     if nuevo:
-        resultado["inscripcion_pago_unico"] = _inscripcion()
+        resultado.update(_dato_inscripcion())
         resultado["mensaje"] += " Es alumno nuevo: contale que la inscripción es un pago único."
+        if resultado["inscripcion_pago_unico"] is None:
+            resultado["mensaje"] += " " + INSCRIPCION_SIN_DATO
     return resultado
 
 
