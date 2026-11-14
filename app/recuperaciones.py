@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import extract, or_
 
+from app import config_club
 from app import models_academia as m
 from app.extensions import db
 from app.models import Alumno
@@ -39,11 +40,12 @@ class ErrorRegla(ValueError):
 # ---------- reglas y horas ----------
 
 def regla(clave):
-    cfg = db.session.get(m.ConfigAcademia, clave)
-    if not cfg:
+    # una sola consulta por pedido para toda la config (ver config_club)
+    texto = config_club.valor(clave)
+    if texto is None:
         return REGLAS_DEFAULT.get(clave)
     try:
-        return json.loads(cfg.valor)
+        return json.loads(texto)
     except (TypeError, ValueError):
         return REGLAS_DEFAULT.get(clave)
 
@@ -154,6 +156,62 @@ def alumnos_del_dia(clase, fecha):
     for (aid,) in recuperan:
         vienen.setdefault(aid, "recupera")
     return vienen, no_vienen
+
+
+def alumnos_del_dia_en_lote(clases, fecha):
+    """Lo mismo que alumnos_del_dia pero para varias clases de la misma fecha, con 4 consultas
+    en total en vez de 4 por clase. Devuelve {clase_id: (vienen, no_vienen)}.
+    Si tocás la lógica de una, tocá la otra: tienen que dar igual."""
+    ids = [c.id for c in clases]
+    if not ids:
+        return {}
+
+    fijos_de = {i: set() for i in ids}
+    q = db.session.query(m.Inscripcion.clase_id, m.Inscripcion.alumno_id).filter(m.Inscripcion.clase_id.in_(ids))
+    for cid, aid in _vigente(q, fecha):
+        fijos_de[cid].add(aid)
+
+    # los viajes de todas las clases (clase_id vacío) y los de estas
+    lapsos = m.AusenciaLapso.query.filter(
+        m.AusenciaLapso.estado == "confirmado",
+        m.AusenciaLapso.desde <= fecha,
+        m.AusenciaLapso.hasta >= fecha,
+        or_(m.AusenciaLapso.clase_id.is_(None), m.AusenciaLapso.clase_id.in_(ids)),
+    ).all()
+
+    faltan_de = {i: [] for i in ids}
+    for cid, aid in db.session.query(m.Ausencia.clase_id, m.Ausencia.alumno_id).filter(
+            m.Ausencia.clase_id.in_(ids), m.Ausencia.fecha == fecha):
+        faltan_de[cid].append(aid)
+
+    recuperan_de = {i: [] for i in ids}
+    for cid, aid in db.session.query(m.RecuperacionClase.clase_id, m.RecuperacionClase.alumno_id).filter(
+            m.RecuperacionClase.clase_id.in_(ids), m.RecuperacionClase.fecha == fecha,
+            m.RecuperacionClase.estado == "confirmada"):
+        recuperan_de[cid].append(aid)
+
+    salida = {}
+    for c in clases:
+        fijos = fijos_de[c.id]
+        no_vienen, reemplazos = {}, []
+        for lap in lapsos:
+            if lap.clase_id not in (None, c.id):
+                continue
+            if lap.alumno_id in fijos:
+                no_vienen[lap.alumno_id] = "viaje"
+                if lap.reemplazo_alumno_id:
+                    reemplazos.append(lap.reemplazo_alumno_id)
+        for aid in faltan_de[c.id]:
+            if aid in fijos:
+                no_vienen.setdefault(aid, "falta")
+
+        vienen = {aid: "fijo" for aid in fijos if aid not in no_vienen}
+        for aid in reemplazos:
+            vienen.setdefault(aid, "reemplazo")
+        for aid in recuperan_de[c.id]:
+            vienen.setdefault(aid, "recupera")
+        salida[c.id] = (vienen, no_vienen)
+    return salida
 
 
 def lugares_libres(clase, fecha):

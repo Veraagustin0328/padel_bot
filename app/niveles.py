@@ -12,9 +12,10 @@ import re
 import unicodedata
 from datetime import datetime
 
+from app import config_club
 from app.extensions import db
 from app.models import Alumno
-from app.models_academia import AlumnoPerfil, Auditoria, Clase, ConfigAcademia, Inscripcion
+from app.models_academia import AlumnoPerfil, Auditoria, Clase, Inscripcion
 
 # todas las formas que aceptamos de cada nivel (1ra y 1era son lo mismo).
 # Sirven para reconocer lo que escriben; el nombre que se guarda sale de la config.
@@ -58,11 +59,12 @@ def nivel_canonico(texto) -> str | None:
 
 
 def _config(clave):
-    fila = db.session.get(ConfigAcademia, clave)
-    if not fila:
+    # una sola consulta por pedido para toda la config (ver config_club)
+    texto = config_club.valor(clave)
+    if texto is None:
         return None
     try:
-        return json.loads(fila.valor)
+        return json.loads(texto)
     except (TypeError, ValueError):
         return None
 

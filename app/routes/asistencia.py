@@ -121,7 +121,10 @@ def mis_clases():
     consulta = consulta.filter(m.Clase.dia_semana == fecha.weekday())
 
     salida = []
-    listas = [(c, profe, *recuperaciones.alumnos_del_dia(c, fecha)) for c, profe in consulta]
+    filas = consulta.all()
+    # quiénes vienen: 4 consultas para todas las clases del día, no 4 por clase
+    del_dia = recuperaciones.alumnos_del_dia_en_lote([c for c, _ in filas], fecha)
+    listas = [(c, profe, *del_dia[c.id]) for c, profe in filas]
     # reemplazos del día: una consulta para todas las clases
     dio = {d.clase_id: d.profesor_id for d in m.ClaseDictada.query.filter(
         m.ClaseDictada.clase_id.in_([c.id for c, *_ in listas] or [0]),
