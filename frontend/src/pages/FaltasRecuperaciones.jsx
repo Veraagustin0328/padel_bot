@@ -31,14 +31,16 @@ function mesActual() {
 function BuscarAlumno({ id, valor, onElegir, placeholder }) {
   const [texto, setTexto] = useState("");
   const [opciones, setOpciones] = useState([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    setError("");
     if (valor || texto.trim().length < 2) return setOpciones([]);
     let vigente = true;
     const t = setTimeout(() => {
       api(`/api/clases/buscar-alumnos?q=${encodeURIComponent(texto.trim())}`)
         .then((l) => vigente && setOpciones(l))
-        .catch(() => {});
+        .catch((e) => vigente && setError(`No pude buscar alumnos: ${e.message}`));
     }, 250);
     return () => {
       vigente = false;
@@ -59,6 +61,7 @@ function BuscarAlumno({ id, valor, onElegir, placeholder }) {
   return (
     <div className="fr-buscar">
       <input id={id} value={texto} placeholder={placeholder} autoComplete="off" onChange={(e) => setTexto(e.target.value)} />
+      {error && <div className="msg-error" role="alert">{error}</div>}
       {opciones.length > 0 && (
         <ul className="fr-opciones">
           {opciones.map((o) => (
@@ -308,7 +311,9 @@ function Viajes({ avisar }) {
   }
   useEffect(() => {
     cargar();
-    api("/api/clases").then((d) => setClases(d.clases.filter((c) => c.activa))).catch(() => {});
+    api("/api/clases")
+      .then((d) => setClases(d.clases.filter((c) => c.activa)))
+      .catch((e) => avisar(`No pude traer las clases: ${e.message}`, true));
   }, []);
 
   // solo las clases donde está anotado el alumno elegido

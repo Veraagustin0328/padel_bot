@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import "./cuotas.css";
 
@@ -10,7 +10,7 @@ const mesActual = () => {
 const NOMBRE_CARGO = { cuota: "Cuota", inscripcion: "Inscripción", ajuste: "Ajuste" };
 const ETIQUETA = { pago: "Pagó", debe: "Debe", parcial: "Parcial", a_favor: "A favor" };
 
-function Fila({ it, mes, abierta, alAbrir, hacer }) {
+function Fila({ it, mes, abierta, alAbrir, hacer, ocupado }) {
   const [monto, setMonto] = useState(String(it.debe || ""));
   const [medio, setMedio] = useState("efectivo");
   const [nota, setNota] = useState("");
@@ -52,8 +52,8 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
                   <span className="lbl">{NOMBRE_CARGO[c.concepto] || c.concepto}</span>
                   <input className="monto" type="number" min="0" value={valor(c, "monto")} onChange={(e) => cambiar(c, "monto", e.target.value)} aria-label="Monto" />
                   <input className="nota" placeholder="Nota (ej: arrancó a mitad de mes)" value={valor(c, "nota")} onChange={(e) => cambiar(c, "nota", e.target.value)} />
-                  <button className="boton chico claro" onClick={() => hacer(() => api("/api/cuotas/" + c.id, { metodo: "PATCH", cuerpo: { monto: valor(c, "monto"), nota: valor(c, "nota") } }))}>
-                    Guardar
+                  <button className="boton chico claro" disabled={!!ocupado} onClick={() => hacer(() => api("/api/cuotas/" + c.id, { metodo: "PATCH", cuerpo: { monto: valor(c, "monto"), nota: valor(c, "nota") } }), "cargo-" + c.id)}>
+                    {ocupado === "cargo-" + c.id ? "Guardando…" : "Guardar"}
                   </button>
                 </div>
                 {c.detalle && (
@@ -74,10 +74,10 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
               <input className="monto" type="number" placeholder="Monto" value={extra.monto} onChange={(e) => setExtra({ ...extra, monto: e.target.value })} />
               <button
                 className="boton chico claro"
-                disabled={!extra.monto}
-                onClick={() => hacer(() => api("/api/cuotas/cargo", { metodo: "POST", cuerpo: { alumno_id: it.alumno_id, mes, concepto: extra.concepto, monto: extra.monto } }).then(() => setExtra({ ...extra, monto: "" })))}
+                disabled={!!ocupado || !extra.monto}
+                onClick={() => hacer(() => api("/api/cuotas/cargo", { metodo: "POST", cuerpo: { alumno_id: it.alumno_id, mes, concepto: extra.concepto, monto: extra.monto } }).then(() => setExtra({ ...extra, monto: "" })), "extra")}
               >
-                Agregar cargo
+                {ocupado === "extra" ? "Guardando…" : "Agregar cargo"}
               </button>
             </div>
           </div>
@@ -95,7 +95,9 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
                 {p.nota && !p.comprobante_id && <span className="cu-chico">{p.nota}</span>}
                 {/* los de comprobante se sacan desde Comprobantes */}
                 {!p.comprobante_id && (
-                  <button className="cu-borrar" onClick={() => hacer(() => api("/api/cuotas/pago/" + p.id, { metodo: "DELETE" }))}>Borrar</button>
+                  <button className="cu-borrar" disabled={!!ocupado} onClick={() => hacer(() => api("/api/cuotas/pago/" + p.id, { metodo: "DELETE" }), "borrar-" + p.id)}>
+                    {ocupado === "borrar-" + p.id ? "Borrando…" : "Borrar"}
+                  </button>
                 )}
               </div>
             ))}
@@ -110,10 +112,10 @@ function Fila({ it, mes, abierta, alAbrir, hacer }) {
               <input className="nota" placeholder="Nota (opcional)" value={nota} onChange={(e) => setNota(e.target.value)} />
               <button
                 className="boton chico"
-                disabled={!monto || Number(monto) <= 0}
-                onClick={() => hacer(() => api("/api/cuotas/pago", { metodo: "POST", cuerpo: { alumno_id: it.alumno_id, mes, monto, medio, nota } }).then(() => setNota("")))}
+                disabled={!!ocupado || !monto || Number(monto) <= 0}
+                onClick={() => hacer(() => api("/api/cuotas/pago", { metodo: "POST", cuerpo: { alumno_id: it.alumno_id, mes, monto, medio, nota } }).then(() => setNota("")), "pago")}
               >
-                Registrar pago
+                {ocupado === "pago" ? "Guardando…" : "Registrar pago"}
               </button>
             </div>
           </div>
@@ -132,7 +134,9 @@ export default function Cuotas() {
   const [filtro, setFiltro] = useState("todos");
   const [q, setQ] = useState("");
   const [abierto, setAbierto] = useState(null);
-  const [ocupado, setOcupado] = useState(false);
+  const [ocupado, setOcupado] = useState(""); // qué botón está esperando ("" = ninguno)
+  // candado contra el doble click: el estado tarda un render en llegar al botón
+  const enCurso = useRef(false);
 
   async function cargar() {
     try {
@@ -151,8 +155,11 @@ export default function Cuotas() {
     cargar();
   }, [mes]);
 
-  async function hacer(fn) {
-    setOcupado(true);
+  // todos los botones se apagan mientras espera; el que se tocó dice "Guardando…"
+  async function hacer(fn, clave = "si") {
+    if (enCurso.current) return;
+    enCurso.current = true;
+    setOcupado(clave);
     setError("");
     try {
       await fn();
@@ -160,7 +167,8 @@ export default function Cuotas() {
     } catch (e) {
       setError(e.message);
     } finally {
-      setOcupado(false);
+      enCurso.current = false;
+      setOcupado("");
     }
   }
 
@@ -185,7 +193,7 @@ export default function Cuotas() {
         <input type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} aria-label="Mes" style={{ border: "1px solid #c4c8b8", borderRadius: 8, padding: "9px 12px", minHeight: 40, font: '600 14px "Plus Jakarta Sans", system-ui, sans-serif' }} />
         <button
           className="boton"
-          disabled={ocupado}
+          disabled={!!ocupado}
           onClick={() =>
             hacer(async () => {
               const r = await api("/api/cuotas/generar", { metodo: "POST", cuerpo: { mes } });
@@ -194,10 +202,10 @@ export default function Cuotas() {
                 ...(r.sin_precio_detalle || []).map((x) => ({ ...x, que: "no se creó la cuota" })),
                 ...(r.incompletas || []).map((x) => ({ ...x, que: "se creó sin esa parte" })),
               ]);
-            })
+            }, "generar")
           }
         >
-          Generar cuotas del mes
+          {ocupado === "generar" ? "Generando…" : "Generar cuotas del mes"}
         </button>
       </div>
 
@@ -243,7 +251,7 @@ export default function Cuotas() {
                   <div />
                 </div>
                 {items.map((it) => (
-                  <Fila key={it.alumno_id} it={it} mes={mes} abierta={abierto === it.alumno_id} alAbrir={() => setAbierto(abierto === it.alumno_id ? null : it.alumno_id)} hacer={hacer} />
+                  <Fila key={it.alumno_id} it={it} mes={mes} abierta={abierto === it.alumno_id} alAbrir={() => setAbierto(abierto === it.alumno_id ? null : it.alumno_id)} hacer={hacer} ocupado={ocupado} />
                 ))}
                 {items.length === 0 && <div className="cu-fila">No hay alumnos con ese filtro.</div>}
               </div>

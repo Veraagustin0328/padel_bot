@@ -5,7 +5,7 @@ import { MARCA } from "../marca.js";
 import Logo from "../Logo.jsx";
 
 export default function Login() {
-  const { usuario, entrar } = useAuth();
+  const { usuario, entrar, avisoSesion } = useAuth();
   const navegar = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,6 +36,7 @@ export default function Login() {
           {MARCA.nombre}
         </div>
         <h2>Entrá a tu cuenta</h2>
+        {avisoSesion && !error && <div className="msg-error" role="status">{avisoSesion}</div>}
         <div className="campo">
           <label htmlFor="email">Email</label>
           <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />

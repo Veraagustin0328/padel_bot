@@ -61,7 +61,8 @@ export default function Novedades() {
   }
   useEffect(() => {
     cargar();
-    api("/api/novedades/tipos").then(setTipos).catch(() => {});
+    // si falla quedan los tipos de siempre, pero avisamos
+    api("/api/novedades/tipos").then(setTipos).catch((e) => setError(`No pude traer los tipos de novedad: ${e.message}`));
   }, []);
 
   const cambiar = (campo) => (e) => setForm({ ...form, [campo]: e.target.value });

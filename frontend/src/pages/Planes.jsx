@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { esDueno } from "../roles.js";
@@ -17,6 +17,8 @@ export default function Planes() {
   const [datos, setDatos] = useState({ franjas: [], tipos: [], tarifas: [] });
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
+  const [ocupado, setOcupado] = useState(""); // qué botón está esperando ("" = ninguno)
+  const enCurso = useRef(false); // candado contra el doble click
 
   // subir precios
   const [pct, setPct] = useState("10");
@@ -46,31 +48,46 @@ export default function Planes() {
     confirmar,
   });
 
-  async function verPrevia() {
+  // una acción por vez: apaga los botones y espera también la recarga
+  async function hacer(clave, fn) {
+    if (enCurso.current) return;
+    enCurso.current = true;
+    setOcupado(clave);
     setError(""); setAviso("");
+    try {
+      await fn();
+    } finally {
+      enCurso.current = false;
+      setOcupado("");
+    }
+  }
+
+  const verPrevia = () => hacer("previa", async () => {
     try {
       setVista(await api("/api/planes/aumento", { metodo: "POST", cuerpo: cuerpo(false) }));
     } catch (e) {
       setVista(null);
       setError(e.message);
     }
-  }
+  });
 
-  async function aplicar() {
-    setError(""); setAviso("");
+  const aplicar = () => hacer("aplicar", async () => {
     try {
       await api("/api/planes/aumento", { metodo: "POST", cuerpo: cuerpo(true) });
       setVista(null);
       setAviso(`Listo, los precios nuevos rigen desde el ${fechaAR(desde)}.`);
-      cargar();
+      await cargar();
     } catch (e) {
       setError(e.message);
     }
-  }
+  });
 
-  async function crearTarifa(e) {
+  const crearTarifa = (e) => {
     e.preventDefault();
-    setError(""); setAviso("");
+    return hacer("crear", () => guardarTarifa());
+  };
+
+  async function guardarTarifa() {
     try {
       await api("/api/planes", {
         metodo: "POST",
@@ -86,7 +103,7 @@ export default function Planes() {
       setNuevo(NUEVO_VACIO);
       setAbierto(false);
       setAviso("Plan creado.");
-      cargar();
+      await cargar();
     } catch (e2) {
       setError(e2.message);
     }
@@ -170,7 +187,7 @@ export default function Planes() {
               <input id="n-desde" type="date" value={nuevo.desde} onChange={campo("desde")} required />
             </div>
           </div>
-          <button className="boton">Crear plan</button>
+          <button className="boton" disabled={!!ocupado}>{ocupado === "crear" ? "Guardando…" : "Crear plan"}</button>
         </form>
       )}
 
@@ -248,8 +265,12 @@ export default function Planes() {
           )}
 
           <div className="botones">
-            <button className="boton claro" onClick={verPrevia}>Ver vista previa</button>
-            <button className="boton" onClick={aplicar} disabled={!vista || vista.planes.length === 0}>Aplicar aumento</button>
+            <button className="boton claro" onClick={verPrevia} disabled={!!ocupado}>
+              {ocupado === "previa" ? "Calculando…" : "Ver vista previa"}
+            </button>
+            <button className="boton" onClick={aplicar} disabled={!!ocupado || !vista || vista.planes.length === 0}>
+              {ocupado === "aplicar" ? "Guardando…" : "Aplicar aumento"}
+            </button>
           </div>
         </section>
         )}

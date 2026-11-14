@@ -43,7 +43,7 @@ export default function Notas() {
   }, [buscar, filtroAlumno]);
 
   useEffect(() => {
-    api("/api/notas/alumnos").then(setAlumnos).catch(() => {});
+    api("/api/notas/alumnos").then(setAlumnos).catch((e) => setError(`No pude traer la lista de alumnos: ${e.message}`));
   }, []);
 
   const cambiar = (campo) => (e) =>

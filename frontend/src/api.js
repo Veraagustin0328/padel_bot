@@ -7,6 +7,26 @@ export const guardarToken = (t) => localStorage.setItem(CLAVE, t);
 export const leerToken = () => localStorage.getItem(CLAVE);
 export const borrarToken = () => localStorage.removeItem(CLAVE);
 
+// el error lleva .red (no llegó al servidor) o .status (el servidor contestó mal),
+// así quien lo agarra distingue "sin conexión" de "sesión vencida"
+function errorDeRed() {
+  const e = new Error("No pude conectar con el servidor");
+  e.red = true;
+  return e;
+}
+
+function errorDeServidor(resp, datos) {
+  const e = new Error(datos.error || "Algo salió mal");
+  e.status = resp.status;
+  return e;
+}
+
+function sesionVencida(datos) {
+  borrarToken();
+  // el motivo viaja en el evento para mostrarlo en el login
+  window.dispatchEvent(new CustomEvent("sesion-vencida", { detail: datos.error || "" }));
+}
+
 export async function api(ruta, { metodo = "GET", cuerpo } = {}) {
   const headers = {};
   const token = leerToken();
@@ -21,15 +41,12 @@ export async function api(ruta, { metodo = "GET", cuerpo } = {}) {
       body: cuerpo !== undefined ? JSON.stringify(cuerpo) : undefined,
     });
   } catch {
-    throw new Error("No pude conectar con el servidor");
+    throw errorDeRed();
   }
 
   const datos = await resp.json().catch(() => ({}));
-  if (resp.status === 401 && ruta !== "/api/auth/login") {
-    borrarToken();
-    window.dispatchEvent(new Event("sesion-vencida"));
-  }
-  if (!resp.ok) throw new Error(datos.error || "Algo salió mal");
+  if (resp.status === 401 && ruta !== "/api/auth/login") sesionVencida(datos);
+  if (!resp.ok) throw errorDeServidor(resp, datos);
   return datos;
 }
 
@@ -40,15 +57,12 @@ export async function descargar(ruta, nombre) {
   try {
     resp = await fetch(BASE + ruta, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   } catch {
-    throw new Error("No pude conectar con el servidor");
-  }
-  if (resp.status === 401) {
-    borrarToken();
-    window.dispatchEvent(new Event("sesion-vencida"));
+    throw errorDeRed();
   }
   if (!resp.ok) {
     const datos = await resp.json().catch(() => ({}));
-    throw new Error(datos.error || "Algo salió mal");
+    if (resp.status === 401) sesionVencida(datos);
+    throw errorDeServidor(resp, datos);
   }
   const url = URL.createObjectURL(await resp.blob());
   const a = document.createElement("a");

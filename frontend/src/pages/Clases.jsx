@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import { NivelAlumno, Punto, RAMAS, etiquetaNivel, rangoNivel } from "../niveles.jsx";
 import "./clases.css";
@@ -49,6 +49,8 @@ export default function Clases() {
   const [form, setForm] = useState(null);
   const [qAlu, setQAlu] = useState("");
   const [resultados, setResultados] = useState([]);
+  const [ocupado, setOcupado] = useState(""); // qué botón está esperando ("" = ninguno)
+  const enCurso = useRef(false); // candado contra el doble click
 
   async function cargar() {
     try {
@@ -60,7 +62,7 @@ export default function Clases() {
   }
   useEffect(() => { cargar(); }, []);
   useEffect(() => {
-    api("/api/clases/profes").then(setListaProfes).catch(() => {});
+    api("/api/clases/profes").then(setListaProfes).catch((e) => setError(`No pude traer la lista de profes: ${e.message}`));
   }, []);
 
   function avisar(texto) {
@@ -68,8 +70,12 @@ export default function Clases() {
     setTimeout(() => setAviso(""), 4000);
   }
 
-  // hace un cambio en el servidor y vuelve a cargar todo
-  async function hacer(fn, ok) {
+  // hace un cambio en el servidor y vuelve a cargar todo.
+  // Mientras espera se apagan los botones; el que se tocó muestra "Guardando…"
+  async function hacer(fn, ok, clave = "si") {
+    if (enCurso.current) return;
+    enCurso.current = true;
+    setOcupado(clave);
     setError("");
     try {
       const r = await fn();
@@ -77,8 +83,12 @@ export default function Clases() {
       await cargar();
     } catch (e) {
       setError(e.message);
+    } finally {
+      enCurso.current = false;
+      setOcupado("");
     }
   }
+  const esperando = (clave, texto, normal) => (ocupado === clave ? texto : normal);
 
   const clases = useMemo(
     () => (datos?.clases || []).filter((c) => verInactivas || c.activa),
@@ -126,8 +136,9 @@ export default function Clases() {
     const t = setTimeout(async () => {
       try {
         setResultados(await api(`/api/clases/buscar-alumnos?q=${encodeURIComponent(qAlu.trim())}`));
-      } catch {
+      } catch (e) {
         setResultados([]);
+        setError(`No pude buscar alumnos: ${e.message}`);
       }
     }, 250);
     return () => clearTimeout(t);
@@ -148,7 +159,7 @@ export default function Clases() {
     if (String(form.profesor_id) !== String(sel.profe_id ?? "")) {
       cambios.profesor_id = form.profesor_id === "" ? null : Number(form.profesor_id);
     }
-    hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: cambios }), "Cambios guardados.");
+    hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: cambios }), "Cambios guardados.", "guardar");
   }
 
   // rama y color: se guardan con un toque, sin pasar por "Guardar cambios"
@@ -156,40 +167,45 @@ export default function Clases() {
     const nueva = rama === sel.rama ? "" : rama; // tocar la que ya está la saca
     hacer(
       () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { rama: nueva } }),
-      nueva ? `Rama: ${RAMAS[nueva]}.` : "La clase quedó sin rama."
+      nueva ? `Rama: ${RAMAS[nueva]}.` : "La clase quedó sin rama.",
+      "rama-" + rama
     );
   }
 
   function elegirColumna(valor) {
     hacer(
       () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { columna: valor === "" ? null : Number(valor) } }),
-      valor === "" ? "Color automático." : "Color cambiado."
+      valor === "" ? "Color automático." : "Color cambiado.",
+      "columna"
     );
   }
 
   function confirmarTipo() {
-    hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { confirmar_tipo: true } }), "Tipo confirmado.");
+    hacer(() => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { confirmar_tipo: true } }), "Tipo confirmado.", "tipo");
   }
 
   function alternarActiva() {
     if (sel.activa && !window.confirm("¿Desactivar esta clase? Deja de contar, pero no se borra nada.")) return;
     hacer(
       () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { activa: !sel.activa } }),
-      sel.activa ? "Clase desactivada." : "Clase reactivada."
+      sel.activa ? "Clase desactivada." : "Clase reactivada.",
+      "activa"
     );
   }
 
   function sacar(a) {
     if (!window.confirm(`¿Sacar a ${a.nombre} de esta clase?`)) return;
-    hacer(() => api(`/api/clases/${sel.id}/alumnos/${a.id}`, { metodo: "DELETE" }), `${a.nombre} salió de la clase.`);
+    hacer(() => api(`/api/clases/${sel.id}/alumnos/${a.id}`, { metodo: "DELETE" }), `${a.nombre} salió de la clase.`, "sacar-" + a.id);
   }
 
   function anotar(a) {
+    if (enCurso.current) return;
     setQAlu("");
     setResultados([]);
     hacer(
       () => api(`/api/clases/${sel.id}/alumnos`, { metodo: "POST", cuerpo: { alumno_id: a.id } }),
-      `${a.nombre} quedó anotado.`
+      `${a.nombre} quedó anotado.`,
+      "anotar"
     );
   }
 
@@ -216,7 +232,8 @@ export default function Clases() {
   function confirmarGrupales() {
     hacer(
       () => api("/api/clases/confirmar-grupales", { metodo: "POST" }),
-      (r) => `${r.confirmadas} clases confirmadas como grupales.`
+      (r) => `${r.confirmadas} clases confirmadas como grupales.`,
+      "grupales"
     );
   }
 
@@ -249,8 +266,8 @@ export default function Clases() {
 
       {grupalesObvias > 0 && (
         <div className="cla-acciones">
-          <button className="boton chico" onClick={confirmarGrupales}>
-            Confirmar las {grupalesObvias} grupales de 3 o 4 alumnos
+          <button className="boton chico" disabled={!!ocupado} onClick={confirmarGrupales}>
+            {esperando("grupales", "Guardando…", `Confirmar las ${grupalesObvias} grupales de 3 o 4 alumnos`)}
           </button>
           <span className="cla-sub">Son las que casi seguro son grupales. Las de 1 o 2 alumnos las confirmás una por una.</span>
         </div>
@@ -267,7 +284,7 @@ export default function Clases() {
           <input type="checkbox" checked={verInactivas} onChange={(e) => setVerInactivas(e.target.checked)} />
           Mostrar desactivadas
         </label>
-        <button className="boton chico claro" onClick={cargar}>Actualizar</button>
+        <button className="boton chico claro" disabled={!!ocupado} onClick={cargar}>Actualizar</button>
       </div>
 
       <Leyenda colores={colores} sinRama={sinRama} />
@@ -340,8 +357,8 @@ export default function Clases() {
                 <div className="cla-rama-botones" role="group" aria-label="Rama de la clase">
                   {Object.entries(RAMAS).map(([k, v]) => (
                     <button key={k} type="button" className={"cla-rama-op" + (sel.rama === k ? " activo" : "")}
-                            aria-pressed={sel.rama === k} onClick={() => elegirRama(k)}>
-                      {v}
+                            aria-pressed={sel.rama === k} disabled={!!ocupado} onClick={() => elegirRama(k)}>
+                      {esperando("rama-" + k, "Guardando…", v)}
                     </button>
                   ))}
                 </div>
@@ -349,14 +366,14 @@ export default function Clases() {
                   <div className="cla-sugerida">
                     Sugerido: <b>{RAMAS[sel.rama_sugerida.rama]}</b>
                     <span> ({sel.rama_sugerida.reconocidos} de {sel.rama_sugerida.total} nombres)</span>
-                    <button type="button" className="boton chico" onClick={() => elegirRama(sel.rama_sugerida.rama)}>
-                      Confirmar
+                    <button type="button" className="boton chico" disabled={!!ocupado} onClick={() => elegirRama(sel.rama_sugerida.rama)}>
+                      {esperando("rama-" + sel.rama_sugerida.rama, "Guardando…", "Confirmar")}
                     </button>
                   </div>
                 )}
                 {(sel.rama === "damas" || sel.rama === "caballeros") && colores.columnas.length > 0 && (
                   <label className="cla-columna">Color
-                    <select value={sel.columna_manual ?? ""} onChange={(e) => elegirColumna(e.target.value)}>
+                    <select value={sel.columna_manual ?? ""} disabled={!!ocupado} onChange={(e) => elegirColumna(e.target.value)}>
                       <option value="">
                         Automático{sel.columna_auto ? ` (${colores.columnas[sel.columna_auto - 1]?.nombre})` : " (sin color)"}
                       </option>
@@ -371,7 +388,7 @@ export default function Clases() {
               {sel.estimado && (
                 <div className="cla-alerta">
                   El tipo ({TIPOS[sel.tipo]}) se estimó por la cantidad de alumnos.
-                  <button className="boton chico" onClick={confirmarTipo}>Confirmar tipo</button>
+                  <button className="boton chico" disabled={!!ocupado} onClick={confirmarTipo}>{esperando("tipo", "Guardando…", "Confirmar tipo")}</button>
                 </div>
               )}
               {sel.alumnos.length > sel.cupo && (
@@ -397,7 +414,7 @@ export default function Clases() {
                     {listaProfes.map((p) => <option key={p.id} value={p.id}>{capital(p.nombre)}</option>)}
                   </select>
                 </label>
-                <button className="boton chico" disabled={!hayCambios} onClick={guardar}>Guardar cambios</button>
+                <button className="boton chico" disabled={!hayCambios || !!ocupado} onClick={guardar}>{esperando("guardar", "Guardando…", "Guardar cambios")}</button>
               </div>
 
               <h3>Alumnos ({sel.alumnos.length})</h3>
@@ -412,7 +429,9 @@ export default function Clases() {
                         <NivelAlumno alumno={a} niveles={datos.niveles} colores={colores}
                                      onElegir={(n) => elegirNivel(a, n)} />
                       </div>
-                      <button className="cla-quitar" onClick={() => sacar(a)} aria-label={`Sacar a ${a.nombre}`}>×</button>
+                      <button className="cla-quitar" disabled={!!ocupado} onClick={() => sacar(a)} aria-label={`Sacar a ${a.nombre}`}>
+                        {esperando("sacar-" + a.id, "…", "×")}
+                      </button>
                     </li>
                   ))}
                 </ol>
@@ -420,13 +439,15 @@ export default function Clases() {
 
               <div className="cla-agregar">
                 <input placeholder="Anotar un alumno (mín. 2 letras)…" value={qAlu} onChange={(e) => setQAlu(e.target.value)} />
+                {/* el buscador se limpia al elegir: que se vea que está anotando */}
+                {ocupado === "anotar" && <p className="cla-sub">Anotando…</p>}
                 {resultados.length > 0 && (
                   <ul className="cla-resultados">
                     {resultados.map((a) => {
                       const ya = sel.alumnos.some((x) => x.id === a.id);
                       return (
                         <li key={a.id}>
-                          <button disabled={ya} onClick={() => anotar(a)}>
+                          <button disabled={ya || !!ocupado} onClick={() => anotar(a)}>
                             {a.nombre}{ya ? " (ya está)" : ""}
                           </button>
                         </li>
@@ -436,8 +457,8 @@ export default function Clases() {
                 )}
               </div>
 
-              <button className="cla-peligro" onClick={alternarActiva}>
-                {sel.activa ? "Desactivar clase" : "Reactivar clase"}
+              <button className="cla-peligro" disabled={!!ocupado} onClick={alternarActiva}>
+                {esperando("activa", "Guardando…", sel.activa ? "Desactivar clase" : "Reactivar clase")}
               </button>
             </aside>
           )}

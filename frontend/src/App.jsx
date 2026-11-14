@@ -104,8 +104,17 @@ function Layout() {
 }
 
 function Protegida() {
-  const { usuario, cargando } = useAuth();
+  const { usuario, cargando, errorConexion, reintentar } = useAuth();
   if (cargando) return <div className="cargando">Cargando…</div>;
+  // sin conexión no lo mandamos al login: el token sigue sirviendo
+  if (!usuario && errorConexion) {
+    return (
+      <div className="cargando">
+        <div className="msg-error" role="alert">{errorConexion}. Revisá la conexión y probá de nuevo.</div>
+        <button className="boton" style={{ marginTop: 12 }} onClick={reintentar}>Reintentar</button>
+      </div>
+    );
+  }
   if (!usuario) return <Navigate to="/login" replace />;
   return <Layout />;
 }
