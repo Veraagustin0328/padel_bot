@@ -1,6 +1,8 @@
 import os
 import requests
 
+from app import entorno, sim_registro
+
 
 def _normalizar_telefono(telefono: str) -> str:
     # WhatsApp manda los móviles argentinos como 549 + área + número,
@@ -26,6 +28,9 @@ def _normalizar_telefono(telefono: str) -> str:
 
 
 def enviar_mensaje_whatsapp(telefono: str, texto: str) -> dict:
+    if entorno.es_simulacion():
+        # en simulacion no sale nada hacia Meta: queda en la bandeja del simulador
+        return sim_registro.a_la_bandeja(telefono, "text", texto)
     # strip() por si la variable en Render quedó con enters o espacios al final
     token = os.environ.get("WHATSAPP_TOKEN", "").strip()
     phone_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip()
@@ -57,6 +62,8 @@ def enviar_mensaje_whatsapp(telefono: str, texto: str) -> dict:
 def reenviar_archivo_whatsapp(telefono: str, tipo: str, media_id: str,
                               caption: str = "", filename: str | None = None) -> dict:
     """Reenvía una imagen o documento que ya recibimos (por su media id) a otro número."""
+    if entorno.es_simulacion():
+        return sim_registro.a_la_bandeja(telefono, tipo, f"[{tipo} {media_id}] {caption}".strip())
     token = os.environ.get("WHATSAPP_TOKEN", "").strip()
     phone_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip()
     destino = _normalizar_telefono(telefono)

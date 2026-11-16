@@ -10,6 +10,7 @@ from app import planilla
 from app import recuperaciones as rec
 from app import cambios_dias as cd
 from app import contactos
+from app import sim_registro  # en produccion no anota nada
 from app import niveles as niveles_mod
 from app.cuotas import (
     DIAS_PROMO_2X1, FRANJA_POR_AMBITO, HEAD_COACH_ANTES_QUE_PROMO, HORA_HEAD_COACH_DESDE, HORA_HEAD_COACH_HASTA,
@@ -495,6 +496,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
         respuesta_pago = _responder_de_quien(telefono, texto) or _responder_pago(telefono, texto)
         if respuesta_pago:
             _guardar_mensaje(telefono, "assistant", respuesta_pago)
+            sim_registro.anotar("codigo", detalle="aviso de pago resuelto por el codigo, sin el modelo")
             return respuesta_pago
 
     system_prompt = prompt_jefe() if es_jefe else prompt_alumno()
@@ -644,6 +646,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             resultado = {"error": f"Tool desconocida: {nombre}"}
 
         print(f"[tool] {nombre} {args} -> {resultado}", flush=True)
+        sim_registro.anotar("herramienta", nombre=nombre, args=args, resultado=resultado)
         mensajes.append({
             "role": "tool",
             "tool_call_id": tool_call.id,
