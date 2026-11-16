@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import "./cuotas.css";
 
 const plata = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
 const mesActual = () => {
-  const d = new Date();
+  const d = ahora();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 const NOMBRE_CARGO = { cuota: "Cuota", inscripcion: "Inscripción", ajuste: "Ajuste" };

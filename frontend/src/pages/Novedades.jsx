@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import "./novedades.css";
 
@@ -6,7 +7,7 @@ export const NOMBRE_TIPO = { aviso: "Aviso", evento: "Evento", promo: "Promo", i
 
 // fecha de hoy en hora local, para el min del input (toISOString daría la de UTC)
 function hoyLocal() {
-  const d = new Date();
+  const d = ahora();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 

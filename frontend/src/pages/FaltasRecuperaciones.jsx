@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import { fechaCorta } from "./Novedades.jsx";
 import "./faltas.css";
@@ -22,7 +23,7 @@ function conDia(iso) {
 const hora = (utc) =>
   utc ? new Date(utc).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
 function mesActual() {
-  const d = new Date();
+  const d = ahora();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 

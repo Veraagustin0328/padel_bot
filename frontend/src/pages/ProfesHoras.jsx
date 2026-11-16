@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ahora } from "../fechas.js";
 import { api, descargar } from "../api.js";
 import "./cuotas.css";
 import "./profeshoras.css";
@@ -8,7 +9,7 @@ import "./profeshoras.css";
 const plata = (n) => (n === null || n === undefined ? "—" : "$" + Number(n).toLocaleString("es-AR", { maximumFractionDigits: 2 }));
 const horas = (n) => Number(n || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 }) + " h";
 const mesActual = () => {
-  const d = new Date();
+  const d = ahora();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 // "2026-11-09" -> "lun 09/11"

@@ -1,16 +1,21 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { esDueno } from "../roles.js";
 
 const peso = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
-const hoy = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const hoy = () => {
+  const d = ahora();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
 const fechaAR = (iso) => (iso ? iso.split("-").reverse().join("/") : "—");
 const numero = (txt) => Number(String(txt).replace(",", "."));
 
 // franja + tipo + personas + veces: no cambia aunque se cargue o quite una fila (el id sí)
 const claveDe = (t) => `${t.franja}|${t.tipo}|${t.personas}|${t.veces_por_semana}`;
-const NUEVO_VACIO = { franja: "", tipo: "", personas: "1", veces: "1", precio: "", desde: hoy() };
+// función: la fecha se toma al abrir, no al importar
+const nuevoVacio = () => ({ franja: "", tipo: "", personas: "1", veces: "1", precio: "", desde: hoy() });
 const AVISO = { background: "#fef3c7", color: "#92400e", padding: "10px 14px", borderRadius: 8, margin: "8px 0" };
 
 // historial de precios de una tarifa, con editar / quitar / dar de baja (solo el dueño).
@@ -211,7 +216,7 @@ export default function Planes() {
 
   // tarifa nueva
   const [abierto, setAbierto] = useState(false);
-  const [nuevo, setNuevo] = useState(NUEVO_VACIO);
+  const [nuevo, setNuevo] = useState(nuevoVacio);
 
   async function cargar() {
     try {
@@ -282,7 +287,7 @@ export default function Planes() {
           vigente_desde: nuevo.desde,
         },
       });
-      setNuevo(NUEVO_VACIO);
+      setNuevo(nuevoVacio());
       setAbierto(false);
       setAviso("Plan creado.");
       await cargar();

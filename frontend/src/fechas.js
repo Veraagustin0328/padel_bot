@@ -17,11 +17,19 @@ export const numeroDia = (s) => aFecha(s).getUTCDate();
 export const mesDe = (s) => aFecha(s).getUTCMonth(); // 0 = enero
 export const lunesDe = (s) => sumarDias(s, -diaSemana(s));
 
+// "ahora" para todo el panel. En producción es la hora del navegador; en la simulación
+// se corre para que coincida con el reloj del server (que puede estar en una fecha de mentira)
+let desfaseMs = 0;
+export const fijarDesfase = (ms) => {
+  desfaseMs = Number(ms) || 0;
+};
+export const ahora = () => new Date(Date.now() + desfaseMs);
+
 // qué día es hoy en la academia, no en el navegador del que mira
-export function hoyEn(zona, ahora = new Date()) {
+export function hoyEn(zona, momento = ahora()) {
   const partes = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", { timeZone: zona, year: "numeric", month: "2-digit", day: "2-digit" })
-      .formatToParts(ahora)
+      .formatToParts(momento)
       .map((p) => [p.type, p.value]),
   );
   return `${partes.year}-${partes.month}-${partes.day}`;

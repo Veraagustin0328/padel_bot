@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import AlumnosFichas from "./AlumnosFichas.jsx";
 import "./alumnos.css";
@@ -7,7 +8,8 @@ const MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "
 const peso = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const capital = (s) => s.charAt(0) + s.slice(1).toLowerCase();
-const MES_ACTUAL = MESES[new Date().getMonth()];
+// función y no constante: se calcula al dibujar, ya con la fecha del server si es simulación
+const mesActual = () => MESES[ahora().getMonth()];
 
 function Celda({ m }) {
   if (!m || !m.texto) return <td />;
@@ -111,7 +113,7 @@ function ListadoPlanilla() {
                 <th>Estado</th>
                 <th>Al día</th>
                 {meses.map((m) => (
-                  <th key={m} className={m === MES_ACTUAL ? "actual" : ""}>{capital(m)}</th>
+                  <th key={m} className={m === mesActual() ? "actual" : ""}>{capital(m)}</th>
                 ))}
               </tr>
             </thead>
