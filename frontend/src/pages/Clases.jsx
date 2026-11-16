@@ -5,8 +5,8 @@ import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const AMBITOS = { adultos: "Adultos mañana", adultos_tarde: "Adultos tarde", sabados: "Sábados" };
-const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otro" };
-const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", otro: "Otro" };
+const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otro", fisico: "Físico" };
+const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", otro: "Otro", fisico: "F" };
 
 const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const capital = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "");

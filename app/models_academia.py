@@ -9,7 +9,7 @@ from datetime import date, datetime
 from app.extensions import db
 
 # valores posibles (se validan en el código, no en la base)
-TIPOS_CLASE = ("grupal", "particular", "particular_2", "otro")
+TIPOS_CLASE = ("grupal", "particular", "particular_2", "otro", "fisico")  # fisico: no se cobra, se paga la hora
 AMBITOS = ("adultos", "adultos_tarde", "sabados", "kids", "kids_pro")
 ROLES = ("dueno", "encargado", "profe", "jugador", "tutor")
 ESTADOS_ASISTENCIA = ("presente", "ausente", "ausente_avisa")
@@ -92,7 +92,7 @@ class Clase(db.Model):
     hora_inicio = db.Column(db.Time, nullable=False)
     duracion_min = db.Column(db.SmallInteger, nullable=False, default=60)
     profesor_id = db.Column(db.Integer, db.ForeignKey("profesores.id"), nullable=True, index=True)
-    tipo = db.Column(db.String(12), nullable=False, default="grupal")  # grupal / particular / particular_2 / otro
+    tipo = db.Column(db.String(12), nullable=False, default="grupal")  # grupal / particular / particular_2 / otro / fisico
     nivel = db.Column(db.String(20), nullable=True)               # 5TA, 6TA/7MA, PRINCIPIANTES...
     rama = db.Column(db.String(10), nullable=True)                # damas / caballeros / mixto
     columna_color = db.Column(db.SmallInteger, nullable=True)     # elegida a mano; vacía = la automática

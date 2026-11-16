@@ -22,7 +22,8 @@ from app.models_plataforma import Profesor, ValorHora
 
 CENTAVOS = Decimal("0.01")
 
-TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "Particular x2", "otro": "Otro"}
+TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "Particular x2", "otro": "Otro",
+               "fisico": "Físico"}
 
 
 def ahora_ar():

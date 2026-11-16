@@ -16,6 +16,10 @@ FRANJA_POR_AMBITO = {
     "kids_pro": "kids",
 }
 
+# Clases que no suman a la cuota ni avisan "sin tarifa": el físico de Kids Pro va con la de pádel
+# del mismo grupo, que es la que se cobra (una sola cuota). Al profe se le paga la hora igual.
+TIPOS_SIN_CUOTA = ("fisico",)
+
 # Promo 2x1: solo en los horarios muertos que Gabi quiere llenar (lunes, miércoles y viernes de 9 a 12).
 # dia_semana: 0 = lunes ... 5 = sábado
 DIAS_PROMO_2X1 = (0, 2, 4)
@@ -136,6 +140,8 @@ def cuota_de(clases, tarifas):
     grupos, avisos, sin_tarifa = {}, [], False
     head_coach = getattr(tarifas, "head_coach", frozenset())
     for c in clases:
+        if c.tipo in TIPOS_SIN_CUOTA:
+            continue
         b = bucket_de(c, head_coach)
         if b is None:
             avisos.append(f"{SIN_TARIFA}: clase {c.tipo} de {c.ambito}, no se cobró")
