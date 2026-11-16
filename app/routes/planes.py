@@ -15,6 +15,7 @@ from app.extensions import db
 from app.models_tarifas import FRANJA_HEAD_COACH, FRANJAS, TIPOS_TARIFA, Tarifa
 from app.recuperaciones import hoy as _hoy
 from app.routes.auth import requiere_login
+from app.tarifas_uso import estado_fila
 
 planes_bp = Blueprint("planes", __name__)
 
@@ -211,6 +212,16 @@ def historial_precios(tarifa_id):
         {"id": f.id, "monto": f.precio, "vigente_desde": f.vigente_desde.isoformat(), "activa": f.activa}
         for f in filas
     ])
+
+
+@planes_bp.get("/api/planes/filas/<int:fila_id>/chequeo")
+@requiere_login("dueno")
+def chequear_fila(fila_id):
+    """Antes de editar o quitar una fila de precio: si se puede de verdad o solo con historial."""
+    t = db.session.get(Tarifa, fila_id)
+    if not t:
+        return jsonify({"error": "No existe esa fila de precio"}), 404
+    return jsonify(estado_fila(t, _hoy()))
 
 
 @planes_bp.post("/api/planes/<int:tarifa_id>/precios")
