@@ -1,10 +1,17 @@
 import os
 from flask import Flask
 from flask_cors import CORS
-from dotenv import load_dotenv
-from app.extensions import db
+from app import entorno
 
-load_dotenv()
+# antes que nada: elige .env o .env.simulacion y frena si algo apunta a lo real sin confirmar.
+# Va aca (al importar el paquete) para cubrir tambien los scripts que no usan create_app
+try:
+    entorno.preparar()
+except entorno.EntornoError as e:
+    print(f"\n[entorno] {e}\n", flush=True)
+    raise SystemExit(1)
+
+from app.extensions import db
 
 
 def create_app():

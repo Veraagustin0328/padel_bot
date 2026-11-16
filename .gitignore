@@ -3,3 +3,5 @@ instance/
 __pycache__/
 *.pyc
 .env
+# archivos de entorno (.env.simulacion y cualquier otro), nunca al repo
+.env.*
