@@ -18,7 +18,7 @@ from app import recuperaciones as rec
 from app.cuotas import FRANJA_POR_AMBITO, cargar_tarifas, clases_del_mes, cuota_de
 from app.extensions import db
 from app.models import Alumno, CambioPendiente
-from app.models_academia import Auditoria, Clase, ConfigAcademia, Inscripcion
+from app.models_academia import Auditoria, Clase, ConfigAcademia, Inscripcion, clase_vigente_en
 from app.models_cuotas import CuotaMes, PagoCuota
 
 NOMBRE_DIA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -124,7 +124,8 @@ def lleno_desde(clase: Clase, fecha: date) -> bool:
 def clases_del_alumno(alumno_id: int, fecha: date) -> list[Clase]:
     """Clases fijas activas en las que está anotado en esa fecha."""
     return (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
-            .filter(Inscripcion.alumno_id == alumno_id, Clase.activa.is_(True), vigente_en(fecha))
+            .filter(Inscripcion.alumno_id == alumno_id, Clase.activa.is_(True), vigente_en(fecha),
+                    clase_vigente_en(fecha))
             .order_by(Clase.dia_semana, Clase.hora_inicio).distinct().all())
 
 
@@ -154,7 +155,7 @@ def _de_hora(clases: list[Clase], hora: tuple[int, int | None]) -> list[Clase]:
 def con_lugar(fecha: date, franjas: set, nivel_ok=None, sin_dias: set = frozenset(),
               excluir: set = frozenset()) -> list[Clase]:
     """Grupales activas con lugar en esa fecha, para ofrecer como alternativa."""
-    clases = (Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal")
+    clases = (Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal", clase_vigente_en(fecha))
               .order_by(Clase.dia_semana, Clase.hora_inicio).all())
     clases = [c for c in clases if c.dia_semana not in sin_dias and c.id not in excluir
               and (not franjas or franja_de(c) in franjas) and (nivel_ok is None or nivel_ok(c))]
@@ -184,7 +185,7 @@ def armar(alumno_id: int, fecha: date, dias_nuevos: list[int], hora=None,
         deja = [c for c in actuales if c.tipo == "grupal"] or actuales
     franjas = {franja_de(c) for c in deja} - {None}
 
-    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal")
+    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal", clase_vigente_en(fecha))
     nuevas = []
     if clase_ids:
         nuevas = base.filter(Clase.id.in_(clase_ids)).order_by(Clase.dia_semana, Clase.hora_inicio).all()

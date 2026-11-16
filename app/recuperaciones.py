@@ -102,6 +102,8 @@ def _alumno(alumno_id):
 def _chequear_dia(clase, fecha):
     if fecha.weekday() != clase.dia_semana:
         raise ErrorRegla("Esa clase no se da ese día")
+    if not clase.vigente_en(fecha):
+        raise ErrorRegla("Esa clase no se da en esa fecha (es de otra temporada)")
 
 
 def _vigente(consulta, fecha):

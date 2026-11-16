@@ -17,7 +17,8 @@ from app.cuotas import (
 )
 from app.models_plataforma import Profesor
 from app.models_tarifas import FRANJA_HEAD_COACH
-from app.models_academia import AusenciaLapso, Clase, Inscripcion, RecuperacionClase
+from app.models_academia import (AusenciaLapso, Clase, Inscripcion, RecuperacionClase, clase_no_terminada,
+                                  clase_vigente_en)
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
     ClaseSuelta, Conversacion, Alumno,
@@ -956,7 +957,7 @@ def _niveles_del_alumno(alumno: Alumno) -> set[str]:
         return {canonico}
     hoy = planilla._ahora().date()
     clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
-              .filter(Inscripcion.alumno_id == alumno.id, cd.vigente_en(hoy),
+              .filter(Inscripcion.alumno_id == alumno.id, cd.vigente_en(hoy), clase_vigente_en(hoy),
                       Clase.activa.is_(True), Clase.tipo == "grupal").all())
     niveles = set()
     for c in clases:
@@ -1045,6 +1046,7 @@ def _alternativas(dia: int, franja: str | None, niveles: set[str] | None, ya_vis
     franjas = ("kids",) if franja == "kids" else _FRANJAS_ADULTOS
     clases = Clase.query.filter(
         Clase.activa.is_(True), Clase.tipo == "grupal", Clase.ambito.in_(_ambitos_de(franjas)),
+        clase_vigente_en(fecha),
     ).all()
     clases = [c for c in clases if c.id not in ya_vistas and _coincide(c.nivel, niveles)]
 
@@ -1079,6 +1081,7 @@ def _consultar_cupos(args: dict) -> dict:
     clases = Clase.query.filter(
         Clase.activa.is_(True), Clase.tipo == "grupal",
         Clase.dia_semana == dia, Clase.ambito.in_(_ambitos_de(franjas)),
+        clase_vigente_en(hoy),  # hoy = la fecha que pregunta (puede ser más adelante)
     ).order_by(Clase.hora_inicio).all()
     if nivel:
         clases = [c for c in clases if _coincide(c.nivel, nivel)]
@@ -1200,9 +1203,11 @@ def _datos_clase(c: Clase) -> dict:
             "hora": c.hora_inicio.strftime("%H:%M"), "nivel": c.nivel or "sin nivel"}
 
 
-def _buscar_clase(args: dict, nivel: str) -> tuple[Clase | None, dict | None]:
-    """Devuelve (clase, None) o (None, error para el modelo). Solo grupales activas."""
-    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal")
+def _buscar_clase(args: dict, nivel: str, fecha: date | None = None) -> tuple[Clase | None, dict | None]:
+    """Devuelve (clase, None) o (None, error para el modelo). Solo grupales activas.
+    Con fecha: las que se dan ese día. Sin fecha: las que no terminaron su temporada."""
+    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal",
+                              clase_vigente_en(fecha) if fecha else clase_no_terminada(planilla._ahora().date()))
     clase_id = _entero(args.get("clase_id"))
     if clase_id:
         clase = base.filter(Clase.id == clase_id).first()
@@ -1958,7 +1963,7 @@ def _alta_de_hermano(telefono: str, nombre: str, alumnos: list[Alumno], args: di
 def _clases_del_alumno_el(alumno_id: int, fecha: date) -> list[Clase]:
     clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
               .filter(Inscripcion.alumno_id == alumno_id, Clase.activa.is_(True),
-                      Clase.dia_semana == fecha.weekday())
+                      Clase.dia_semana == fecha.weekday(), clase_vigente_en(fecha))
               .order_by(Clase.hora_inicio).distinct().all())
     return [c for c in clases if rec.inscripto(alumno_id, c.id, fecha)]
 
@@ -1968,8 +1973,9 @@ def _dias_del_alumno(alumno_id: int) -> list[str]:
     clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
               .filter(Inscripcion.alumno_id == alumno_id, Clase.activa.is_(True))
               .order_by(Clase.dia_semana, Clase.hora_inicio).distinct().all())
+    proxima = {c.id: hoy + timedelta(days=(c.dia_semana - hoy.weekday()) % 7) for c in clases}
     return [f"{_NOMBRE_DIA[c.dia_semana]} {_hora_txt(c)}" for c in clases
-            if rec.inscripto(alumno_id, c.id, hoy + timedelta(days=(c.dia_semana - hoy.weekday()) % 7))]
+            if c.vigente_en(proxima[c.id]) and rec.inscripto(alumno_id, c.id, proxima[c.id])]
 
 
 def _texto_recupero(alumno_id: int, fecha: date, a_tiempo: bool) -> tuple[bool, str]:
@@ -2079,7 +2085,7 @@ def _motivos_para_alumno(fuera_de_regla: str | None) -> str:
 
 
 def _otras_con_lugar(clase: Clase, fecha: date) -> list[str]:
-    otras = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal",
+    otras = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal", clase_vigente_en(fecha),
                                Clase.dia_semana == fecha.weekday(), Clase.id != clase.id).all()
     return [f"{_hora_txt(c)} ({c.nivel or 'sin nivel'})" for c in sorted(otras, key=lambda c: c.hora_inicio)
             if rec.inicio_clase(c, fecha) > rec.ahora() and rec.lugares_libres(c, fecha) > 0]
@@ -2116,7 +2122,8 @@ def _pedir_recuperacion(telefono: str, args: dict) -> dict:
                                                   "recuperar y volvé a llamar."}
 
     clase, error = _buscar_clase({"clase_id": args.get("clase_id"), "hora": horario,
-                                  "dia": _NOMBRE_DIA[dia] if dia is not None else ""}, alumno.categoria or "")
+                                  "dia": _NOMBRE_DIA[dia] if dia is not None else ""}, alumno.categoria or "",
+                                 fecha=fecha)
     if error:
         if error.get("opciones"):
             return {"status": "elegir_clase", "opciones": error["opciones"],

@@ -98,7 +98,26 @@ class Clase(db.Model):
     columna_color = db.Column(db.SmallInteger, nullable=True)     # elegida a mano; vacía = la automática
     cupo = db.Column(db.SmallInteger, nullable=False, default=4)
     activa = db.Column(db.Boolean, nullable=False, default=True)
+    # temporada (ej. kids tarde / kids mañana): desde = primer día que se da, hasta = primer día que ya no
+    vigente_desde = db.Column(db.Date, nullable=True)  # vacío = desde siempre
+    vigente_hasta = db.Column(db.Date, nullable=True)  # vacío = sin fin
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def vigente_en(self, fecha):
+        """True si la clase se da en esa fecha según su temporada (no mira 'activa' ni el día)."""
+        return ((self.vigente_desde is None or self.vigente_desde <= fecha)
+                and (self.vigente_hasta is None or self.vigente_hasta > fecha))
+
+
+def clase_vigente_en(fecha):
+    """Filtro SQL: clases cuya temporada incluye esa fecha. Se suma a Clase.activa."""
+    return db.and_(db.or_(Clase.vigente_desde.is_(None), Clase.vigente_desde <= fecha),
+                   db.or_(Clase.vigente_hasta.is_(None), Clase.vigente_hasta > fecha))
+
+
+def clase_no_terminada(fecha):
+    """Filtro SQL: clases que no terminaron su temporada (las que arrancan más adelante entran)."""
+    return db.or_(Clase.vigente_hasta.is_(None), Clase.vigente_hasta > fecha)
 
 
 class Inscripcion(db.Model):

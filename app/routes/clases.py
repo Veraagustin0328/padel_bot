@@ -3,6 +3,7 @@
 Todo cambio queda en la tabla de auditoría con quién lo hizo.
 """
 import json
+from datetime import date
 
 from flask import Blueprint, g, jsonify, request
 
@@ -62,9 +63,18 @@ def _cantidad_inscriptos():
 @clases_bp.get("/api/clases")
 @requiere_login("encargado")
 def listar():
+    # temporadas: por defecto se ocultan las que ya terminaron (las que arrancan más adelante se ven).
+    # ?fecha=AAAA-MM-DD muestra solo las que se dan ese día
+    texto = request.args.get("fecha")
+    try:
+        fecha = date.fromisoformat(texto) if texto else None
+    except ValueError:
+        return jsonify({"error": "La fecha tiene que ser AAAA-MM-DD"}), 400
+    vigencia = m.clase_vigente_en(fecha) if fecha else m.clase_no_terminada(recuperaciones.hoy())
     filas = (
         db.session.query(m.Clase, Profesor.nombre)
         .outerjoin(Profesor, m.Clase.profesor_id == Profesor.id)
+        .filter(vigencia)
         .all()
     )
 
@@ -104,6 +114,8 @@ def listar():
             "nivel": c.nivel or "",
             "cupo": c.cupo,
             "activa": bool(c.activa),
+            "vigente_desde": c.vigente_desde.isoformat() if c.vigente_desde else None,
+            "vigente_hasta": c.vigente_hasta.isoformat() if c.vigente_hasta else None,
             "estimado": c.id in estimada and c.id not in confirmada,
             "nota": notas.get(c.id, ""),
             "rama": c.rama or "",

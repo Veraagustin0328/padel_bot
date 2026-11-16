@@ -63,6 +63,8 @@ def _leer_fecha(texto, clase):
         fecha = _hoy()
     if fecha.weekday() != clase.dia_semana:
         return None, "Esa clase no se da ese día"
+    if not clase.vigente_en(fecha):
+        return None, "Esa clase no se da en esa fecha (es de otra temporada)"
     if fecha > _hoy():
         return None, "Todavía no llegó esa fecha"
     return fecha, None
@@ -118,7 +120,7 @@ def mis_clases():
         fecha = date.fromisoformat(texto) if texto else hoy
     except ValueError:
         return jsonify({"error": "La fecha tiene que ser AAAA-MM-DD"}), 400
-    consulta = consulta.filter(m.Clase.dia_semana == fecha.weekday())
+    consulta = consulta.filter(m.Clase.dia_semana == fecha.weekday(), m.clase_vigente_en(fecha))
 
     salida = []
     filas = consulta.all()

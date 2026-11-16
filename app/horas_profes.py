@@ -56,7 +56,11 @@ def _grupo(clase):
 
 
 def _fechas_de(clase, desde, hasta):
-    """Las fechas del rango en que cae la clase (por día de la semana)."""
+    """Las fechas del rango en que cae la clase (por día de la semana), dentro de su temporada."""
+    if clase.vigente_desde:
+        desde = max(desde, clase.vigente_desde)
+    if clase.vigente_hasta:
+        hasta = min(hasta, clase.vigente_hasta - timedelta(days=1))  # vigente_hasta ya no se da
     f = desde + timedelta(days=(clase.dia_semana - desde.weekday()) % 7)
     while f <= hasta:
         yield f
