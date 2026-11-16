@@ -71,12 +71,19 @@ def _entero(valor, campo, minimo, maximo):
     return n
 
 
+class FilaUsada(ValueError):
+    """Se quiso pisar una fila de precio que ya usó alguna cuota generada."""
+
+
 def _con_validacion(f):
-    """Si algo falla al validar, devuelve 400 con el motivo en vez de explotar."""
+    """Si algo falla al validar, devuelve 400 con el motivo en vez de explotar (409 si pisaba una fila usada)."""
     @wraps(f)
     def envoltura(*args, **kwargs):
         try:
             return f(*args, **kwargs)
+        except FilaUsada as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 409
         except ValueError as e:
             db.session.rollback()
             return jsonify({"error": str(e)}), 400
@@ -93,11 +100,20 @@ def _filas_de(clave):
 
 
 def _guardar_precio(clave, monto, desde):
-    """Si ya hay una fila para esa misma fecha la corrige, si no crea una nueva. Las anteriores no se tocan."""
+    """Si ya hay una fila para esa misma fecha la corrige, si no crea una nueva. Las anteriores no se tocan.
+    Corregir la de la misma fecha solo si ninguna cuota generada la usó (si no, FilaUsada -> 409)."""
     existente = _filas_de(clave).filter_by(vigente_desde=desde).first()
     if existente:
+        if (existente.precio, existente.activa) == (monto, True):
+            return existente  # ya está así
+        estado = estado_fila(existente, _hoy())
+        if not estado["puede_directo"]:
+            raise FilaUsada(f"{NOMBRE_FRANJA.get(clave[0], clave[0])}: {_nombre(clave)} del "
+                            f"{desde:%d/%m/%Y}. {estado['explicacion']}")
+        antes = _fila_dict(existente)
         existente.precio = monto
         existente.activa = True
+        _auditar(existente.id, "editar_precio", antes, _fila_dict(existente))
         return existente
     franja, tipo, personas, veces = clave
     fila = Tarifa(franja=franja, tipo=tipo, personas=personas, veces_por_semana=veces,
@@ -380,6 +396,17 @@ def aumento_masivo():
             raise ValueError("Con ese porcentaje algún precio queda en cero")
         filas.append((clave, actual.precio, nuevo))
 
+    # las que ya tienen fila en esa fecha usada por alguna cuota: no se pueden pisar
+    bloqueadas = []
+    for clave, _viejo, _nuevo in filas:
+        misma = _filas_de(clave).filter_by(vigente_desde=desde).first()
+        if misma and not estado_fila(misma, _hoy())["puede_directo"]:
+            bloqueadas.append(f"{NOMBRE_FRANJA.get(clave[0], clave[0])}: {_nombre(clave)}")
+    if confirmar and bloqueadas:
+        raise FilaUsada(f"No se aplicó nada: {len(bloqueadas)} tarifas ya tienen un precio del "
+                        f"{desde:%d/%m/%Y} que usaron cuotas generadas ({'; '.join(bloqueadas)}). "
+                        "Elegí otra fecha.")
+
     if confirmar:
         for clave, _viejo, nuevo in filas:
             _guardar_precio(clave, nuevo, desde)
@@ -397,4 +424,5 @@ def aumento_masivo():
             for c, v, n in filas
         ],
         "sin_precio": sin_precio,
+        "bloqueadas": bloqueadas,  # la vista previa avisa antes de confirmar
     })
