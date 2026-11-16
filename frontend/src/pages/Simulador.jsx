@@ -47,7 +47,9 @@ export default function Simulador() {
       setTel((t) => t || l[0]?.telefono || "");
     }).catch((e) => setError(e.message));
   }, []);
-  useEffect(cargarTelefonos, [cargarTelefonos]);
+  useEffect(() => {
+    cargarTelefonos();
+  }, [cargarTelefonos]);
 
   // al cambiar de número traigo su charla guardada
   useEffect(() => {
@@ -55,13 +57,17 @@ export default function Simulador() {
     setOtros([]);
     api(`/api/simulacion/charla?telefono=${encodeURIComponent(tel)}`)
       .then((d) => {
-        setMensajes(d.mensajes.map((m) => ({ ...m })));
+        setMensajes((d.mensajes || []).map((m) => ({ ...m })));
         setPausado(d.pausado);
       })
       .catch((e) => setError(e.message));
   }, [tel]);
 
-  useEffect(() => abajo.current?.scrollIntoView({ block: "end" }), [mensajes]);
+  // con llaves: en Chrome nuevo scrollIntoView devuelve una Promise, y si el efecto la devuelve
+  // React la toma como limpieza, revienta y deja la pantalla en blanco
+  useEffect(() => {
+    abajo.current?.scrollIntoView({ block: "end" });
+  }, [mensajes]);
 
   async function enviar(e) {
     e.preventDefault();
@@ -106,7 +112,7 @@ export default function Simulador() {
   }
 
   if (!entorno().simulacion) return <p>El simulador existe solo en la simulación.</p>;
-  const esJefe = telefonos.find((t) => t.telefono === tel)?.etiqueta.startsWith("Encargado");
+  const esJefe = telefonos.find((t) => t.telefono === tel)?.etiqueta?.startsWith("Encargado");
 
   return (
     <div className="simulador">
