@@ -9,7 +9,7 @@ import Inicio from "./pages/Inicio.jsx";
 import Pendientes from "./pages/Pendientes.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import { GESTION, nombreRol } from "./roles.js";
-import { PANTALLAS, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
+import { pantallas, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
 import { usePendientes } from "./usePendientes.js";
 import { entorno } from "./simulacion.js";
 
@@ -168,7 +168,7 @@ export default function App() {
               path="/pendientes/:solapa?"
               element={<SoloRoles roles={GESTION}><Pendientes solapas={SOLAPAS_PENDIENTES} /></SoloRoles>}
             />
-            {PANTALLAS.map(({ a, roles, pagina: Pagina }) => (
+            {pantallas().map(({ a, roles, pagina: Pagina }) => (
               <Route key={a} path={a} element={<SoloRoles roles={roles}><Pagina /></SoloRoles>} />
             ))}
             {/* rutas de antes: van a su solapa de Pendientes */}

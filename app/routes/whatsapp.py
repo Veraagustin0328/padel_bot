@@ -35,8 +35,12 @@ def verificar_webhook():
 
 @whatsapp_bp.route("/whatsapp", methods=["POST"])
 def recibir_mensaje():
-    data = request.get_json(silent=True) or {}
+    return procesar_payload(request.get_json(silent=True) or {})
 
+
+def procesar_payload(data: dict):
+    """Todo lo que hace el webhook con un mensaje de Meta. Aparte para que el simulador
+    pase por el mismo camino (en simulacion los envios quedan en la bandeja)."""
     telefono, texto, tipo = _parsear_mensaje_meta(data)
 
     if not telefono:

@@ -14,6 +14,8 @@ import ProfesHoras from "./pages/ProfesHoras.jsx";
 import Solicitudes from "./pages/Solicitudes.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
 import Notas from "./pages/Notas.jsx";
+import Simulador from "./pages/Simulador.jsx";
+import { entorno } from "./simulacion.js";
 import { DUENO, GESTION } from "./roles.js";
 
 // solapas de la pantalla Pendientes. `contar` dice de dónde sale el número del contador:
@@ -84,14 +86,20 @@ export const MENU = [
     items: [
       { a: "/usuarios", t: "Usuarios", roles: GESTION, pagina: Usuarios },
       { t: "Agente", roles: GESTION, pronto: true },
+      // soloSimulacion: ni en el menú ni como ruta fuera de la simulación
+      { a: "/simulador", t: "Simulador del agente", roles: [DUENO], pagina: Simulador, soloSimulacion: true },
     ],
   },
 ];
 
 // el menú que le toca a cada rol: saca lo que no ve y los grupos que quedan vacíos
+// lo de solo simulación se mira al dibujar (entorno() ya está cargado), no al importar
+const disponible = (i) => !i.soloSimulacion || entorno().simulacion;
+
 export function menuDe(rol) {
-  return MENU.map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(rol)) })).filter((g) => g.items.length);
+  return MENU.map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(rol) && disponible(i)) }))
+    .filter((g) => g.items.length);
 }
 
 // todas las pantallas con ruta propia, para armar las <Route>
-export const PANTALLAS = MENU.flatMap((g) => g.items).filter((i) => i.pagina);
+export const pantallas = () => MENU.flatMap((g) => g.items).filter((i) => i.pagina && disponible(i));
