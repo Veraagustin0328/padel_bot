@@ -1,6 +1,6 @@
 """Cálculo de la cuota mensual de un alumno a partir de sus clases fijas y la tabla de tarifas."""
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import or_
 
@@ -72,9 +72,39 @@ def bucket_de(clase, head_coach=frozenset()):
     return None
 
 
+def _tramo_en_mes(clase, inicio: date, fin: date):
+    """(desde, hasta) inclusive de la temporada de la clase dentro del mes, o None si no se da ese mes."""
+    desde = max(inicio, clase.vigente_desde) if clase.vigente_desde else inicio
+    hasta = min(fin, clase.vigente_hasta - timedelta(days=1)) if clase.vigente_hasta else fin
+    return (desde, hasta) if desde <= hasta else None
+
+
+def temporada_del_mes(clases: list, inicio: date, fin: date) -> list:
+    """Mes con cambio de temporada (ej. kids: tarde hasta el 07/12, mañana desde el 07/12):
+    se cobra solo la temporada que rige la mayor parte del mes, para no sumar las dos.
+    - Las clases que cubren todo el mes (las de siempre) quedan.
+    - Las que no se dan ese mes salen.
+    - Las de temporada parcial se agrupan por su tramo y queda el tramo con más días
+      (empate: el más nuevo, que es el que sigue)."""
+    enteras, tramos = [], {}
+    for c in clases:
+        t = _tramo_en_mes(c, inicio, fin)
+        if t is None:
+            continue
+        if t == (inicio, fin):
+            enteras.append(c)
+        else:
+            tramos.setdefault(t, []).append(c)
+    if not tramos:
+        return enteras
+    elegido = max(tramos, key=lambda t: ((t[1] - t[0]).days, t[0]))
+    return enteras + tramos[elegido]
+
+
 def clases_del_mes(inicio: date, alumno_id: int | None = None) -> dict[int, list]:
     """{alumno_id: [clases activas en las que está anotado algún día de ese mes]}.
-    'hasta' es el primer día que ya no va: si es el 1 del mes, ese mes ya no cuenta."""
+    'hasta' es el primer día que ya no va: si es el 1 del mes, ese mes ya no cuenta.
+    Si el mes tiene cambio de temporada, quedan solo las de la que rige más días (temporada_del_mes)."""
     fin = date(inicio.year, inicio.month, monthrange(inicio.year, inicio.month)[1])
     clases = {c.id: c for c in Clase.query.filter(Clase.activa.is_(True)).all()}
     q = Inscripcion.query.filter(
@@ -88,7 +118,8 @@ def clases_del_mes(inicio: date, alumno_id: int | None = None) -> dict[int, list
         c = clases.get(i.clase_id)
         if c is not None and c not in por_alumno.setdefault(i.alumno_id, []):
             por_alumno[i.alumno_id].append(c)
-    return por_alumno
+    # lista vacía igual que antes (queda en "sin precio" al generar el mes)
+    return {aid: temporada_del_mes(cs, inicio, fin) for aid, cs in por_alumno.items()}
 
 
 class Tarifas(dict):
