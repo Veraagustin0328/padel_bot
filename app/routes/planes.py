@@ -3,15 +3,18 @@ Planes y precios: la pantalla lee y escribe la tabla de tarifas (la misma que us
 Una "tarifa" es franja + tipo + personas + veces por semana. Guarda historial: cada cambio es una
 fila nueva con la fecha desde la que rige, nunca se pisa el valor anterior.
 Plan y PrecioPlan quedan sin uso.
-Ver: encargado y dueño. Crear, cargar precios y aumentos: solo el dueño.
+Ver: encargado y dueño. Crear, cargar precios, aumentos, editar y quitar filas: solo el dueño.
+Editar o quitar una fila solo si ninguna cuota generada la usó (ver app/tarifas_uso.py).
 """
+import json
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, g, request, jsonify
 
 from app.extensions import db
+from app.models_academia import Auditoria
 from app.models_tarifas import FRANJA_HEAD_COACH, FRANJAS, TIPOS_TARIFA, Tarifa
 from app.recuperaciones import hoy as _hoy
 from app.routes.auth import requiere_login
@@ -149,6 +152,33 @@ def _orden(clave):
             TIPOS_TARIFA.index(tipo) if tipo in TIPOS_TARIFA else 99, personas, veces)
 
 
+def _fila_dict(t):
+    return {"id": t.id, "franja": t.franja, "tipo": t.tipo, "personas": t.personas,
+            "veces_por_semana": t.veces_por_semana, "precio": t.precio, "activa": t.activa,
+            "vigente_desde": t.vigente_desde.isoformat()}
+
+
+def _auditar(fila_id, accion, antes=None, despues=None):
+    db.session.add(Auditoria(
+        entidad="tarifa", entidad_id=fila_id, accion=accion,
+        antes=json.dumps(antes, ensure_ascii=False) if antes is not None else None,
+        despues=json.dumps(despues, ensure_ascii=False) if despues is not None else None,
+        usuario_id=g.usuario.id,
+    ))
+
+
+def _fila_tocable(fila_id):
+    """(fila, None) si se puede editar o quitar de verdad; si no, (None, respuesta de error).
+    El chequeo se hace acá de nuevo: no se confía en lo que mostró el panel antes."""
+    t = db.session.get(Tarifa, fila_id)
+    if not t:
+        return None, (jsonify({"error": "No existe esa fila de precio"}), 404)
+    estado = estado_fila(t, _hoy())
+    if not estado["puede_directo"]:
+        return None, (jsonify({"error": estado["explicacion"], "chequeo": estado}), 409)
+    return t, None
+
+
 def _buscar(tarifa_id):
     t = db.session.get(Tarifa, tarifa_id)
     return _clave(t) if t else None
@@ -222,6 +252,41 @@ def chequear_fila(fila_id):
     if not t:
         return jsonify({"error": "No existe esa fila de precio"}), 404
     return jsonify(estado_fila(t, _hoy()))
+
+
+@planes_bp.patch("/api/planes/filas/<int:fila_id>")
+@requiere_login("dueno")
+@_con_validacion
+def editar_fila(fila_id):
+    """Cambia el precio de una fila que ninguna cuota generada usó. Si la usaron: 409 con el motivo."""
+    t, error = _fila_tocable(fila_id)
+    if error:
+        return error
+    if not t.activa:
+        return jsonify({"error": "Esa fila es una baja, no tiene precio. Si fue un error, quitala."}), 400
+    monto = _monto((request.get_json(silent=True) or {}).get("precio"))
+    if monto != t.precio:
+        antes = _fila_dict(t)
+        t.precio = monto
+        _auditar(t.id, "editar_precio", antes, _fila_dict(t))
+        db.session.commit()
+    return jsonify(_tarifa_json(_clave(t), _hoy()))
+
+
+@planes_bp.delete("/api/planes/filas/<int:fila_id>")
+@requiere_login("dueno")
+def quitar_fila(fila_id):
+    """Borra una fila que ninguna cuota generada usó. Si la usaron: 409 con el motivo."""
+    t, error = _fila_tocable(fila_id)
+    if error:
+        return error
+    clave = _clave(t)
+    _auditar(t.id, "borrar", _fila_dict(t), None)
+    db.session.delete(t)
+    db.session.commit()
+    # si era la única fila, la tarifa desaparece de la lista
+    quedan = _filas_de(clave).count()
+    return jsonify({"ok": True, "tarifa": _tarifa_json(clave, _hoy()) if quedan else None})
 
 
 @planes_bp.post("/api/planes/<int:tarifa_id>/precios")
