@@ -180,3 +180,15 @@ body.sin-scroll { overflow: hidden; }
 .clave-nueva code { font-size: 18px; font-weight: 700; letter-spacing: 1px; user-select: all; }
 .usuario-fila { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
 a.boton { display: inline-flex; align-items: center; text-decoration: none; }
+
+/* cartel de simulación: solo aparece si el backend está en simulación */
+:root { --cartel-sim: #c0392b; --cartel-sim-tinta: #ffffff; --alto-cartel: 26px; }
+.cartel-simulacion {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  height: var(--alto-cartel); line-height: var(--alto-cartel);
+  background: var(--cartel-sim); color: var(--cartel-sim-tinta);
+  text-align: center; font-weight: 700; font-size: 12px; letter-spacing: 0.08em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;
+}
+body.con-cartel { padding-top: var(--alto-cartel); }
+body.con-cartel .lateral { top: var(--alto-cartel); height: calc(100vh - var(--alto-cartel)); }

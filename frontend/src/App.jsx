@@ -11,6 +11,23 @@ import CambiarPassword from "./pages/CambiarPassword.jsx";
 import { GESTION, nombreRol } from "./roles.js";
 import { PANTALLAS, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
 import { usePendientes } from "./usePendientes.js";
+import { entorno } from "./simulacion.js";
+
+// franja fija arriba, en todas las pantallas (también en la de entrada)
+function CartelSimulacion() {
+  const e = entorno();
+  useEffect(() => {
+    if (!e.simulacion) return;
+    document.body.classList.add("con-cartel");
+    return () => document.body.classList.remove("con-cartel");
+  }, [e.simulacion]);
+  if (!e.simulacion) return null;
+  return (
+    <div className="cartel-simulacion" role="status">
+      SIMULACIÓN · datos de mentira · base {e.base}
+    </div>
+  );
+}
 
 // el menú, las rutas y los contadores salen de menu.js. Acá solo se dibujan
 
@@ -140,6 +157,7 @@ export default function App() {
 
   return (
     <AuthProvider>
+      <CartelSimulacion />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />

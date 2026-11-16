@@ -67,6 +67,11 @@ def create_app():
     app.register_blueprint(consultas_bp)
     app.register_blueprint(horas_profes_bp)
 
+    # en produccion esto no existe: ni la ruta del cartel ni el simulador
+    if entorno.es_simulacion():
+        from app.routes.simulacion import simulacion_bp
+        app.register_blueprint(simulacion_bp)
+
     # para pingers y para que Render no se duerma: sin login, no toca la base ni devuelve datos
     @app.get("/salud")
     def salud():
