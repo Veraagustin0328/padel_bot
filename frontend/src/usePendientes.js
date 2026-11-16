@@ -3,11 +3,13 @@ import { api } from "./api.js";
 
 const CADA = 150000; // las lentas (planilla) se piden como mucho cada 2 minutos y medio
 const AL_ENTRAR = 30000; // al entrar a Pendientes se repiden si pasaron más de 30 s
+const RAPIDAS = 15000; // las de la base se repiden al cambiar de página, pero no más de una vez cada 15 s
 
 // cuenta lo pendiente de cada solapa (solo las que ve el rol) y el total para el menú
 export function usePendientes(solapas, pathname) {
   const [cuentas, setCuentas] = useState({});
   const ultimo = useRef({}); // cuándo se pidió cada una por última vez
+  const enCurso = useRef({}); // las que todavía no volvieron: no se piden de nuevo encima
 
   const anotar = useCallback((clave, n) => {
     ultimo.current[clave] = Date.now();
@@ -16,8 +18,16 @@ export function usePendientes(solapas, pathname) {
 
   const pedir = useCallback(
     (s) => {
+      if (enCurso.current[s.clave]) return;
+      enCurso.current[s.clave] = true;
       ultimo.current[s.clave] = Date.now();
-      api(s.contar.url).then((d) => anotar(s.clave, s.contar.leer(d))).catch(() => {});
+      // si falla, queda el número de antes y se vuelve a probar en el próximo turno, sin reintentar al toque
+      api(s.contar.url)
+        .then((d) => anotar(s.clave, s.contar.leer(d)))
+        .catch(() => {})
+        .finally(() => {
+          enCurso.current[s.clave] = false;
+        });
     },
     [anotar]
   );
@@ -32,9 +42,11 @@ export function usePendientes(solapas, pathname) {
     return () => bajas.forEach((b) => b());
   }, [solapas, anotar, pedir]);
 
-  // las rápidas (base de datos) se refrescan en cada cambio de página, como antes
+  // las rápidas (base de datos) se refrescan al cambiar de página, salvo que se hayan pedido hace poco
   useEffect(() => {
-    solapas.filter((s) => !s.contar.lento).forEach(pedir);
+    solapas
+      .filter((s) => !s.contar.lento && Date.now() - (ultimo.current[s.clave] || 0) >= RAPIDAS)
+      .forEach(pedir);
   }, [solapas, pathname, pedir]);
 
   // las lentas: al cargar, al entrar a Pendientes y cada tanto (con la pestaña a la vista)
