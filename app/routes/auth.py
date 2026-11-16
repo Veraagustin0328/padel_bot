@@ -100,6 +100,8 @@ def requiere_login(*roles):
 
             g.usuario = usuario
             return f(*args, **kwargs)
+        # queda anotado quien entra, para la prueba de humo (no cambia nada del permiso)
+        envoltura.roles_permitidos = roles
         return envoltura
     return decorador
 
