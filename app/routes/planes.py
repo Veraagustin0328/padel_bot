@@ -289,6 +289,41 @@ def quitar_fila(fila_id):
     return jsonify({"ok": True, "tarifa": _tarifa_json(clave, _hoy()) if quedan else None})
 
 
+@planes_bp.post("/api/planes/filas/<int:fila_id>/baja")
+@requiere_login("dueno")
+@_con_validacion
+def dar_de_baja(fila_id):
+    """Deja la tarifa de esa fila sin precio desde una fecha (hoy o más adelante), sin tocar lo anterior.
+    Es lo que se hace con una fila que ya usó alguna cuota: queda una fila nueva inactiva con su fecha."""
+    t = db.session.get(Tarifa, fila_id)
+    if not t:
+        return jsonify({"error": "No existe esa fila de precio"}), 404
+    hoy = _hoy()
+    desde = _fecha((request.get_json(silent=True) or {}).get("desde"), hoy)
+    if desde < hoy:
+        # para atrás cambiaría meses que ya se pudieron cobrar
+        raise ValueError("La baja va desde hoy o más adelante, no para atrás")
+    clave = _clave(t)
+    filas = _filas_de(clave).order_by(Tarifa.vigente_desde, Tarifa.id).all()
+    if any(f.vigente_desde == desde for f in filas):
+        return jsonify({"error": f"Ya hay un precio cargado para el {desde:%d/%m/%Y}. "
+                                 "Editá o quitá esa fila en vez de darla de baja."}), 409
+    rige = [f for f in filas if f.vigente_desde <= desde]
+    if not rige or not rige[-1].activa:
+        raise ValueError(f"Esa tarifa ya está sin precio el {desde:%d/%m/%Y}")
+    franja, tipo, personas, veces = clave
+    baja = Tarifa(franja=franja, tipo=tipo, personas=personas, veces_por_semana=veces,
+                  precio=rige[-1].precio, vigente_desde=desde, activa=False)  # precio: el de antes, solo de referencia
+    db.session.add(baja)
+    db.session.flush()
+    _auditar(baja.id, "baja", None, _fila_dict(baja))
+    db.session.commit()
+    despues = [f for f in filas if f.vigente_desde > desde]
+    aviso = (f"Ojo: el precio cargado para el {despues[0].vigente_desde:%d/%m/%Y} la vuelve a activar."
+             if despues and despues[0].activa else "")
+    return jsonify({**_tarifa_json(clave, hoy), "aviso": aviso}), 201
+
+
 @planes_bp.post("/api/planes/<int:tarifa_id>/precios")
 @requiere_login("dueno")
 @_con_validacion
