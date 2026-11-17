@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import { NivelAlumno, Punto, RAMAS, etiquetaNivel, rangoNivel } from "../niveles.jsx";
+import { MARCA } from "../marca.js";
+import { diaSemana, hoyEn, sumarDias } from "../fechas.js";
 import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-const AMBITOS = { adultos: "Adultos mañana", adultos_tarde: "Adultos tarde", sabados: "Sábados" };
+const AMBITOS = { adultos: "Adultos mañana", adultos_tarde: "Adultos tarde", sabados: "Sábados", kids: "Kids", kids_pro: "Kids Pro" };
 const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otro", fisico: "Físico" };
 const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", otro: "Otro", fisico: "F" };
 
@@ -12,12 +14,32 @@ const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g,
 const capital = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "");
 // punto y etiqueta del nivel viven en ../niveles.jsx (los comparten Mis clases y Fichas)
 
+// "2026-12-14" -> "14/12"
+const ddmm = (s) => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
+const DIA_CORTO = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
+const conDia = (s) => `${DIA_CORTO[diaSemana(s)]} ${ddmm(s)}`;
+
+// temporada de la clase mirada desde una fecha. vigente_hasta es el primer día que YA NO va,
+// así que el último día que rige es el anterior
+function temporada(c, ref) {
+  const { vigente_desde: desde, vigente_hasta: hasta } = c;
+  if (!desde && !hasta) return null;
+  const ultimo = hasta && sumarDias(hasta, -1);
+  if (desde && desde > ref) {
+    return { estado: "futura", corto: `Desde ${ddmm(desde)}`, largo: `Empieza el ${conDia(desde)}` + (ultimo ? ` y rige hasta el ${conDia(ultimo)}.` : ".") };
+  }
+  if (ultimo) {
+    return { estado: "termina", corto: `Hasta ${ddmm(ultimo)}`, largo: (desde ? `Rige desde el ${conDia(desde)} ` : "Rige ") + `hasta el ${conDia(ultimo)}. Desde el ${conDia(hasta)} ya no se da.` };
+  }
+  return { estado: "vigente", corto: `Desde ${ddmm(desde)}`, largo: `Rige desde el ${conDia(desde)}, sin fecha de fin.` };
+}
+
 // una columna de la tabla en texto: "Cab. 7ma-6ta · Damas 6ta"
 const textoColumna = (col) =>
   [col.caballeros.length && `Cab. ${rangoNivel(col.caballeros)}`, col.damas.length && `Damas ${rangoNivel(col.damas)}`]
     .filter(Boolean).join(" · ");
 
-function Leyenda({ colores, sinRama }) {
+function Leyenda({ colores, sinRama, hayTemporadas }) {
   return (
     <div className="cla-leyenda">
       {(colores?.columnas || []).map((col) => (
@@ -32,6 +54,7 @@ function Leyenda({ colores, sinRama }) {
       <span className="cla-ley"><span className="cla-muestra dudosa" />Tipo por confirmar</span>
       <span className="cla-ley"><span className="cla-muestra llena" />Cupo completo</span>
       <span className="cla-ley"><span className="cla-muestra pasada" />Más alumnos que cupo</span>
+      {hayTemporadas && <span className="cla-ley"><span className="cla-muestra futura" />Empieza más adelante</span>}
     </div>
   );
 }
@@ -41,6 +64,8 @@ export default function Clases() {
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
   const [ambito, setAmbito] = useState("adultos");
+  const [hoy] = useState(() => hoyEn(MARCA.zonaHoraria));
+  const [fecha, setFecha] = useState(""); // "" = todas las que no terminaron; con fecha = las que rigen ese día
   const [profe, setProfe] = useState("todos");
   const [buscar, setBuscar] = useState("");
   const [abierta, setAbierta] = useState(null);
@@ -52,15 +77,15 @@ export default function Clases() {
   const [ocupado, setOcupado] = useState(""); // qué botón está esperando ("" = ninguno)
   const enCurso = useRef(false); // candado contra el doble click
 
-  async function cargar() {
+  async function cargar(dia = fecha) {
     try {
-      setDatos(await api("/api/clases"));
+      setDatos(await api(dia ? `/api/clases?fecha=${dia}` : "/api/clases"));
     } catch (e) {
       setError(e.message);
       setDatos({ clases: [], colores: { columnas: [], por_rama: {} } });
     }
   }
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(fecha); }, [fecha]);
   useEffect(() => {
     api("/api/clases/profes").then(setListaProfes).catch((e) => setError(`No pude traer la lista de profes: ${e.message}`));
   }, []);
@@ -98,6 +123,11 @@ export default function Clases() {
   const sinRama = clases.filter((c) => c.activa && c.tipo === "grupal" && !c.rama).length;
 
   const ambitos = Object.keys(AMBITOS).filter((a) => clases.some((c) => c.ambito === a));
+  // si con la fecha elegida el ámbito no tiene clases, salta al primero que tenga
+  useEffect(() => {
+    if (ambitos.length && !ambitos.includes(ambito)) { setAmbito(ambitos[0]); setProfe("todos"); setAbierta(null); }
+  }, [ambitos.join(","), ambito]);
+  const ref = fecha || hoy;
   const delAmbito = useMemo(() => clases.filter((c) => c.ambito === ambito), [clases, ambito]);
   const profesFiltro = useMemo(() => [...new Set(delAmbito.map((c) => c.profe).filter(Boolean))].sort(), [delAmbito]);
   const filtradas = useMemo(
@@ -118,9 +148,12 @@ export default function Clases() {
   const alumnosUnicos = new Set(filtradas.flatMap((c) => c.alumnos.map((a) => a.id))).size;
   const porConfirmar = filtradas.filter((c) => c.estimado).length;
   const vacias = filtradas.filter((c) => c.alumnos.length === 0).length;
+  // sin fecha se ven juntas las de distintas temporadas: avisamos
+  const hayTemporadas = filtradas.some((c) => c.vigente_desde || c.vigente_hasta);
   const grupalesObvias = clases.filter((c) => c.estimado && c.activa && c.tipo === "grupal" && c.alumnos.length >= 3).length;
 
   const sel = clases.find((c) => c.id === abierta);
+  const temSel = sel && temporada(sel, ref);
 
   // el formulario del panel arranca con lo que tiene la clase
   useEffect(() => {
@@ -284,10 +317,26 @@ export default function Clases() {
           <input type="checkbox" checked={verInactivas} onChange={(e) => setVerInactivas(e.target.checked)} />
           Mostrar desactivadas
         </label>
-        <button className="boton chico claro" disabled={!!ocupado} onClick={cargar}>Actualizar</button>
+        <button className="boton chico claro" disabled={!!ocupado} onClick={() => cargar()}>Actualizar</button>
       </div>
 
-      <Leyenda colores={colores} sinRama={sinRama} />
+      <div className="cla-fecha">
+        <label>
+          Clases que rigen el
+          <input type="date" value={fecha} onChange={(e) => { setFecha(e.target.value); setAbierta(null); }} />
+        </label>
+        {fecha !== hoy && <button className="boton chico claro" onClick={() => { setFecha(hoy); setAbierta(null); }}>Hoy</button>}
+        {fecha && <button className="boton chico claro" onClick={() => { setFecha(""); setAbierta(null); }}>Ver todas</button>}
+        <span className="cla-sub">
+          {fecha
+            ? `El horario que rige el ${conDia(fecha)}${fecha === hoy ? " (hoy)" : ""}, toda esa semana. Los alumnos son los anotados hoy.`
+            : hayTemporadas
+              ? "Se ven juntas las de ahora y las que empiezan más adelante. Elegí una fecha para ver cuáles rigen ese día."
+              : "Todas las que no terminaron."}
+        </span>
+      </div>
+
+      <Leyenda colores={colores} sinRama={sinRama} hayTemporadas={hayTemporadas && !fecha} />
 
       {datos === null ? (
         <div className="cargando">Cargando…</div>
@@ -300,7 +349,11 @@ export default function Clases() {
               <thead>
                 <tr>
                   <th className="hora">Hora</th>
-                  {dias.map((d) => <th key={d}>{DIAS[d]}</th>)}
+                  {dias.map((d) => (
+                    <th key={d} className={fecha && diaSemana(fecha) === d ? "elegido" : ""}>
+                      {DIAS[d]}{fecha && diaSemana(fecha) === d && ` ${ddmm(fecha)}`}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -312,12 +365,14 @@ export default function Clases() {
                         {(celdas[d + "|" + h] || []).map((c) => {
                           const n = c.alumnos.length;
                           const nuevos = c.alumnos.filter((a) => a.clasificar).length;
+                          const tem = temporada(c, ref);
                           const clase =
                             "cla-chip" +
                             (c.estimado ? " dudosa" : "") +
                             (n > c.cupo ? " pasada" : n === c.cupo ? " llena" : "") +
                             (!c.activa ? " apagada" : "") +
                             (c.id === abierta ? " abierta" : "") +
+                            (tem?.estado === "futura" ? " futura" : "") +
                             (hayBusqueda ? (coincide(c) ? " hit" : " opaco") : "");
                           return (
                             <button key={c.id} className={clase} onClick={() => setAbierta(c.id)}>
@@ -327,6 +382,7 @@ export default function Clases() {
                                 <i>{TIPO_CORTO[c.tipo] || c.tipo}</i>
                               </span>
                               <span className="cla-abajo">{c.nivel || "—"} · {n}/{c.cupo}</span>
+                              {tem && <span className={"cla-vig " + tem.estado} title={tem.largo}>{tem.corto}</span>}
                               {nuevos > 0 && (
                                 <span className="cla-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
                               )}
@@ -384,6 +440,8 @@ export default function Clases() {
                   </label>
                 )}
               </div>
+
+              {temSel && <div className={"cla-temporada " + temSel.estado}>{temSel.largo}</div>}
 
               {sel.estimado && (
                 <div className="cla-alerta">

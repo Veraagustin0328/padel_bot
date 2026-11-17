@@ -133,3 +133,25 @@
 .cla-sugerida span { color: #5b6672; }
 .cla-columna { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: #3a4651; }
 .cla-columna select { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; max-width: 100%; }
+
+/* temporadas: desde / hasta de cada clase y selector de fecha */
+.cla-fecha { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.cla-fecha label { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; color: #3a4651; flex-wrap: wrap; }
+.cla-fecha input { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+.cla-fecha .cla-sub { margin: 0; font-size: .85rem; flex-basis: 100%; }
+.cla-grilla th.elegido { background: #e3f1e7; color: var(--verde, #1e6b3a); }
+.cla-vig { display: inline-block; margin-top: 4px; font-size: .72rem; font-weight: 600; border-radius: 4px; padding: 1px 6px; background: #eef1f4; color: #3a4651; }
+.cla-vig.termina { background: #fff4e0; color: #8a5300; }
+.cla-vig.futura { background: #e8f0ff; color: #1d4ed8; }
+.cla-chip.futura { border-left: 4px solid #2563eb; }
+.cla-muestra.futura { border-left: 4px solid #2563eb; }
+.cla-temporada { border-radius: 8px; padding: 8px 10px; font-size: .85rem; margin-bottom: 8px; background: #eef1f4; color: #3a4651; }
+.cla-temporada.termina { background: #fff4e0; color: #7a4b05; }
+.cla-temporada.futura { background: #e8f0ff; color: #1e3a8a; }
+@media (max-width: 900px) {
+  /* en columna, flex-start dejaba la grilla del ancho de su contenido y se iba la página de costado */
+  .cla-cuerpo { align-items: stretch; }
+}
+@media (max-width: 600px) {
+  .cla-filtros input { min-width: 0; flex: 1; }
+}
