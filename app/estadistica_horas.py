@@ -74,12 +74,15 @@ def calcular(desde, hasta):
             })
         for i in range(n):
             total_profe[i] += subtotal[i]
-        semanas.append({
-            "lunes": lunes.isoformat(),
-            "dias": filas,
-            "subtotal": [redondear(s) if s else None for s in subtotal],
-            "total": redondear(sum(subtotal, Decimal(0))),
-        })
+        total_semana = sum(subtotal, Decimal(0))
+        # una semana sin ningún día del mes a la vista (ej. solo el domingo 1°, sin fila) no va
+        if any(fila["en_mes"] for fila in filas):
+            semanas.append({
+                "lunes": lunes.isoformat(),
+                "dias": filas,
+                "subtotal": [redondear(s) if s else None for s in subtotal],
+                "total": redondear(total_semana) if total_semana else None,  # vacío, no 0
+            })
         lunes += timedelta(days=7)
 
     # lo que no suma, para que se entienda por qué un número no cuadra
