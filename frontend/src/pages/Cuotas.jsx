@@ -10,6 +10,55 @@ const mesActual = () => {
 };
 const NOMBRE_CARGO = { cuota: "Cuota", inscripcion: "Inscripción", ajuste: "Ajuste" };
 const ETIQUETA = { pago: "Pagó", debe: "Debe", parcial: "Parcial", a_favor: "A favor" };
+const ETIQUETA_MES = { pago: "Pagó", no_pago: "No pagó" };
+
+// vista del encargado: el back solo manda pago / no_pago, sin montos
+function FilaSimple({ it, mes, abierta, alAbrir, hacer, ocupado, alCobrar }) {
+  const [monto, setMonto] = useState("");
+  const [medio, setMedio] = useState("efectivo");
+  const [nota, setNota] = useState("");
+  const pago = it.estado_mes === "pago";
+
+  return (
+    <>
+      <div className={"cu-fila simple " + (pago ? "" : "debe")}>
+        <div className="nom">{it.alumno}</div>
+        <div><span className={"cu-tag " + (pago ? "pago" : "debe")}>{ETIQUETA_MES[it.estado_mes]}</span></div>
+        <div className="der">
+          <button className={"boton chico " + (pago ? "claro" : "")} onClick={alAbrir}>{abierta ? "Cerrar" : "Cobrar"}</button>
+        </div>
+      </div>
+      {abierta && (
+        <div className="cu-detalle">
+          <div className="cu-form">
+            <input className="monto" type="number" min="1" placeholder="Monto recibido" value={monto} onChange={(e) => setMonto(e.target.value)} aria-label="Monto recibido" />
+            <select value={medio} onChange={(e) => setMedio(e.target.value)} aria-label="Medio de pago">
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="mercadopago">Mercado Pago</option>
+              <option value="otro">Otro</option>
+            </select>
+            <input className="nota" placeholder="Nota (opcional)" value={nota} onChange={(e) => setNota(e.target.value)} />
+            <button
+              className="boton chico"
+              disabled={!!ocupado || !monto || Number(monto) <= 0}
+              onClick={() =>
+                hacer(async () => {
+                  const r = await api("/api/cuotas/pago", { metodo: "POST", cuerpo: { alumno_id: it.alumno_id, mes, monto, medio, nota } });
+                  setMonto("");
+                  setNota("");
+                  alCobrar({ ...r, alumno: it.alumno });
+                }, "pago")
+              }
+            >
+              {ocupado === "pago" ? "Guardando…" : "Registrar cobro"}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function Fila({ it, mes, abierta, alAbrir, hacer, ocupado }) {
   const [monto, setMonto] = useState(String(it.debe || ""));
@@ -136,6 +185,7 @@ export default function Cuotas() {
   const [q, setQ] = useState("");
   const [abierto, setAbierto] = useState(null);
   const [ocupado, setOcupado] = useState(""); // qué botón está esperando ("" = ninguno)
+  const [cobro, setCobro] = useState(null); // último cobro del encargado, para el Deshacer
   // candado contra el doble click: el estado tarda un render en llegar al botón
   const enCurso = useRef(false);
 
@@ -153,6 +203,7 @@ export default function Cuotas() {
     setError("");
     setAviso("");
     setAbierto(null);
+    setCobro(null);
     cargar();
   }, [mes]);
 
@@ -173,23 +224,32 @@ export default function Cuotas() {
     }
   }
 
+  // detalle=false: es el encargado, sin plata
+  const conDetalle = datos?.detalle !== false;
+  const debe = (i) => (conDetalle ? i.debe > 0 : i.estado_mes !== "pago");
   const items = useMemo(
     () =>
       (datos?.items || []).filter(
         (i) =>
-          (filtro === "todos" || (filtro === "deben" && i.debe > 0) || (filtro === "pagaron" && i.debe === 0)) &&
+          (filtro === "todos" || (filtro === "deben" && debe(i)) || (filtro === "pagaron" && !debe(i))) &&
           i.alumno.toLowerCase().includes(q.toLowerCase())
       ),
     [datos, filtro, q]
   );
   const t = datos?.totales;
+  const cantidad = conDetalle ? t?.alumnos || 0 : (datos?.items || []).length;
+
+  function alCobrar(r) {
+    setAbierto(null);
+    setCobro({ id: r.id, alumno: r.alumno, estado: r.estado_mes, hasta: Date.now() + (r.deshacer_minutos || 0) * 60000 });
+  }
 
   return (
     <>
       <div className="cabecera">
         <div>
           <h1>Cuotas</h1>
-          <div className="sub">Quién pagó y quién debe en el mes</div>
+          <div className="sub">{conDetalle ? "Quién pagó y quién debe en el mes" : "Quién pagó el mes y quién no"}</div>
         </div>
         <input type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} aria-label="Mes" style={{ border: "1px solid #c4c8b8", borderRadius: 8, padding: "9px 12px", minHeight: 40, font: '600 14px "Plus Jakarta Sans", system-ui, sans-serif' }} />
         <button
@@ -212,11 +272,25 @@ export default function Cuotas() {
 
       {error && <div className="msg-error" role="alert">{error}</div>}
       {aviso && <div className="msg-ok">{aviso}</div>}
+      {cobro && (
+        <div className="msg-ok" role="status">
+          Cobro registrado: {cobro.alumno} quedó {cobro.estado === "pago" ? "con el mes pago" : "sin el mes pago"}.{" "}
+          {Date.now() < cobro.hasta && (
+            <button
+              className="boton chico claro"
+              disabled={!!ocupado}
+              onClick={() => hacer(() => api("/api/cuotas/pago/" + cobro.id, { metodo: "DELETE" }).then(() => setCobro(null)), "deshacer")}
+            >
+              {ocupado === "deshacer" ? "Deshaciendo…" : "Deshacer"}
+            </button>
+          )}
+        </div>
+      )}
       {revisar.length > 0 && (
         <div className="cu-revisar" role="status">
-          <b>Para revisar a mano ({revisar.length}): clases sin tarifa, no se cobraron.</b>
+          <b>Para revisar a mano ({revisar.length}): clases sin tarifa, no se cobraron.{conDetalle ? "" : " Avisale al dueño."}</b>
           {revisar.map((x) => (
-            <div key={x.alumno_id}>{x.alumno}: {x.que} ({x.motivo})</div>
+            <div key={x.alumno_id}>{x.alumno}: {x.que}{x.motivo ? ` (${x.motivo})` : ""}</div>
           ))}
         </div>
       )}
@@ -225,15 +299,17 @@ export default function Cuotas() {
 
       {datos && (
         <>
-          <div className="cu-kpis">
-            <div className="cu-kpi mal"><small>Deuda</small><b>{plata(t.deuda)}</b><span>{t.deben} alumnos deben</span></div>
-            <div className="cu-kpi"><small>Cobrado</small><b>{plata(t.pagado)}</b><span>de {plata(t.cuotas)}</span></div>
-            <div className="cu-kpi"><small>Alumnos</small><b>{t.alumnos}</b><span>con cuota este mes</span></div>
-          </div>
+          {conDetalle && (
+            <div className="cu-kpis">
+              <div className="cu-kpi mal"><small>Deuda</small><b>{plata(t.deuda)}</b><span>{t.deben} alumnos deben</span></div>
+              <div className="cu-kpi"><small>Cobrado</small><b>{plata(t.pagado)}</b><span>de {plata(t.cuotas)}</span></div>
+              <div className="cu-kpi"><small>Alumnos</small><b>{t.alumnos}</b><span>con cuota este mes</span></div>
+            </div>
+          )}
 
-          {t.alumnos === 0 && <div className="tarjeta">Todavía no hay cuotas de este mes. Tocá “Generar cuotas del mes”.</div>}
+          {cantidad === 0 && <div className="tarjeta">Todavía no hay cuotas de este mes. Tocá “Generar cuotas del mes”.</div>}
 
-          {t.alumnos > 0 && (
+          {cantidad > 0 && (
             <>
               <div className="cu-barra">
                 <input type="search" placeholder="Buscar alumno" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar alumno" />
@@ -243,17 +319,29 @@ export default function Cuotas() {
               </div>
 
               <div className="cu-lista">
-                <div className="cu-fila titulos">
-                  <div>Alumno</div>
-                  <div className="der oculto">Cuota</div>
-                  <div className="der oculto">Pagó</div>
-                  <div className="der">Debe</div>
-                  <div className="oculto">Estado</div>
-                  <div />
-                </div>
-                {items.map((it) => (
-                  <Fila key={it.alumno_id} it={it} mes={mes} abierta={abierto === it.alumno_id} alAbrir={() => setAbierto(abierto === it.alumno_id ? null : it.alumno_id)} hacer={hacer} ocupado={ocupado} />
-                ))}
+                {conDetalle ? (
+                  <div className="cu-fila titulos">
+                    <div>Alumno</div>
+                    <div className="der oculto">Cuota</div>
+                    <div className="der oculto">Pagó</div>
+                    <div className="der">Debe</div>
+                    <div className="oculto">Estado</div>
+                    <div />
+                  </div>
+                ) : (
+                  <div className="cu-fila simple titulos">
+                    <div>Alumno</div>
+                    <div>Mes</div>
+                    <div />
+                  </div>
+                )}
+                {items.map((it) =>
+                  conDetalle ? (
+                    <Fila key={it.alumno_id} it={it} mes={mes} abierta={abierto === it.alumno_id} alAbrir={() => setAbierto(abierto === it.alumno_id ? null : it.alumno_id)} hacer={hacer} ocupado={ocupado} />
+                  ) : (
+                    <FilaSimple key={it.alumno_id} it={it} mes={mes} abierta={abierto === it.alumno_id} alAbrir={() => setAbierto(abierto === it.alumno_id ? null : it.alumno_id)} hacer={hacer} ocupado={ocupado} alCobrar={alCobrar} />
+                  )
+                )}
                 {items.length === 0 && <div className="cu-fila">No hay alumnos con ese filtro.</div>}
               </div>
             </>
