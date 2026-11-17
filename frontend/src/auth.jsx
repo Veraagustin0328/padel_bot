@@ -60,6 +60,12 @@ export function AuthProvider({ children }) {
     setUsuario(datos.usuario);
   }
 
+  // después de cambiar la clave: el servidor manda un token nuevo (sin la marca de temporal)
+  function actualizarSesion(token, datos) {
+    if (token) guardarToken(token);
+    if (datos) setUsuario(datos);
+  }
+
   function salir() {
     borrarToken();
     setAvisoSesion("");
@@ -67,7 +73,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <Contexto.Provider value={{ usuario, cargando, entrar, salir, avisoSesion, errorConexion, reintentar: recuperar }}>
+    <Contexto.Provider value={{ usuario, cargando, entrar, salir, actualizarSesion, avisoSesion, errorConexion, reintentar: recuperar }}>
       {children}
     </Contexto.Provider>
   );

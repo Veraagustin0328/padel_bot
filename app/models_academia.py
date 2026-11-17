@@ -42,6 +42,8 @@ class UsuarioPerfil(db.Model):
     creado_via = db.Column(db.String(20), nullable=True)                 # panel / link_profe / link_jugador / link_tutor
     aprobado_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     aprobado_en = db.Column(db.DateTime, nullable=True)
+    # primer ingreso o clave reseteada: tiene que cambiarla antes de usar el panel (migrar_debe_cambiar_clave.py)
+    debe_cambiar_clave = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
 
 class AlumnoUsuario(db.Model):

@@ -58,7 +58,24 @@ def _secreto():
     return secreto
 
 
-def crear_token(usuario):
+# con la clave temporal solo puede ver quién es y cambiarla (lo demás da 403)
+RUTAS_CON_CLAVE_TEMPORAL = {"auth.yo", "auth.cambiar_password"}
+
+
+def _perfil(u, crear=False):
+    perfil = db.session.get(UsuarioPerfil, u.id)
+    if not perfil and crear:  # los usuarios de antes no tienen perfil
+        perfil = UsuarioPerfil(usuario_id=u.id, estado="activo", creado_via="panel")
+        db.session.add(perfil)
+    return perfil
+
+
+def _debe_cambiar(u):
+    perfil = _perfil(u)
+    return bool(perfil and perfil.debe_cambiar_clave)
+
+
+def crear_token(usuario, cambiar=False):
     ahora = datetime.datetime.now(datetime.timezone.utc)
     payload = {
         "sub": str(usuario.id),
@@ -66,11 +83,13 @@ def crear_token(usuario):
         "iat": ahora,
         "exp": ahora + datetime.timedelta(hours=HORAS_DE_SESION),
     }
+    if cambiar:
+        payload["cambiar"] = True  # va en el token: así no consulto la base en cada pedido
     return jwt.encode(payload, _secreto(), algorithm="HS256")
 
 
-def _usuario_json(u):
-    return {"id": u.id, "nombre": u.nombre, "email": u.email, "rol": u.rol}
+def _usuario_json(u, cambiar=False):
+    return {"id": u.id, "nombre": u.nombre, "email": u.email, "rol": u.rol, "debe_cambiar_clave": cambiar}
 
 
 def requiere_login(*roles):
@@ -95,6 +114,8 @@ def requiere_login(*roles):
             usuario = db.session.get(Usuario, int(datos["sub"]))
             if not usuario or not usuario.activo:
                 return jsonify({"error": "Usuario inactivo"}), 401
+            if datos.get("cambiar") and request.endpoint not in RUTAS_CON_CLAVE_TEMPORAL:
+                return jsonify({"error": "Antes de seguir tenés que cambiar la contraseña", "cambiar_clave": True}), 403
             if roles and usuario.rol != ROL_DUENO and usuario.rol not in roles:
                 return jsonify({"error": "No tenés permiso para esto"}), 403
 
@@ -133,13 +154,14 @@ def login():
     if not clave_ok or not usuario.activo:
         return jsonify({"error": "Email o contraseña incorrectos"}), 401
 
-    return jsonify({"token": crear_token(usuario), "usuario": _usuario_json(usuario)})
+    cambiar = _debe_cambiar(usuario)
+    return jsonify({"token": crear_token(usuario, cambiar), "usuario": _usuario_json(usuario, cambiar)})
 
 
 @auth_bp.get("/api/auth/me")
 @requiere_login()
 def yo():
-    return jsonify(_usuario_json(g.usuario))
+    return jsonify(_usuario_json(g.usuario, _debe_cambiar(g.usuario)))
 
 
 # ---------- registro por link ----------
@@ -282,10 +304,15 @@ def cambiar_password():
         return jsonify({"error": "La contraseña nueva tiene que ser distinta a la actual"}), 400
 
     u.password_hash = generate_password_hash(nueva)
+    perfil = _perfil(u)
+    if perfil:
+        perfil.debe_cambiar_clave = False
     db.session.commit()
     with _candado:
         _fallos_clave.pop(u.id, None)
-    return jsonify({"ok": True, "mensaje": "Listo, cambiaste tu contraseña"})
+    # token nuevo sin la marca de clave temporal, así sigue sin volver a entrar
+    return jsonify({"ok": True, "mensaje": "Listo, cambiaste tu contraseña",
+                    "token": crear_token(u), "usuario": _usuario_json(u)})
 
 
 @auth_bp.get("/api/auth/usuarios")
@@ -315,6 +342,7 @@ def resetear_password(id_):
 
     clave = "".join(secrets.choice(ALFABETO_CLAVE) for _ in range(LARGO_CLAVE_RESET))
     u.password_hash = generate_password_hash(clave)
+    _perfil(u, crear=True).debe_cambiar_clave = True  # la clave del reset es temporal
     db.session.commit()
     with _candado:
         _fallos_clave.pop(u.id, None)

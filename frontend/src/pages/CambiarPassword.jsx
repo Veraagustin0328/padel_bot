@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { api } from "../api.js";
+import { useAuth } from "../auth.jsx";
 
 const MINIMO = 8;
 
-export default function CambiarPassword() {
+// obligatorio: primer ingreso o clave reseteada, no puede usar el panel hasta cambiarla
+export default function CambiarPassword({ obligatorio = false }) {
+  const { actualizarSesion, salir } = useAuth();
   const [actual, setActual] = useState("");
   const [nueva, setNueva] = useState("");
   const [repetida, setRepetida] = useState("");
@@ -21,6 +24,7 @@ export default function CambiarPassword() {
       const r = await api("/api/auth/cambiar-password", { metodo: "POST", cuerpo: { actual, nueva } });
       setAviso(r.mensaje || "Listo, cambiaste tu contraseña");
       setActual(""); setNueva(""); setRepetida("");
+      actualizarSesion(r.token, r.usuario); // si era obligatorio, con esto ya entra al panel
     } catch (err) {
       setError(err.message);
     } finally {
@@ -32,10 +36,11 @@ export default function CambiarPassword() {
     <div>
       <div className="cabecera">
         <h1>Cambiar contraseña</h1>
+        {obligatorio && <p className="sub">Estás entrando con una contraseña temporal. Elegí una tuya para seguir.</p>}
       </div>
       <form onSubmit={enviar} className="tarjeta form-clave">
         <div className="campo">
-          <label htmlFor="clave-actual">Contraseña actual</label>
+          <label htmlFor="clave-actual">{obligatorio ? "Contraseña temporal" : "Contraseña actual"}</label>
           <input id="clave-actual" type="password" autoComplete="current-password" value={actual} onChange={(e) => setActual(e.target.value)} required />
         </div>
         <div className="campo">
@@ -49,6 +54,7 @@ export default function CambiarPassword() {
         {error && <div className="msg-error" role="alert">{error}</div>}
         {aviso && <div className="msg-ok" role="status">{aviso}</div>}
         <button className="boton" disabled={enviando}>{enviando ? "Guardando…" : "Guardar"}</button>
+        {obligatorio && <button type="button" className="boton claro" style={{ marginLeft: 8 }} onClick={salir}>Salir</button>}
       </form>
     </div>
   );

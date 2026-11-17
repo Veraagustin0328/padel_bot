@@ -133,6 +133,14 @@ function Protegida() {
     );
   }
   if (!usuario) return <Navigate to="/login" replace />;
+  // clave temporal: hasta que la cambie no ve el panel (el backend igual le corta todo lo demás)
+  if (usuario.debe_cambiar_clave) {
+    return (
+      <div className="contenido" style={{ maxWidth: 520, margin: "40px auto", padding: "0 16px" }}>
+        <CambiarPassword obligatorio />
+      </div>
+    );
+  }
   return <Layout />;
 }
 
