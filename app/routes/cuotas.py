@@ -1,12 +1,14 @@
-"""Cuotas y pagos: generar el mes, ver quién debe, registrar pagos y ajustes."""
-from datetime import date
+"""Cuotas y pagos: generar el mes, ver quién debe, registrar pagos y ajustes.
+La plata (montos, deuda, saldo, detalle, totales) es solo del dueño: el encargado ve
+por alumno si el mes está pago o no, y puede cobrar (y deshacer al toque su propio cobro)."""
+from datetime import date, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
 from app.cuotas import SIN_TARIFA, cargar_tarifas, clases_del_mes, cuota_de
 from app.extensions import db
 from app.models import Alumno
 from app.models_cuotas import CONCEPTOS, MEDIOS_PAGO, CuotaMes, PagoCuota
-from app.routes.auth import requiere_login
+from app.routes.auth import ROL_DUENO, requiere_login
 
 cuotas_bp = Blueprint("cuotas_panel", __name__)
 
@@ -20,8 +22,36 @@ def _mes(txt):
         return None
 
 
+# cuánto tiempo tiene el encargado para deshacer un cobro que cargó mal
+MINUTOS_DESHACER = 15
+
+
 def _quien():
     return getattr(g.get("usuario"), "id", None)
+
+
+def _es_dueno():
+    return getattr(g.get("usuario"), "rol", None) == ROL_DUENO
+
+
+def _estado(cuota, pagado):
+    """Estado con detalle, para el dueño: a_favor / pago / parcial / debe."""
+    if pagado > cuota:
+        return "a_favor"  # pagó de más: no es parcial
+    if cuota > 0 and pagado >= cuota:
+        return "pago"
+    return "parcial" if pagado > 0 else "debe"
+
+
+def _estado_mes(estado):
+    """Lo único que ve el encargado: pago o no_pago (el parcial cuenta como no pago)."""
+    return "pago" if estado in ("pago", "a_favor") else "no_pago"
+
+
+def _estado_de(alumno_id, inicio):
+    cuota = sum(c.monto for c in CuotaMes.query.filter_by(alumno_id=alumno_id, mes=inicio))
+    pagado = sum(p.monto for p in PagoCuota.query.filter_by(alumno_id=alumno_id, mes=inicio))
+    return _estado(cuota, pagado)
 
 
 def _entero(valor):
@@ -70,7 +100,12 @@ def generar():
     inicio = _mes((request.get_json(silent=True) or {}).get("mes"))
     if not inicio:
         return jsonify(error="Mes inválido, usá AAAA-MM"), 400
-    return jsonify(generar_mes(inicio))
+    r = generar_mes(inicio)
+    if not _es_dueno():
+        # solo quiénes quedaron sin cuota, para que le avise al dueño; el motivo puede traer precios
+        for k in ("sin_precio_detalle", "incompletas"):
+            r[k] = [{"alumno_id": x["alumno_id"], "alumno": x["alumno"]} for x in r[k]]
+    return jsonify(r)
 
 
 @cuotas_bp.get("/api/cuotas")
@@ -108,15 +143,16 @@ def listar():
     for it in items.values():
         it["debe"] = max(it["cuota"] - it["pagado"], 0)
         it["a_favor"] = max(it["pagado"] - it["cuota"], 0)
-        if it["a_favor"] > 0:
-            it["estado"] = "a_favor"  # pagó de más: no es parcial
-        elif it["cuota"] > 0 and it["debe"] == 0:
-            it["estado"] = "pago"
-        elif it["pagado"] > 0:
-            it["estado"] = "parcial"
-        else:
-            it["estado"] = "debe"
+        it["estado"] = _estado(it["cuota"], it["pagado"])
         lista.append(it)
+
+    if not _es_dueno():
+        # encargado: nombre y pago / no pago, en orden alfabético (ordenar por deuda ya dice quién debe más)
+        filas = [{"alumno_id": i["alumno_id"], "alumno": i["alumno"], "estado_mes": _estado_mes(i["estado"])}
+                 for i in lista]
+        filas.sort(key=lambda x: x["alumno"].lower())
+        return jsonify(mes=inicio.strftime("%Y-%m"), items=filas, detalle=False)
+
     lista.sort(key=lambda x: (-x["debe"], x["alumno"].lower()))
 
     return jsonify(
@@ -129,6 +165,7 @@ def listar():
             "deben": sum(1 for i in lista if i["debe"] > 0),
             "alumnos": len(lista),
         },
+        detalle=True,
     )
 
 
@@ -147,7 +184,15 @@ def registrar_pago():
              nota=(d.get("nota") or "")[:200] or None, creado_por=_quien())
     db.session.add(p)
     db.session.commit()
-    return jsonify(id=p.id), 201
+    # el estado del mes y nada más: el encargado no ve cuánto falta
+    return jsonify(id=p.id, estado_mes=_estado_mes(_estado_de(alumno_id, inicio)),
+                   deshacer_minutos=MINUTOS_DESHACER), 201
+
+
+def _puede_deshacer(p):
+    """El encargado solo borra un cobro suyo, recién cargado y que no vino de un comprobante."""
+    return (p.creado_por == _quien() and not p.comprobante_id and p.creado
+            and datetime.utcnow() - p.creado <= timedelta(minutes=MINUTOS_DESHACER))
 
 
 @cuotas_bp.delete("/api/cuotas/pago/<int:pago_id>")
@@ -156,6 +201,8 @@ def borrar_pago(pago_id):
     p = db.session.get(PagoCuota, pago_id)
     if not p:
         return jsonify(error="No existe ese pago"), 404
+    if not _es_dueno() and not _puede_deshacer(p):
+        return jsonify(error=f"Solo podés deshacer un cobro tuyo en los primeros {MINUTOS_DESHACER} minutos. Para lo demás, pedíselo al dueño"), 403
     if p.comprobante_id:
         # si lo borro acá el comprobante queda confirmado sin pago
         return jsonify(error=f"Este pago viene del comprobante #{p.comprobante_id}: rechazalo o volvelo a pendiente desde Comprobantes"), 409
@@ -165,7 +212,7 @@ def borrar_pago(pago_id):
 
 
 @cuotas_bp.patch("/api/cuotas/<int:cuota_id>")
-@requiere_login("encargado")
+@requiere_login("dueno")
 def ajustar(cuota_id):
     """Cambiar el monto a mano (prorrateo, descuento) con una nota de por qué."""
     c = db.session.get(CuotaMes, cuota_id)
@@ -184,7 +231,7 @@ def ajustar(cuota_id):
 
 
 @cuotas_bp.post("/api/cuotas/cargo")
-@requiere_login("encargado")
+@requiere_login("dueno")
 def agregar_cargo():
     """Cargo aparte: inscripción o ajuste. Uno de cada tipo por alumno y mes."""
     d = request.get_json(silent=True) or {}
