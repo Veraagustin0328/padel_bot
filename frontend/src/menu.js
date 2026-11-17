@@ -4,6 +4,7 @@ import Alumnos from "./pages/Alumnos.jsx";
 import Clases from "./pages/Clases.jsx";
 import Cuotas from "./pages/Cuotas.jsx";
 import MisClases from "./pages/MisClases.jsx";
+import Semana from "./pages/Semana.jsx";
 import Novedades from "./pages/Novedades.jsx";
 import FaltasRecuperaciones, { FaltasPendientes } from "./pages/FaltasRecuperaciones.jsx";
 import CambiosDias from "./pages/CambiosDias.jsx";
@@ -62,6 +63,7 @@ export const MENU = [
       { a: "/clases", t: "Clases", roles: GESTION, pagina: Clases },
       { a: "/alumnos", t: "Alumnos", roles: GESTION, pagina: Alumnos },
       { a: "/mis-clases", t: "Mis clases", roles: [...GESTION, "profe"], pagina: MisClases },
+      { a: "/semana", t: "Clases de la semana", roles: [...GESTION, "profe"], pagina: Semana },
       { a: "/faltas-viajes", t: "Faltas y viajes", roles: GESTION, pagina: FaltasRecuperaciones },
       { t: "Planificación", roles: GESTION, pronto: true },
     ],

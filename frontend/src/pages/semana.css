@@ -1,0 +1,108 @@
+/* Clases de la semana: primero el celu (los profes la miran desde la cancha) */
+.sm { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* barra fija arriba: semana, Hoy, chips de días y filtro de profe */
+.sm-barra {
+  position: sticky; top: 0; z-index: 10;
+  margin: 0 -16px; padding: 8px 16px 10px;
+  background: var(--fondo); border-bottom: 1px solid var(--linea);
+  display: grid; gap: 8px;
+}
+body.con-cartel .sm-barra { top: var(--alto-cartel); }
+.sm-nav { display: flex; align-items: center; gap: 6px; }
+.sm-flecha {
+  flex: none; width: 44px; height: 44px; border: 1px solid var(--linea); background: var(--tarjeta);
+  color: var(--tinta); border-radius: var(--radio); font-size: 22px; line-height: 1; cursor: pointer;
+}
+.sm-rango {
+  flex: 1; min-width: 0; text-align: center; font-weight: 700; font-size: 16px;
+  display: flex; flex-direction: column; line-height: 1.2;
+}
+.sm-rango small { color: var(--suave); font-weight: 600; font-size: 11px; }
+.sm-hoy-btn { flex: none; }
+
+.sm-chips { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sm-chip {
+  min-width: 0; min-height: 48px; padding: 2px 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1px solid var(--linea); background: var(--tarjeta); color: var(--tinta);
+  border-radius: var(--radio); font: 500 11px "Plus Jakarta Sans", system-ui, sans-serif; cursor: pointer;
+}
+.sm-chip strong { font-size: 16px; line-height: 1.1; }
+.sm-chip.vacio { color: var(--suave); border-style: dashed; }
+.sm-chip.hoy { border-color: var(--verde); border-width: 2px; }
+.sm-chip.activo { background: var(--pelota); border-color: var(--pelota); color: #2a2c28; font-weight: 700; }
+
+.sm-filtro { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--suave); font-weight: 600; }
+.sm-filtro select {
+  flex: 1; min-width: 0; min-height: 40px; border: 1px solid #c4c8b8; border-radius: 8px; padding: 0 10px;
+  background: var(--tarjeta); color: var(--tinta); font: 500 14px "Plus Jakarta Sans", system-ui, sans-serif;
+}
+
+.sm-vacio { color: var(--suave); padding: 32px 0; text-align: center; }
+
+/* días: en el celu, uno abajo del otro y se abren tocando */
+.sm-dias { display: grid; gap: 10px; }
+.sm-dia { scroll-margin-top: 150px; min-width: 0; }
+body.con-cartel .sm-dia { scroll-margin-top: 176px; }
+.sm-dia-cabeza {
+  width: 100%; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px;
+  background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio);
+  color: var(--tinta); font: inherit; text-align: left; cursor: pointer;
+}
+.sm-dia.abierto .sm-dia-cabeza { border-color: var(--verde); }
+.sm-dia.sin .sm-dia-cabeza { color: var(--suave); }
+.sm-dia-nombre { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+.sm-dia-cuenta { margin-left: auto; color: var(--suave); font-size: 13px; }
+.sm-dia-flecha { color: var(--suave); font-size: 11px; }
+.sm-hoy {
+  font-style: normal; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  background: var(--verde); color: #fff; border-radius: 999px; padding: 0 6px; line-height: 15px;
+}
+.sm-dia-cuerpo { display: grid; gap: 8px; padding-top: 8px; }
+.sm-dia:not(.abierto) .sm-dia-cuerpo { display: none; }
+
+/* tarjeta de clase con la franja del color de la clase */
+.sm-clase {
+  background: var(--tarjeta); border: 1px solid var(--linea); border-left: 6px solid var(--color-clase);
+  border-radius: var(--radio); padding: 10px 12px; display: grid; gap: 2px; min-width: 0;
+}
+.sm-cabeza { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.sm-hora { font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; }
+.sm-hora small { margin-left: 6px; color: var(--suave); font-weight: 500; font-size: 12px; }
+.sm-cant {
+  flex: none; background: var(--fondo); border-radius: 999px; padding: 1px 8px;
+  font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.sm-titulo { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.sm-titulo .niv-punto { margin-right: 6px; vertical-align: 1px; }
+.sm-sub { color: var(--suave); font-size: 13px; overflow-wrap: anywhere; }
+.sm-nadie { color: var(--suave); font-size: 13px; padding: 4px 0; }
+
+.sm-alumnos { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--linea); display: grid; gap: 4px; }
+.sm-alumno { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 14px; min-width: 0; }
+.sm-nombre { min-width: 0; overflow-wrap: anywhere; }
+.sm-alumno.gris .sm-nombre { color: var(--suave); }
+.sm-tag { background: #dbeafe; color: #1e40af; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.sm-tag.aviso { background: #fef3c7; color: #92400e; }
+.sm-tag.viaje { background: var(--fondo); color: var(--suave); border: 1px solid var(--linea); }
+
+/* compu: las 7 columnas a la vista, todo abierto; los chips sobran */
+@media (min-width: 900px) {
+  .sm-barra { position: static; margin: 0; padding: 0; border: 0; background: none;
+    grid-template-columns: minmax(280px, 360px) auto; justify-content: space-between; align-items: center; }
+  .sm-chips { display: none; }
+  .sm-filtro select { min-width: 200px; }
+  .sm-dias { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; align-items: start; }
+  .sm-dia:not(.abierto) .sm-dia-cuerpo { display: grid; }
+  .sm-dia-cabeza { pointer-events: none; min-height: 40px; padding: 6px 8px; flex-wrap: wrap; gap: 2px 6px; }
+  .sm-dia-cuenta { margin-left: 0; font-size: 12px; width: 100%; }
+  .sm-dia-flecha { display: none; }
+  .sm-dia.abierto .sm-dia-cabeza { border-color: var(--linea); }
+  .sm-dia.hoy .sm-dia-cabeza { border-color: var(--verde); border-width: 2px; }
+  .sm-clase { padding: 8px; }
+  .sm-hora { font-size: 14px; }
+  .sm-hora small { display: block; margin: 0; }
+  .sm-titulo, .sm-alumno { font-size: 13px; }
+  .sm-sub { font-size: 12px; }
+}
