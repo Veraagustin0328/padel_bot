@@ -54,7 +54,7 @@ export const SOLAPAS_PENDIENTES = [
 export const MENU = [
   {
     items: [
-      { a: "/", t: "Inicio", roles: [...GESTION, "jugador", "tutor"] },
+      { a: "/", t: "Inicio", roles: [...GESTION, "jugador", "tutor", "jugador_tutor"] },
       { a: "/pendientes", t: "Pendientes", roles: GESTION, contador: "pendientes" },
     ],
   },

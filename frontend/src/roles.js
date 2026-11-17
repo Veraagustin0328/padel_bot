@@ -7,7 +7,8 @@ export const NOMBRE_ROL = {
   encargado: "Admin",
   profe: "Profe",
   jugador: "Jugador",
-  tutor: "Tutor",
+  tutor: "Padre/tutor",
+  jugador_tutor: "Jugador y padre/tutor", // un papá o mamá de Kids que también juega
 };
 
 export const nombreRol = (rol) => NOMBRE_ROL[rol] || rol;

@@ -11,7 +11,7 @@ from app.extensions import db
 # valores posibles (se validan en el código, no en la base)
 TIPOS_CLASE = ("grupal", "particular", "particular_2", "otro", "fisico")  # fisico: no se cobra, se paga la hora
 AMBITOS = ("adultos", "adultos_tarde", "sabados", "kids", "kids_pro")
-ROLES = ("dueno", "encargado", "profe", "jugador", "tutor")
+ROLES = ("dueno", "encargado", "profe", "jugador", "tutor", "jugador_tutor")  # jugador_tutor = ambos
 # el profe marca solo vino / no vino; el aviso de falta lo carga el agente o el encargado
 ESTADOS_ASISTENCIA = ("presente", "ausente")
 
