@@ -4,6 +4,8 @@ por alumno si el mes está pago o no, y puede cobrar (y deshacer al toque su pro
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
+from sqlalchemy.exc import IntegrityError
+from app import recuperaciones as rec
 from app.cuotas import SIN_TARIFA, cargar_tarifas, clases_del_mes, cuota_de
 from app.extensions import db
 from app.models import Alumno
@@ -46,6 +48,23 @@ def _estado(cuota, pagado):
 def _estado_mes(estado):
     """Lo único que ve el encargado: pago o no_pago (el parcial cuenta como no pago)."""
     return "pago" if estado in ("pago", "a_favor") else "no_pago"
+
+
+def _monto_inscripcion():
+    """El de la config 'inscripcion' (el mismo que dice el agente). None si no está cargado."""
+    try:
+        monto = int(rec.regla("inscripcion"))
+    except (TypeError, ValueError):
+        return None
+    return monto if monto > 0 else None
+
+
+def _con_inscripcion(ids):
+    """De esos alumnos, los que ya tienen la inscripción cargada (en cualquier mes: es pago único)."""
+    if not ids:
+        return set()
+    return {a for (a,) in db.session.query(CuotaMes.alumno_id)
+            .filter(CuotaMes.concepto == "inscripcion", CuotaMes.alumno_id.in_(ids)).distinct()}
 
 
 def _estado_de(alumno_id, inicio):
@@ -148,7 +167,9 @@ def listar():
 
     if not _es_dueno():
         # encargado: nombre y pago / no pago, en orden alfabético (ordenar por deuda ya dice quién debe más)
-        filas = [{"alumno_id": i["alumno_id"], "alumno": i["alumno"], "estado_mes": _estado_mes(i["estado"])}
+        inscriptos = _con_inscripcion(ids)
+        filas = [{"alumno_id": i["alumno_id"], "alumno": i["alumno"], "estado_mes": _estado_mes(i["estado"]),
+                  "inscripcion": i["alumno_id"] in inscriptos}  # si ya la tiene, sin el monto
                  for i in lista]
         filas.sort(key=lambda x: x["alumno"].lower())
         return jsonify(mes=inicio.strftime("%Y-%m"), items=filas, detalle=False)
@@ -228,6 +249,32 @@ def ajustar(cuota_id):
         c.nota = (d["nota"] or "")[:200] or None
     db.session.commit()
     return jsonify(ok=True)
+
+
+@cuotas_bp.post("/api/cuotas/inscripcion")
+@requiere_login("encargado")
+def agregar_inscripcion():
+    """Carga la inscripción con el monto de la config, sin mostrarlo. Una sola vez por alumno."""
+    d = request.get_json(silent=True) or {}
+    inicio, alumno_id = _mes(d.get("mes")), _entero(d.get("alumno_id"))
+    if not inicio or not alumno_id:
+        return jsonify(error="Faltan alumno o mes"), 400
+    if not db.session.get(Alumno, alumno_id):
+        return jsonify(error="No existe ese alumno"), 404
+    if _con_inscripcion([alumno_id]):
+        return jsonify(error="Este alumno ya tiene la inscripción cargada, se cobra una sola vez"), 409
+    monto = _monto_inscripcion()
+    if not monto:
+        return jsonify(error="No está cargado el monto de la inscripción en la configuración: avisale al dueño"), 409
+    c = CuotaMes(alumno_id=alumno_id, mes=inicio, concepto="inscripcion", monto=monto,
+                 monto_calculado=monto, detalle="Inscripción (pago único, de la configuración)")
+    db.session.add(c)
+    try:
+        db.session.commit()
+    except IntegrityError:  # otro la cargó justo ahora
+        db.session.rollback()
+        return jsonify(error="Este alumno ya tiene la inscripción cargada, se cobra una sola vez"), 409
+    return jsonify(id=c.id, estado_mes=_estado_mes(_estado_de(alumno_id, inicio))), 201
 
 
 @cuotas_bp.post("/api/cuotas/cargo")

@@ -17,12 +17,16 @@ function FilaSimple({ it, mes, abierta, alAbrir, hacer, ocupado, alCobrar }) {
   const [monto, setMonto] = useState("");
   const [medio, setMedio] = useState("efectivo");
   const [nota, setNota] = useState("");
+  const [confirmaInsc, setConfirmaInsc] = useState(false); // pregunta antes de cargar la inscripción
   const pago = it.estado_mes === "pago";
 
   return (
     <>
       <div className={"cu-fila simple " + (pago ? "" : "debe")}>
-        <div className="nom">{it.alumno}</div>
+        <div className="nom">
+          {it.alumno}
+          {it.inscripcion && <> <span className="cu-tag pago" title="Ya tiene la inscripción cargada (pago único)">Inscripto</span></>}
+        </div>
         <div><span className={"cu-tag " + (pago ? "pago" : "debe")}>{ETIQUETA_MES[it.estado_mes]}</span></div>
         <div className="der">
           <button className={"boton chico " + (pago ? "claro" : "")} onClick={alAbrir}>{abierta ? "Cerrar" : "Cobrar"}</button>
@@ -54,6 +58,36 @@ function FilaSimple({ it, mes, abierta, alAbrir, hacer, ocupado, alCobrar }) {
               {ocupado === "pago" ? "Guardando…" : "Registrar cobro"}
             </button>
           </div>
+          {/* inscripción: pago único, el monto sale de la configuración y no se muestra */}
+          {/* confirma porque a los alumnos de siempre sin inscripción cargada también les aparece */}
+          {!it.inscripcion && !confirmaInsc && (
+            <div className="cu-form">
+              <button className="boton chico claro" disabled={!!ocupado} onClick={() => setConfirmaInsc(true)}>
+                Agregar inscripción
+              </button>
+              <span className="cu-chico">Pago único: se carga una sola vez por alumno.</span>
+            </div>
+          )}
+          {!it.inscripcion && confirmaInsc && (
+            <div className="cu-form" role="alertdialog" aria-label="Confirmar inscripción">
+              <b>¿Agregar la inscripción a {it.alumno}? Es solo para alumnos nuevos.</b>
+              <button className="boton chico claro" disabled={!!ocupado} onClick={() => setConfirmaInsc(false)}>
+                Cancelar
+              </button>
+              <button
+                className="boton chico"
+                disabled={!!ocupado}
+                onClick={() =>
+                  hacer(
+                    () => api("/api/cuotas/inscripcion", { metodo: "POST", cuerpo: { alumno_id: it.alumno_id, mes } }).then(() => setConfirmaInsc(false)),
+                    "insc"
+                  )
+                }
+              >
+                {ocupado === "insc" ? "Agregando…" : "Confirmar"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </>
