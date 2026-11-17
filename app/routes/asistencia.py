@@ -78,6 +78,14 @@ def _alumnos_del_dia(clase, fecha):
     return {**no_vienen, **vienen}
 
 
+def _etiqueta(tipo, ausencia=None):
+    """La etiqueta que se muestra al lado del alumno. "avisó" es solo informativa: sale del aviso
+    real (agente/encargado), no del "no vino" que marca el profe (ese va sin etiqueta)."""
+    if tipo == "falta":
+        return "avisó" if ausencia and (ausencia.origen != "profe" or ausencia.a_tiempo) else None
+    return {"recupera": "recupera", "reemplazo": "reemplaza", "viaje": "de viaje"}.get(tipo)
+
+
 def _dictada(clase, fecha):
     return m.ClaseDictada.query.filter_by(clase_id=clase.id, fecha=fecha).first()
 
@@ -161,6 +169,91 @@ def mis_clases():
     return jsonify({"hoy": hoy.isoformat(), "fecha": fecha.isoformat(), "clases": salida})
 
 
+@asistencia_bp.get("/api/clases-semana")
+@requiere_login("profe", "encargado")
+def clases_semana():
+    """Clases de la semana (lunes a domingo) con los alumnos que se esperan. Solo lectura.
+    Gestión ve todas; el profe, las que es titular y las que dio por reemplazo ese día.
+    Las bajas no aparecen. Sin plata ni teléfonos."""
+    if _sin_profe():
+        return jsonify({"error": "Tu usuario no está vinculado a un profe"}), 403
+    hoy = _hoy()
+    texto = request.args.get("desde")
+    try:
+        fecha = date.fromisoformat(texto) if texto else hoy
+    except ValueError:
+        return jsonify({"error": "La fecha tiene que ser AAAA-MM-DD"}), 400
+    lunes = fecha - timedelta(days=fecha.weekday())
+    domingo = lunes + timedelta(days=6)
+
+    # clases activas cuya temporada toca la semana; el día exacto lo mira fechas_de_clase
+    clases = m.Clase.query.filter(
+        m.Clase.activa.is_(True),
+        or_(m.Clase.vigente_desde.is_(None), m.Clase.vigente_desde <= domingo),
+        or_(m.Clase.vigente_hasta.is_(None), m.Clase.vigente_hasta > lunes),
+    ).all()
+    # quién la dio cada día (reemplazo de profe): solo hay dato de hoy para atrás
+    dio = {(d.clase_id, d.fecha): d.profesor_id for d in m.ClaseDictada.query.filter(
+        m.ClaseDictada.clase_id.in_([c.id for c in clases] or [0]),
+        m.ClaseDictada.fecha.between(lunes, domingo), m.ClaseDictada.profesor_id.isnot(None))}
+
+    yo = None if g.usuario.rol in GESTION else g.usuario.profesor_id
+    visibles = []  # (clase, fecha, quien_la_dio)
+    for c in clases:
+        for f in recuperaciones.fechas_de_clase(c, lunes, domingo):
+            la_dio = dio.get((c.id, f), c.profesor_id)
+            if yo is None or yo in (c.profesor_id, la_dio):
+                visibles.append((c, f, la_dio))
+
+    de_la_semana = list({c.id: c for c, _, _ in visibles}.values())
+    esperados = recuperaciones.alumnos_en_rango(de_la_semana, lunes, domingo)
+
+    ids = {aid for c, f, _ in visibles for lista in esperados.get((c.id, f), ({}, {})) for aid in lista}
+    nombres = {}
+    if ids:
+        nombres = {aid: n for aid, n in db.session.query(Alumno.id, Alumno.nombre).filter(
+            Alumno.id.in_(ids), or_(Alumno.estado.is_(None), Alumno.estado != "baja"))}
+    avisos = {}
+    if de_la_semana:
+        for a in m.Ausencia.query.filter(m.Ausencia.clase_id.in_([c.id for c in de_la_semana]),
+                                         m.Ausencia.fecha.between(lunes, domingo)):
+            avisos[(a.clase_id, a.fecha, a.alumno_id)] = a
+    profes = {c.profesor_id for c, _, _ in visibles} | {d for _, _, d in visibles}
+    nombre_profe = dict(db.session.query(Profesor.id, Profesor.nombre).filter(
+        Profesor.id.in_(profes - {None}))) if profes - {None} else {}
+    tabla = niveles.tabla()
+
+    def lista(c, f, alumnos):
+        filas = [{"id": aid, "nombre": nombres[aid], "etiqueta": _etiqueta(tipo, avisos.get((c.id, f, aid)))}
+                 for aid, tipo in alumnos.items() if aid in nombres]  # las bajas quedan afuera
+        return sorted(filas, key=lambda x: x["nombre"].lower())
+
+    dias = [{"fecha": (lunes + timedelta(days=i)).isoformat(), "dia": i, "clases": []} for i in range(7)]
+    for c, f, la_dio in visibles:
+        vienen, no_vienen = esperados.get((c.id, f), ({}, {}))
+        vienen_l = lista(c, f, vienen)
+        dias[f.weekday()]["clases"].append({
+            "id": c.id,
+            "hora": c.hora_inicio.strftime("%H:%M"),
+            "duracion": c.duracion_min,
+            "ambito": c.ambito,
+            "tipo": c.tipo,
+            "nivel": c.nivel or "",
+            "rama": c.rama or "",
+            "color": niveles.color_clase(c.nivel, c.rama, c.columna_color, tabla)["color"],
+            "profe": nombre_profe.get(c.profesor_id, ""),
+            "la_dio": nombre_profe.get(la_dio, "") if la_dio != c.profesor_id else "",  # vacío = el titular
+            "cupo": c.cupo,
+            "cantidad": len(vienen_l),
+            "vienen": vienen_l,
+            "no_vienen": lista(c, f, no_vienen),  # van al final, en gris
+        })
+    for d in dias:
+        d["clases"].sort(key=lambda x: (x["hora"], x["profe"]))
+    return jsonify({"hoy": hoy.isoformat(), "desde": lunes.isoformat(), "hasta": domingo.isoformat(),
+                    "dias": dias})
+
+
 @asistencia_bp.get("/api/mis-clases/<int:clase_id>/asistencia")
 @requiere_login("profe", "encargado")
 def ver_asistencia(clase_id):
@@ -173,14 +266,10 @@ def ver_asistencia(clase_id):
 
     ids, dictada, marcas = _lista_del_dia(clase, fecha)
 
-    # etiqueta "avisó": solo informativa, sale del aviso real (agente/encargado), no de la marca del profe
     avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=clase.id, fecha=fecha)}
 
     def etiqueta(aid, tipo):
-        if tipo == "falta":
-            aus = avisos.get(aid)
-            return "avisó" if aus and (aus.origen != "profe" or aus.a_tiempo) else None
-        return {"recupera": "recupera", "reemplazo": "reemplaza", "viaje": "de viaje"}.get(tipo)
+        return _etiqueta(tipo, avisos.get(aid))
 
     nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(Alumno.id.in_(ids)).all()) if ids else {}
     nivel_de = niveles.datos_de(ids)
