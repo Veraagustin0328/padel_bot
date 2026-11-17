@@ -12,10 +12,10 @@ const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
   "septiembre", "octubre", "noviembre", "diciembre"];
 const SEMANAS_ATRAS = 8; // hasta dónde se puede ir para marcar lo que quedó colgado
+// el profe marca solo vino / no vino; si avisó, lo dice la etiqueta (sale del agente o del encargado)
 const ESTADOS = [
-  ["presente", "Presente"],
-  ["ausente", "Ausente"],
-  ["ausente_avisa", "Avisó"],
+  ["presente", "Vino"],
+  ["ausente", "No vino"],
 ];
 const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otra", fisico: "Físico" };
 
