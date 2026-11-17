@@ -9,6 +9,7 @@ from app import contactos
 from app.whatsapp_client import enviar_mensaje_whatsapp, reenviar_archivo_whatsapp
 from app import planilla
 from app.extensions import db
+from app.privacidad import sin_pesos
 from app.routes.auth import requiere_login
 from sqlalchemy import text
 
@@ -245,6 +246,6 @@ def _parsear_mensaje_meta(data: dict):
 def ver_notificaciones():
     notifs = Notificacion.query.order_by(Notificacion.creado_en.desc()).limit(20).all()
     return jsonify([
-        {"id": n.id, "tipo": n.tipo, "mensaje": n.mensaje, "creado_en": n.creado_en.isoformat()}
+        {"id": n.id, "tipo": n.tipo, "mensaje": sin_pesos(n.mensaje), "creado_en": n.creado_en.isoformat()}
         for n in notifs
     ])

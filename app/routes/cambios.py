@@ -12,6 +12,7 @@ from app import cambios_dias as cd
 from app import recuperaciones
 from app.extensions import db
 from app.models import Alumno, CambioPendiente, Conversacion
+from app.privacidad import es_dueno
 from app.routes.auth import requiere_login
 from app.whatsapp_client import enviar_mensaje_whatsapp
 
@@ -22,8 +23,7 @@ cambios_bp = Blueprint("cambios_dias", __name__)
 def _item(c: CambioPendiente, nombres: dict) -> dict:
     hoy = recuperaciones.hoy()
     actuales = cd.clases_del_alumno(c.alumno_id, hoy) if c.alumno_id else []
-    cuota_actual, _ = cd.precio_de(actuales)
-    return {
+    item = {
         "id": c.id,
         "alumno_id": c.alumno_id,
         "alumno": nombres.get(c.alumno_id) or c.alumno_telefono,
@@ -31,14 +31,16 @@ def _item(c: CambioPendiente, nombres: dict) -> dict:
         "deja": [cd.texto_clase(x) for x in cd.clases_por_ids(cd.ids(c.clases_deja))],
         "nuevas": [cd.texto_clase(x) for x in cd.clases_por_ids(cd.ids(c.clases_nuevas))],
         "actuales": [cd.texto_clase(x) for x in actuales],
-        "cuota_actual": cuota_actual,
-        "cuota_nueva": c.precio_estimado,
         # si alguna clase nueva ya se llenó, aprobar va a fallar: lo mostramos antes
         "sin_lugar": [cd.texto_clase(x) for x in cd.sin_lugar(c)],
         "origen": c.origen,
         "espera": c.espera,
         "creado_en": c.creado_en.isoformat() + "Z" if c.creado_en else None,
     }
+    if es_dueno():  # la cuota (actual y estimada) es plata: solo el dueño
+        item["cuota_actual"], _ = cd.precio_de(actuales)
+        item["cuota_nueva"] = c.precio_estimado
+    return item
 
 
 def _avisar_alumno(cambio: CambioPendiente, texto: str) -> bool:
@@ -92,7 +94,9 @@ def aprobar(cambio_id):
     avisos = [r["cuota"]["aviso"]] if r["cuota"].get("aviso") else []
     if not avisado:
         avisos.append("No le pude avisar por WhatsApp: escribile vos.")
-    return jsonify({"ok": True, "cuota": r["cuota"], "avisado": avisado, "avisos": avisos})
+    # al encargado solo qué pasó con la cuota (recalculada, con pagos...), sin el antes / ahora
+    cuota = r["cuota"] if es_dueno() else {"cuota": r["cuota"].get("cuota")}
+    return jsonify({"ok": True, "cuota": cuota, "avisado": avisado, "avisos": avisos})
 
 
 @cambios_bp.post("/api/cambios-dias/<int:cambio_id>/rechazar")

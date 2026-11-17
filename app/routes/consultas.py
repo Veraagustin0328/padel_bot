@@ -10,6 +10,7 @@ from flask import Blueprint, g, jsonify, request
 from app.extensions import db
 from app.models import Alumno, Notificacion
 from app.models_plataforma import Usuario
+from app.privacidad import sin_pesos
 from app.routes.auth import requiere_login
 
 consultas_bp = Blueprint("consultas", __name__)
@@ -42,7 +43,7 @@ def _items(filas) -> list:
         "id": n.id,
         "tipo": n.tipo,
         "tema": n.tema,
-        "mensaje": n.mensaje,
+        "mensaje": sin_pesos(n.mensaje),  # la cuota estimada y otros montos: solo el dueño
         "telefono": n.telefono,
         "alumno": alumnos.get(n.telefono),  # vacío si escribió alguien que no es alumno
         "creado_en": _fecha(n.creado_en),

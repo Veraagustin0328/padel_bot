@@ -12,6 +12,7 @@ const capital = (s) => s.charAt(0) + s.slice(1).toLowerCase();
 const mesActual = () => MESES[ahora().getMonth()];
 
 function Celda({ m }) {
+  if (m && "pago" in m) return m.pago ? <td className="num">Pagó</td> : <td />; // encargado: sin montos
   if (!m || !m.texto) return <td />;
   if (m.monto !== null && m.monto >= 1000) return <td className="num">{peso.format(m.monto)}</td>;
   if (m.monto === 0) return <td className="num cero">$ 0</td>;
@@ -63,7 +64,7 @@ function ListadoPlanilla() {
   const lista = base.filter((a) => (aldia === "aldia" ? esAlDia(a) : aldia === "debe" ? esDebe(a) : true));
 
   // solo muestro los meses que tienen algo cargado
-  const meses = MESES.filter((m) => base.some((a) => a.meses[m]?.texto));
+  const meses = MESES.filter((m) => base.some((a) => a.meses[m]?.texto || a.meses[m]?.pago));
 
   return (
     <div>

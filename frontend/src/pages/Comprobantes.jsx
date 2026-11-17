@@ -177,7 +177,8 @@ export default function Comprobantes() {
                     <div className="cmp-sub">#{c.id} · {c.mes} · {c.fecha}{c.alumno ? ` · ${c.telefono}` : ""}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div className="cmp-monto">{c.monto ? peso.format(c.monto) : "Sin monto"}</div>
+                    {/* oculto: historial para el encargado, el monto es solo del dueño */}
+                    {!c.oculto && <div className="cmp-monto">{c.monto ? peso.format(c.monto) : "Sin monto"}</div>}
                     <span className={"cmp-estado " + c.estado}>{c.estado}</span>
                   </div>
                 </div>

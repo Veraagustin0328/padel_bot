@@ -12,6 +12,7 @@ from app.contactos import alumnos_de_telefono, tel10
 from app.extensions import db
 from app.models import PARENTESCOS, Alumno, ContactoAlumno
 from app.models_academia import ConfigAcademia
+from app.privacidad import es_dueno
 from app.routes.auth import requiere_login
 from app.sheets_client import pestana
 
@@ -47,6 +48,7 @@ def listar():
         i = col(nombre)
         return str(fila[i]).strip() if i is not None and i < len(fila) else ""
 
+    dueno = es_dueno()
     salida = []
     for n, fila in enumerate(filas[1:], start=2):
         nombre = val(fila, "NOMBRE")
@@ -55,7 +57,8 @@ def listar():
         meses = {}
         for m in planilla.MESES:
             texto = val(fila, m)
-            meses[m] = {"texto": texto, "monto": _dinero(texto)}
+            # celda con algo = pagó (mismo criterio que la fórmula); el monto solo para el dueño
+            meses[m] = {"texto": texto, "monto": _dinero(texto)} if dueno else {"pago": bool(texto)}
         salida.append({
             "id": n,
             "numero": val(fila, "N°"),

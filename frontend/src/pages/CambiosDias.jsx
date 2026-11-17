@@ -31,7 +31,8 @@ function Cambio({ x, ocupado, onAprobar, onRechazar, soloLectura }) {
       <div>Deja: {lista(x.deja)}</div>
       <div>Pasa a: <b>{lista(x.nuevas)}</b></div>
       <div className="nota">
-        Hoy viene {lista(x.actuales)} · Cuota {pesos(x.cuota_actual)} → <b>{pesos(x.cuota_nueva)}</b>
+        Hoy viene {lista(x.actuales)}
+        {"cuota_nueva" in x && <> · Cuota {pesos(x.cuota_actual)} → <b>{pesos(x.cuota_nueva)}</b></>}
       </div>
       <div className="nota">Lo pidió {ORIGEN[x.origen] || x.origen || "?"}</div>
       {x.sin_lugar.length > 0 && (

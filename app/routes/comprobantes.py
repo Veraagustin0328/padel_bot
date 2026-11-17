@@ -12,6 +12,7 @@ from app import planilla
 from app.extensions import db
 from app.models import Alumno, ContactoAlumno
 from app.models_cuotas import CONCEPTOS, MEDIOS_PAGO, PagoCuota
+from app.privacidad import es_dueno
 from app.routes.auth import requiere_login
 from app.sheets_client import leer_pestana, pestana
 
@@ -170,6 +171,10 @@ def listar():
     items = [_a_json(f, indices, pagos) for f in filas if f.get("TELEFONO") or f.get("ALUMNO")]
     if estado != "todos":
         items = [i for i in items if i["estado"] == estado]
+    if not es_dueno():
+        for i in items:
+            if i["estado"] != "pendiente":
+                i["monto"], i["oculto"] = None, True  # historial de pagos: solo el dueño
     items.reverse()  # los más nuevos primero
     return jsonify(items[:200])
 
