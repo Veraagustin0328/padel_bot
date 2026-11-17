@@ -160,60 +160,88 @@ def alumnos_del_dia(clase, fecha):
     return vienen, no_vienen
 
 
-def alumnos_del_dia_en_lote(clases, fecha):
-    """Lo mismo que alumnos_del_dia pero para varias clases de la misma fecha, con 4 consultas
-    en total en vez de 4 por clase. Devuelve {clase_id: (vienen, no_vienen)}.
-    Si tocás la lógica de una, tocá la otra: tienen que dar igual."""
+def fechas_de_clase(clase, desde, hasta):
+    """Las fechas entre desde y hasta (incluidas) en que la clase se da: su día y su temporada.
+    No mira 'activa': eso lo filtra quien llama."""
+    f = desde + timedelta(days=(clase.dia_semana - desde.weekday()) % 7)
+    while f <= hasta:
+        if clase.vigente_en(f):
+            yield f
+        f += timedelta(days=7)
+
+
+def _en_lote(clases, desde, hasta, fechas_de):
+    """La lógica de alumnos_del_dia para varias clases y varias fechas, con 4 consultas en total.
+    fechas_de(clase) -> las fechas a armar de esa clase. Devuelve {(clase_id, fecha): (vienen, no_vienen)}."""
     ids = [c.id for c in clases]
     if not ids:
         return {}
 
-    fijos_de = {i: set() for i in ids}
-    q = db.session.query(m.Inscripcion.clase_id, m.Inscripcion.alumno_id).filter(m.Inscripcion.clase_id.in_(ids))
-    for cid, aid in _vigente(q, fecha):
-        fijos_de[cid].add(aid)
+    # inscripciones que tocan el rango; después se mira cada fecha ('hasta' = primer día que ya no está)
+    insc = {i: [] for i in ids}
+    for cid, aid, d, h in db.session.query(
+            m.Inscripcion.clase_id, m.Inscripcion.alumno_id, m.Inscripcion.desde, m.Inscripcion.hasta).filter(
+            m.Inscripcion.clase_id.in_(ids), m.Inscripcion.desde <= hasta,
+            or_(m.Inscripcion.hasta.is_(None), m.Inscripcion.hasta > desde)):
+        insc[cid].append((aid, d, h))
 
     # los viajes de todas las clases (clase_id vacío) y los de estas
     lapsos = m.AusenciaLapso.query.filter(
         m.AusenciaLapso.estado == "confirmado",
-        m.AusenciaLapso.desde <= fecha,
-        m.AusenciaLapso.hasta >= fecha,
+        m.AusenciaLapso.desde <= hasta,
+        m.AusenciaLapso.hasta >= desde,
         or_(m.AusenciaLapso.clase_id.is_(None), m.AusenciaLapso.clase_id.in_(ids)),
     ).all()
 
-    faltan_de = {i: [] for i in ids}
-    for cid, aid in db.session.query(m.Ausencia.clase_id, m.Ausencia.alumno_id).filter(
-            m.Ausencia.clase_id.in_(ids), m.Ausencia.fecha == fecha):
-        faltan_de[cid].append(aid)
+    faltan_de = {}
+    for cid, f, aid in db.session.query(m.Ausencia.clase_id, m.Ausencia.fecha, m.Ausencia.alumno_id).filter(
+            m.Ausencia.clase_id.in_(ids), m.Ausencia.fecha.between(desde, hasta)):
+        faltan_de.setdefault((cid, f), []).append(aid)
 
-    recuperan_de = {i: [] for i in ids}
-    for cid, aid in db.session.query(m.RecuperacionClase.clase_id, m.RecuperacionClase.alumno_id).filter(
-            m.RecuperacionClase.clase_id.in_(ids), m.RecuperacionClase.fecha == fecha,
+    recuperan_de = {}
+    for cid, f, aid in db.session.query(
+            m.RecuperacionClase.clase_id, m.RecuperacionClase.fecha, m.RecuperacionClase.alumno_id).filter(
+            m.RecuperacionClase.clase_id.in_(ids), m.RecuperacionClase.fecha.between(desde, hasta),
             m.RecuperacionClase.estado == "confirmada"):
-        recuperan_de[cid].append(aid)
+        recuperan_de.setdefault((cid, f), []).append(aid)
 
     salida = {}
     for c in clases:
-        fijos = fijos_de[c.id]
-        no_vienen, reemplazos = {}, []
-        for lap in lapsos:
-            if lap.clase_id not in (None, c.id):
-                continue
-            if lap.alumno_id in fijos:
-                no_vienen[lap.alumno_id] = "viaje"
-                if lap.reemplazo_alumno_id:
-                    reemplazos.append(lap.reemplazo_alumno_id)
-        for aid in faltan_de[c.id]:
-            if aid in fijos:
-                no_vienen.setdefault(aid, "falta")
+        for f in fechas_de(c):
+            fijos = {aid for aid, d, h in insc[c.id] if d <= f and (h is None or h > f)}
+            no_vienen, reemplazos = {}, []
+            for lap in lapsos:
+                if lap.clase_id not in (None, c.id) or not (lap.desde <= f <= lap.hasta):
+                    continue
+                if lap.alumno_id in fijos:
+                    no_vienen[lap.alumno_id] = "viaje"
+                    if lap.reemplazo_alumno_id:
+                        reemplazos.append(lap.reemplazo_alumno_id)
+            for aid in faltan_de.get((c.id, f), ()):
+                if aid in fijos:
+                    no_vienen.setdefault(aid, "falta")
 
-        vienen = {aid: "fijo" for aid in fijos if aid not in no_vienen}
-        for aid in reemplazos:
-            vienen.setdefault(aid, "reemplazo")
-        for aid in recuperan_de[c.id]:
-            vienen.setdefault(aid, "recupera")
-        salida[c.id] = (vienen, no_vienen)
+            vienen = {aid: "fijo" for aid in fijos if aid not in no_vienen}
+            for aid in reemplazos:
+                vienen.setdefault(aid, "reemplazo")
+            for aid in recuperan_de.get((c.id, f), ()):
+                vienen.setdefault(aid, "recupera")
+            salida[(c.id, f)] = (vienen, no_vienen)
     return salida
+
+
+def alumnos_en_rango(clases, desde, hasta):
+    """alumnos_del_dia para varias clases en un rango (ej. la semana), con 4 consultas en total.
+    Solo arma las fechas en que cada clase se da. Devuelve {(clase_id, fecha): (vienen, no_vienen)}.
+    Si tocás la lógica, tocá también alumnos_del_dia: tienen que dar igual."""
+    return _en_lote(clases, desde, hasta, lambda c: fechas_de_clase(c, desde, hasta))
+
+
+def alumnos_del_dia_en_lote(clases, fecha):
+    """alumnos_del_dia para varias clases de la misma fecha. Devuelve {clase_id: (vienen, no_vienen)}.
+    Arma la fecha para todas las que le pasen, sin mirar el día (eso lo filtra quien llama)."""
+    lote = _en_lote(clases, fecha, fecha, lambda c: (fecha,))
+    return {c.id: lote[(c.id, fecha)] for c in clases}
 
 
 def lugares_libres(clase, fecha):
