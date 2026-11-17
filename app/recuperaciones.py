@@ -273,8 +273,8 @@ def faltas_recuperables(alumno_id, para_fecha=None):
 
 def sincronizar_asistencia(clase, fecha, alumno_id, estado):
     """Lo que marca el profe en Mis clases se refleja en Ausencia (solo para alumnos fijos).
-    'Avisó' -> falta a tiempo (el profe lo certifica). 'Ausente' -> falta sin aviso.
-    Si la falta la cargó el alumno, el agente o el encargado, no se pisa.
+    'No vino' -> si no había falta, queda una sin aviso. Si ya había una no se toca nunca:
+    el aviso a tiempo sale del agente o del encargado, no del profe.
     """
     if not inscripto(alumno_id, clase.id, fecha):
         return
@@ -286,14 +286,11 @@ def sincronizar_asistencia(clase, fecha, alumno_id, estado):
             db.session.delete(aus)
         return
 
-    certifica = estado == "ausente_avisa"
+    # la que ya está (del agente, del encargado o una que pasaron a tiempo) queda como está
     if not aus:
         db.session.add(m.Ausencia(alumno_id=alumno_id, clase_id=clase.id, fecha=fecha, origen="profe",
-                                  a_tiempo=certifica, motivo=None if certifica else "sin aviso"))
-    elif aus.origen == "profe":
-        aus.a_tiempo = certifica
-        aus.motivo = None if certifica else "sin aviso"
-    db.session.flush()
+                                  a_tiempo=False, motivo="sin aviso"))
+        db.session.flush()
 
 
 # ---------- recuperaciones ----------

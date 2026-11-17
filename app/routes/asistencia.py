@@ -173,7 +173,7 @@ def ver_asistencia(clase_id):
 
     ids, dictada, marcas = _lista_del_dia(clase, fecha)
 
-    # "avisó" solo si avisó de verdad: la falta que puso el profe como 'Ausente' no cuenta
+    # etiqueta "avisó": solo informativa, sale del aviso real (agente/encargado), no de la marca del profe
     avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=clase.id, fecha=fecha)}
 
     def etiqueta(aid, tipo):
@@ -336,6 +336,6 @@ def _guardar(clase, fecha, alumno_id, estado, datos):
     if not ya_marcado:
         db.session.add(fila)
     db.session.flush()
-    # 'Avisó' / 'Ausente' deja la falta cargada para recuperar (solo alumnos fijos)
+    # 'No vino' deja la falta sin aviso si no había una (solo alumnos fijos)
     recuperaciones.sincronizar_asistencia(clase, fecha, alumno_id, estado)
     return jsonify({"ok": True, "alumno_id": alumno_id, "estado": fila.estado, "nota": fila.nota or ""})

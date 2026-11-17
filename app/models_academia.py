@@ -12,7 +12,8 @@ from app.extensions import db
 TIPOS_CLASE = ("grupal", "particular", "particular_2", "otro", "fisico")  # fisico: no se cobra, se paga la hora
 AMBITOS = ("adultos", "adultos_tarde", "sabados", "kids", "kids_pro")
 ROLES = ("dueno", "encargado", "profe", "jugador", "tutor")
-ESTADOS_ASISTENCIA = ("presente", "ausente", "ausente_avisa")
+# el profe marca solo vino / no vino; el aviso de falta lo carga el agente o el encargado
+ESTADOS_ASISTENCIA = ("presente", "ausente")
 
 
 # ---------- personas ----------
@@ -161,7 +162,7 @@ class Asistencia(db.Model):
     clase_dictada_id = db.Column(db.Integer, db.ForeignKey("clases_dictadas.id", ondelete="CASCADE"),
                                  nullable=False, index=True)
     alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id"), nullable=False, index=True)
-    estado = db.Column(db.String(15), nullable=False)             # presente / ausente / ausente_avisa
+    estado = db.Column(db.String(15), nullable=False)             # presente (vino) / ausente (no vino)
     origen = db.Column(db.String(15), nullable=False, default="fija")  # fija / recuperacion / suelta / panel
     marcado_en = db.Column(db.DateTime, default=datetime.utcnow)
     nota = db.Column(db.String(255), nullable=True)
