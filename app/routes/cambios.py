@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import cambios_dias as cd
 from app import recuperaciones
+from app.cuotas import cargar_tarifas
 from app.extensions import db
 from app.models import Alumno, CambioPendiente, Conversacion
 from app.privacidad import es_dueno
@@ -20,25 +21,31 @@ log = logging.getLogger(__name__)
 cambios_bp = Blueprint("cambios_dias", __name__)
 
 
-def _item(c: CambioPendiente, nombres: dict) -> dict:
-    hoy = recuperaciones.hoy()
-    actuales = cd.clases_del_alumno(c.alumno_id, hoy) if c.alumno_id else []
+def _item(c: CambioPendiente, nombres: dict, lote: dict) -> dict:
+    """lote: lo que se leyó de una para toda la lista (ver listar), así no hay consultas por cambio."""
+    actuales = lote["actuales"].get(c.alumno_id, []) if c.alumno_id else []
+
+    def de_ids(texto):  # igual que cd.clases_por_ids, pero sobre las que ya se leyeron
+        pedidas = set(cd.ids(texto))
+        return [x for x in lote["clases"] if x.id in pedidas]
     item = {
         "id": c.id,
         "alumno_id": c.alumno_id,
         "alumno": nombres.get(c.alumno_id) or c.alumno_telefono,
         "vigente_desde": c.vigente_desde.isoformat() if c.vigente_desde else None,
-        "deja": [cd.texto_clase(x) for x in cd.clases_por_ids(cd.ids(c.clases_deja))],
-        "nuevas": [cd.texto_clase(x) for x in cd.clases_por_ids(cd.ids(c.clases_nuevas))],
+        "deja": [cd.texto_clase(x) for x in de_ids(c.clases_deja)],
+        "nuevas": [cd.texto_clase(x) for x in de_ids(c.clases_nuevas)],
         "actuales": [cd.texto_clase(x) for x in actuales],
         # si alguna clase nueva ya se llenó, aprobar va a fallar: lo mostramos antes
-        "sin_lugar": [cd.texto_clase(x) for x in cd.sin_lugar(c)],
+        "sin_lugar": [cd.texto_clase(x) for x in lote["sin_lugar"][c.id]],
         "origen": c.origen,
         "espera": c.espera,
         "creado_en": c.creado_en.isoformat() + "Z" if c.creado_en else None,
     }
     if es_dueno():  # la cuota (actual y estimada) es plata: solo el dueño
-        item["cuota_actual"], _ = cd.precio_de(actuales)
+        if actuales and "tarifas" not in lote:
+            lote["tarifas"] = cargar_tarifas()  # una vez para toda la lista (las de hoy, como antes)
+        item["cuota_actual"], _ = cd.precio_de(actuales, tarifas=lote.get("tarifas"))
         item["cuota_nueva"] = c.precio_estimado
     return item
 
@@ -68,7 +75,15 @@ def listar():
                   .order_by(CambioPendiente.vigente_desde, CambioPendiente.creado_en).all())
     ids_ = {c.alumno_id for c in pendientes if c.alumno_id}
     nombres = {a.id: a.nombre for a in Alumno.query.filter(Alumno.id.in_(ids_))} if ids_ else {}
-    items = [_item(c, nombres) for c in pendientes]
+    # todo lo de la lista en pocas consultas, no unas 8 por cambio
+    hoy = recuperaciones.hoy()
+    clases = cd.clases_por_ids(sorted({i for c in pendientes for i in (*cd.ids(c.clases_deja), *cd.ids(c.clases_nuevas))}))
+    lote = {
+        "actuales": cd.clases_de_alumnos(ids_, hoy),
+        "clases": clases,
+        "sin_lugar": cd.sin_lugar_en_lote(pendientes, clases),
+    }
+    items = [_item(c, nombres, lote) for c in pendientes]
     para_mi = [x for x in items if x["espera"] != "alumno"]
     return jsonify({
         "pendientes": para_mi,

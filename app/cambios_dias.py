@@ -239,12 +239,15 @@ def armar(alumno_id: int, fecha: date, dias_nuevos: list[int], hora=None,
 
 
 # ---------------------------------------------------------------- precio
-def precio_de(clases: list[Clase], fecha: date | None = None) -> tuple[int | None, str]:
+def precio_de(clases: list[Clase], fecha: date | None = None, tarifas=None) -> tuple[int | None, str]:
     """(cuota mensual, detalle). None si no hay una tarifa exacta: nunca se inventa.
-    fecha: desde cuándo rige el cambio; se cotiza con las tarifas de ese mes (vacío = las de hoy)."""
+    fecha: desde cuándo rige el cambio; se cotiza con las tarifas de ese mes (vacío = las de hoy).
+    tarifas: las ya cargadas para esa fecha, para no leerlas de nuevo en una lista."""
     if not clases:
         return None, "sin clases"
-    r = cuota_de(clases, cargar_tarifas(fecha.replace(day=1) if fecha else None))
+    if tarifas is None:
+        tarifas = cargar_tarifas(fecha.replace(day=1) if fecha else None)
+    r = cuota_de(clases, tarifas)
     if r["total"] <= 0 or r["avisos"]:
         return None, "; ".join(r["avisos"]) or "sin tarifa"
     return int(r["total"]), "; ".join(r["lineas"])
@@ -297,6 +300,22 @@ def clases_por_ids(ids_: list[int]) -> list[Clase]:
     return Clase.query.filter(Clase.id.in_(ids_)).order_by(Clase.dia_semana, Clase.hora_inicio).all()
 
 
+def clases_de_alumnos(alumno_ids, fecha: date) -> dict[int, list[Clase]]:
+    """clases_del_alumno para varios alumnos con una sola consulta (para listas del panel).
+    Si tocás clases_del_alumno, tocá esta también: tienen que dar igual."""
+    salida = {a: [] for a in alumno_ids}
+    if not salida:
+        return salida
+    filas = (db.session.query(Inscripcion.alumno_id, Clase).join(Clase, Inscripcion.clase_id == Clase.id)
+             .filter(Inscripcion.alumno_id.in_(list(salida)), Clase.activa.is_(True), vigente_en(fecha),
+                     clase_vigente_en(fecha))
+             .order_by(Clase.dia_semana, Clase.hora_inicio).distinct().all())
+    for alumno_id, clase in filas:
+        if clase not in salida[alumno_id]:
+            salida[alumno_id].append(clase)
+    return salida
+
+
 def anotado_en(alumno_id: int, clase_id: int, fecha: date) -> Inscripcion | None:
     return Inscripcion.query.filter(Inscripcion.clase_id == clase_id, Inscripcion.alumno_id == alumno_id,
                                     vigente_en(fecha)).first()
@@ -309,6 +328,40 @@ def sin_lugar(cambio: CambioPendiente) -> list[Clase]:
         return []
     return [c for c in clases_por_ids(ids(cambio.clases_nuevas))
             if not anotado_en(cambio.alumno_id, c.id, fecha) and lleno_desde(c, fecha)]
+
+
+def sin_lugar_en_lote(cambios: list[CambioPendiente], clases: list[Clase] | None = None) -> dict[int, list[Clase]]:
+    """sin_lugar para varios cambios con dos consultas en total: {cambio_id: [clases sin lugar]}.
+    clases: si ya las tenés (ordenadas como clases_por_ids), se ahorra una consulta.
+    Si tocás sin_lugar, lleno_desde, libres u ocupados, tocá esta también: tienen que dar igual."""
+    salida = {c.id: [] for c in cambios}
+    pedidos = [(c, set(ids(c.clases_nuevas))) for c in cambios if c.vigente_desde and c.alumno_id]
+    clase_ids = {i for _, nuevas in pedidos for i in nuevas}
+    if not clase_ids:
+        return salida
+    if clases is None:
+        clases = clases_por_ids(list(clase_ids))
+    anotados = {}
+    for cid, aid, d, h in db.session.query(
+            Inscripcion.clase_id, Inscripcion.alumno_id, Inscripcion.desde, Inscripcion.hasta).filter(
+            Inscripcion.clase_id.in_(clase_ids)):
+        anotados.setdefault(cid, []).append((aid, d, h))
+
+    def vale(d, h, f):  # lo mismo que vigente_en, pero en memoria
+        return d is not None and d <= f and (h is None or h > f)
+
+    for cambio, nuevas in pedidos:
+        f = cambio.vigente_desde
+        for c in clases:
+            if c.id not in nuevas:
+                continue
+            filas = anotados.get(c.id, [])
+            if any(aid == cambio.alumno_id and vale(d, h, f) for aid, d, h in filas):
+                continue  # ya está anotado ahí
+            fechas = {f} | {d for _, d, _ in filas if d is not None and d > f}
+            if any(c.cupo - sum(1 for _, d, h in filas if vale(d, h, x)) <= 0 for x in fechas):
+                salida[cambio.id].append(c)
+    return salida
 
 
 def _auditar(cambio: CambioPendiente, accion: str, despues: dict, usuario_id: int | None) -> None:
