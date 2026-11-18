@@ -122,3 +122,7 @@
   .mc-horas-fila { grid-template-columns: minmax(0, 1fr) auto auto; }
   .mc-horas-grupo { grid-column: 1 / -1; grid-row: 2; color: var(--suave); }
 }
+
+/* nivel de un dia que no llego: se ve igual pero no se toca */
+.niv-actual.mc-niv-fijo { cursor: default; }
+.niv-actual.mc-niv-fijo:hover { border-color: var(--linea); }

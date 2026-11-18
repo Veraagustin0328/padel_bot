@@ -4,7 +4,7 @@ import { useAuth } from "../auth.jsx";
 import { GESTION } from "../roles.js";
 import { MARCA } from "../marca.js";
 import { diaSemana, diasDeSemana, hoyEn, lunesDe, mesDe, numeroDia, sumarDias, ultimoDiaConClases } from "../fechas.js";
-import { NivelAlumno, Punto, etiquetaNivel } from "../niveles.jsx";
+import { NivelAlumno, Punto, colorAlumno, etiquetaNivel } from "../niveles.jsx";
 import "./misclases.css";
 import { NovedadesVigentes } from "./Novedades.jsx";
 
@@ -12,6 +12,7 @@ const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
   "septiembre", "octubre", "noviembre", "diciembre"];
 const SEMANAS_ATRAS = 8; // hasta dónde se puede ir para marcar lo que quedó colgado
+const SEMANAS_ADELANTE = 4; // para adelante es solo mirar quiénes se esperan
 // el profe marca solo vino / no vino; si avisó, lo dice la etiqueta (sale del agente o del encargado)
 const ESTADOS = [
   ["presente", "Vino"],
@@ -41,6 +42,25 @@ function rangoSemana(dias) {
     : `${numeroDia(a)} de ${ma} al ${numeroDia(b)} de ${mb}`;
 }
 
+// el nivel sin lápiz: en un día que no llegó solo se mira
+function NivelFijo({ alumno, colores }) {
+  if (alumno.clasificar) {
+    return (
+      <div className="niv">
+        <span className="niv-nuevo">Nuevo: a clasificar{alumno.nivel_declarado && ` · dijo ${etiquetaNivel(alumno.nivel_declarado)}`}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="niv">
+      <span className="niv-actual mc-niv-fijo">
+        <Punto color={colorAlumno(colores, alumno.rama, alumno.nivel)} hueco={!!alumno.nivel} />
+        {alumno.nivel ? etiquetaNivel(alumno.nivel) : "Sin nivel"}
+      </span>
+    </div>
+  );
+}
+
 function Clase({ clase, fecha, futuro, verProfe }) {
   const [abierta, setAbierta] = useState(false);
   const [datos, setDatos] = useState(null);
@@ -57,7 +77,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
     setDatos(null);
     setError("");
     setLaDio({ guardando: false, ok: "" });
-    if (!abierta || futuro) return; // el backend no deja ver ni marcar días que no llegaron
+    if (!abierta) return; // un día que no llegó también se pide: vuelve en solo lectura
     api(`/api/mis-clases/${clase.id}/asistencia?fecha=${fecha}`)
       .then(setDatos)
       .catch((e) => setError(e.message));
@@ -121,6 +141,8 @@ function Clase({ clase, fecha, futuro, verProfe }) {
       setError(e.message);
     }
   }
+  // día que no llegó: la lista de los que se esperan, sin marcar nada
+  const soloMirar = futuro || !!datos?.solo_lectura;
   const reemplazo = datos
     ? (datos.la_dio_id && datos.la_dio_id !== datos.titular_id ? datos.la_dio : "")
     : reemplazoCab;
@@ -142,7 +164,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
           </span>
           <span className="mc-sub">
             {verProfe && clase.profe ? `${clase.profe}${reemplazo ? ` → la dio ${reemplazo}` : ""} · ` : ""}
-            {datos
+            {datos && !soloMirar
               ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
               : resumen(clase)}
           </span>
@@ -155,10 +177,10 @@ function Clase({ clase, fecha, futuro, verProfe }) {
 
       {abierta && (
         <div className="mc-cuerpo">
-          {futuro && <div className="nota">Todavía no llegó este día: la asistencia se marca ese día o después.</div>}
+          {futuro && <div className="nota">Todavía no llegó este día: estos son los que se esperan. La asistencia se marca ese día o después.</div>}
           {error && <div className="msg-error">{error}</div>}
-          {!futuro && !datos && !error && <div className="nota">Cargando…</div>}
-          {datos?.profes && (
+          {!datos && !error && <div className="nota">Cargando…</div>}
+          {datos?.profes && !soloMirar && (
             <label className="mc-la-dio">
               <span>La dio</span>
               <select
@@ -177,7 +199,7 @@ function Clase({ clase, fecha, futuro, verProfe }) {
               <span className="mc-guardado">{laDio.guardando ? "…" : laDio.ok}</span>
             </label>
           )}
-          {datos && !datos.profes && reemplazo && <div className="nota">Esta clase la dio {reemplazo}.</div>}
+          {datos && !datos.profes && !soloMirar && reemplazo && <div className="nota">Esta clase la dio {reemplazo}.</div>}
           {datos && datos.alumnos.length === 0 && <div className="nota">No hay alumnos anotados ese día.</div>}
           {datos?.alumnos.map((a) => (
             <div key={a.id} className={"mc-alumno" + (a.viene === false ? " no-viene" : "")}>
@@ -186,9 +208,13 @@ function Clase({ clase, fecha, futuro, verProfe }) {
                 {a.etiqueta && <span className={"mc-tag" + (TAGS[a.etiqueta] || "")}>{a.etiqueta}</span>}
                 <span className="mc-guardado">{guardando[a.id]}</span>
               </div>
-              <NivelAlumno alumno={a} niveles={datos.niveles} colores={datos.colores}
-                           onElegir={(n) => elegirNivel(a, n)} />
-              <div className="mc-botones">
+              {soloMirar ? (
+                <NivelFijo alumno={a} colores={datos.colores} />
+              ) : (
+                <NivelAlumno alumno={a} niveles={datos.niveles} colores={datos.colores}
+                             onElegir={(n) => elegirNivel(a, n)} />
+              )}
+              {!soloMirar && <div className="mc-botones">
                 {ESTADOS.map(([valor, texto]) => (
                   <button
                     key={valor}
@@ -200,8 +226,8 @@ function Clase({ clase, fecha, futuro, verProfe }) {
                     {texto}
                   </button>
                 ))}
-              </div>
-              {a.estado &&
+              </div>}
+              {!soloMirar && a.estado &&
                 (notaAbierta[a.id] || a.nota ? (
                   <input
                     className="mc-nota"
@@ -322,6 +348,7 @@ export default function MisClases() {
   const [hoy] = useState(() => hoyEn(MARCA.zonaHoraria));
   const lunesActual = lunesDe(hoy);
   const lunesMinimo = sumarDias(lunesActual, -7 * SEMANAS_ATRAS);
+  const lunesMaximo = sumarDias(lunesActual, 7 * SEMANAS_ADELANTE);
   // arranca en hoy, o en el último día con clases si hoy no hay (domingo -> sábado)
   const [elegido, setElegido] = useState(() => ultimoDiaConClases(hoy, sinClases));
   const lunes = lunesDe(elegido);
@@ -360,7 +387,7 @@ export default function MisClases() {
   // al cambiar de semana se queda en el mismo día de la semana; volviendo a la actual, en hoy
   function irASemana(salto) {
     const nuevoLunes = sumarDias(lunes, 7 * salto);
-    if (nuevoLunes < lunesMinimo || nuevoLunes > lunesActual) return;
+    if (nuevoLunes < lunesMinimo || nuevoLunes > lunesMaximo) return;
     if (nuevoLunes === lunesActual) return setElegido(ultimoDiaConClases(hoy, sinClases));
     const mismo = sumarDias(nuevoLunes, diaSemana(elegido));
     setElegido(sinClases.includes(diaSemana(mismo)) ? diasDeSemana(nuevoLunes, sinClases)[0] : mismo);
@@ -380,7 +407,8 @@ export default function MisClases() {
         <div>
           <h1>Mis clases</h1>
           <div className="sub">
-            {DIAS[dia]} {numeroDia(elegido)} de {MESES[mesDe(elegido)]} · tocá un estado y se guarda solo
+            {DIAS[dia]} {numeroDia(elegido)} de {MESES[mesDe(elegido)]} ·{" "}
+            {futuro ? "solo para mirar quiénes se esperan" : "tocá un estado y se guarda solo"}
           </div>
         </div>
       </div>
@@ -419,14 +447,14 @@ export default function MisClases() {
         <button
           className="mc-flecha-semana"
           onClick={() => irASemana(1)}
-          disabled={lunes >= lunesActual}
+          disabled={lunes >= lunesMaximo}
           aria-label="Semana siguiente"
         >
           ›
         </button>
       </div>
 
-      {futuro && <div className="mc-aviso-futuro">Todavía no llegó este día. Podés ver las clases, pero la asistencia se marca ese día.</div>}
+      {futuro && <div className="mc-aviso-futuro">Todavía no llegó este día. Podés ver las clases y quiénes se esperan, pero la asistencia se marca ese día.</div>}
       {error && <div className="msg-error">{error}</div>}
       {clases === null && <div className="nota">Cargando…</div>}
       {clases && !error && visibles.length === 0 && (
