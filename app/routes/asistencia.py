@@ -52,8 +52,9 @@ def _clase_o_error(clase_id):
     return clase, None
 
 
-def _leer_fecha(texto, clase):
-    """Devuelve (fecha, None) o (None, mensaje de error)."""
+def _leer_fecha(texto, clase, futuro_ok=False):
+    """Devuelve (fecha, None) o (None, mensaje de error).
+    futuro_ok: solo para mirar la lista (GET); marcar sigue siendo de hoy para atrás."""
     if texto:
         try:
             fecha = date.fromisoformat(str(texto))
@@ -65,7 +66,7 @@ def _leer_fecha(texto, clase):
         return None, "Esa clase no se da ese día"
     if not clase.vigente_en(fecha):
         return None, "Esa clase no se da en esa fecha (es de otra temporada)"
-    if fecha > _hoy():
+    if fecha > _hoy() and not futuro_ok:
         return None, "Todavía no llegó esa fecha"
     return fecha, None
 
@@ -260,9 +261,11 @@ def ver_asistencia(clase_id):
     clase, error = _clase_o_error(clase_id)
     if error:
         return error
-    fecha, msg = _leer_fecha(request.args.get("fecha"), clase)
+    fecha, msg = _leer_fecha(request.args.get("fecha"), clase, futuro_ok=True)
     if msg:
         return jsonify({"error": msg}), 400
+    if fecha > _hoy():
+        return jsonify(_lista_futura(clase, fecha))
 
     ids, dictada, marcas = _lista_del_dia(clase, fecha)
 
@@ -287,7 +290,8 @@ def ver_asistencia(clase_id):
     # primero los que vienen, después los que avisaron o están de viaje
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
     la_dio = _la_dio(clase, dictada)
-    salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "dictada": bool(dictada), "alumnos": alumnos,
+    salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": False,
+              "dictada": bool(dictada), "alumnos": alumnos,
               "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
               "titular_id": clase.profesor_id, "la_dio_id": la_dio,
               "la_dio": (db.session.get(Profesor, la_dio).nombre if la_dio else "")}
@@ -296,6 +300,32 @@ def ver_asistencia(clase_id):
         profes = Profesor.query.filter(or_(Profesor.activo.is_(True), Profesor.id == la_dio)).order_by(Profesor.nombre)
         salida["profes"] = [{"id": p.id, "nombre": p.nombre} for p in profes]
     return jsonify(salida)
+
+
+def _lista_futura(clase, fecha):
+    """Un día que todavía no llegó: los que se esperan, solo para mirar.
+    Sin estados ni notas (no hay nada marcado), sin selector de "la dio" y sin las bajas."""
+    vienen, no_vienen = recuperaciones.alumnos_en_rango([clase], fecha, fecha).get((clase.id, fecha), ({}, {}))
+    ids = {**no_vienen, **vienen}
+    avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=clase.id, fecha=fecha)}
+    nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(
+        Alumno.id.in_(ids), or_(Alumno.estado.is_(None), Alumno.estado != "baja"))) if ids else {}
+    nivel_de = niveles.datos_de(list(nombres))
+    alumnos = [{
+        "id": aid,
+        "nombre": nombres[aid],
+        **nivel_de.get(aid, {"nivel": "", "nivel_declarado": "", "clasificar": False}),
+        "rama": niveles.rama_en_clase(nivel_de.get(aid, {}), clase.rama),
+        "recupera": tipo == "recupera",
+        "viene": tipo not in ("viaje", "falta"),
+        "etiqueta": _etiqueta(tipo, avisos.get(aid)),
+    } for aid, tipo in ids.items() if aid in nombres]  # las bajas quedan afuera
+    alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
+    titular = db.session.get(Profesor, clase.profesor_id) if clase.profesor_id else None
+    return {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": True, "dictada": False,
+            "alumnos": alumnos, "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
+            "titular_id": clase.profesor_id, "la_dio_id": clase.profesor_id,
+            "la_dio": titular.nombre if titular else ""}
 
 
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/la-dio")
