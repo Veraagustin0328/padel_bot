@@ -162,8 +162,11 @@ def _cambiar_estado(fila, nuevo, desde, borrar_pago=False):
 @requiere_login("encargado")
 def listar():
     estado = (request.args.get("estado") or "pendiente").lower()
+    # copia de hasta 90 s (la borra cualquier escritura); "Actualizar" y las recargas después de
+    # aprobar / rechazar mandan fresco=1 y leen la planilla de nuevo
+    fresco = request.args.get("fresco") == "1"
     try:
-        filas = leer_pestana(TAB)
+        filas = leer_pestana(TAB, cache=not fresco)
     except Exception as e:
         return jsonify({"error": f"No pude leer la planilla: {e}"}), 502
     indices = _indices_alumnos()

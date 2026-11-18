@@ -14,7 +14,7 @@ from app.models import PARENTESCOS, Alumno, ContactoAlumno
 from app.models_academia import ConfigAcademia
 from app.privacidad import es_dueno
 from app.routes.auth import requiere_login
-from app.sheets_client import pestana
+from app.sheets_client import valores_pestana
 
 alumnos_bp = Blueprint("alumnos_panel", __name__)
 
@@ -32,8 +32,10 @@ def _dinero(txt):
 @alumnos_bp.get("/api/alumnos")
 @requiere_login("encargado")
 def listar():
+    # copia de hasta 90 s; "Actualizar" manda fresco=1 y lee la planilla de nuevo
+    fresco = request.args.get("fresco") == "1"
     try:
-        filas = pestana(planilla.TAB_ALUMNOS).get_all_values()
+        filas = valores_pestana(planilla.TAB_ALUMNOS, cache=not fresco)
     except Exception as e:
         return jsonify({"error": f"No pude leer la planilla: {e}"}), 502
     if not filas:
