@@ -83,6 +83,25 @@ def create_app():
         from app import models
         from app import models_plataforma  # tablas de la plataforma (planes, cuotas, profes, etc.)
         from app import models_academia  # clases, asistencia, promos, reglas
-        db.create_all()
+        _tablas(app)
 
     return app
+
+
+def _tablas(app):
+    """create_all tarda ~10 s al despertar (una consulta por tabla contra Neon), asi que va
+    solo con CREATE_ALL=1: hay que prenderlo una vez cuando se suma un modelo nuevo.
+    Si no, una sola consulta mira que esten todas y grita en el log si falta alguna."""
+    if os.environ.get("CREATE_ALL") == "1":
+        db.create_all()
+        return
+    try:
+        from sqlalchemy import inspect
+        hay = set(inspect(db.engine).get_table_names())
+    except Exception as e:  # si la base no contesta, que lo diga el primer pedido, no el arranque
+        app.logger.warning("No pude revisar las tablas al arrancar: %s", e)
+        return
+    faltan = sorted(set(db.metadata.tables) - hay)
+    if faltan:
+        print(f"[arranque] FALTAN TABLAS: {', '.join(faltan)}. Arranca con CREATE_ALL=1 una vez.", flush=True)
+        app.logger.error("Faltan tablas: %s (correr con CREATE_ALL=1)", ", ".join(faltan))
