@@ -126,3 +126,11 @@
 /* nivel de un dia que no llego: se ve igual pero no se toca */
 .niv-actual.mc-niv-fijo { cursor: default; }
 .niv-actual.mc-niv-fijo:hover { border-color: var(--linea); }
+
+/* plata que entra, en verde */
+.mc-horas-numeros .mc-cobrar { color: var(--ok); }
+
+/* celu: lo primero es la semana y las clases (marcar presentes); Mis horas va al final */
+@media (max-width: 820px) {
+  .mc > .mc-horas { order: 1; }
+}

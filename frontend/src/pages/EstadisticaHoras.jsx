@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, descargar } from "../api.js";
 import { MARCA } from "../marca.js";
 import { hoyEn, numeroDia } from "../fechas.js";
+import ScrollLateral from "../ScrollLateral.jsx";
 import "./estadistica.css";
 
 // Estadística de horas: las horas de cada profe por semana y día, como la planilla de Gabi.
@@ -29,7 +30,7 @@ function Semana({ s, profes }) {
   return (
     <section className="tarjeta eh-semana">
       <h2>Semana del {ddmm(s.lunes)}</h2>
-      <div className="eh-scroll">
+      <ScrollLateral className="eh-scroll">
         <table className="eh-tabla">
           <thead>
             <tr>
@@ -65,7 +66,7 @@ function Semana({ s, profes }) {
             </tr>
           </tfoot>
         </table>
-      </div>
+      </ScrollLateral>
     </section>
   );
 }
@@ -177,7 +178,7 @@ export default function EstadisticaHoras() {
 
               <section className="tarjeta eh-semana">
                 <h2>Total del mes</h2>
-                <div className="eh-scroll">
+                <ScrollLateral className="eh-scroll">
                   <table className="eh-tabla">
                     <thead>
                       <tr>
@@ -198,12 +199,12 @@ export default function EstadisticaHoras() {
                       </tr>
                     </tbody>
                   </table>
-                </div>
+                </ScrollLateral>
               </section>
 
               <section className="tarjeta eh-semana">
                 <h2>Por franja</h2>
-                <div className="eh-scroll">
+                <ScrollLateral className="eh-scroll">
                   <table className="eh-tabla eh-franjas">
                     <thead>
                       <tr>
@@ -228,7 +229,7 @@ export default function EstadisticaHoras() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </ScrollLateral>
               </section>
             </>
           )}

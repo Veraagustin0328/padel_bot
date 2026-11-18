@@ -117,7 +117,7 @@ function Fila({ it, mes, abierta, alAbrir, hacer, ocupado }) {
           {it.sin_tarifa && <> <span className="cu-tag sin_tarifa" title="Alguna clase no tiene tarifa y no se cobró">Sin tarifa</span></>}
         </div>
         <div className="der oculto">{plata(it.cuota)}</div>
-        <div className="der oculto">{plata(it.pagado)}</div>
+        <div className={"der oculto" + (it.pagado > 0 ? " cu-cobrado" : "")}>{plata(it.pagado)}</div>
         <div className={"der " + (it.debe > 0 ? "cu-deuda" : "")}>{it.debe > 0 ? plata(it.debe) : "—"}</div>
         <div className="oculto"><span className={"cu-tag " + it.estado}>{ETIQUETA[it.estado]}</span></div>
         <div className="der">
@@ -285,7 +285,7 @@ export default function Cuotas() {
           <h1>Cuotas</h1>
           <div className="sub">{conDetalle ? "Quién pagó y quién debe en el mes" : "Quién pagó el mes y quién no"}</div>
         </div>
-        <input type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} aria-label="Mes" style={{ border: "1px solid #c4c8b8", borderRadius: 8, padding: "9px 12px", minHeight: 40, font: '600 14px "Plus Jakarta Sans", system-ui, sans-serif' }} />
+        <input type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} aria-label="Mes" className="cu-mes" />
         <button
           className="boton"
           disabled={!!ocupado}
@@ -336,7 +336,7 @@ export default function Cuotas() {
           {conDetalle && (
             <div className="cu-kpis">
               <div className="cu-kpi mal"><small>Deuda</small><b>{plata(t.deuda)}</b><span>{t.deben} alumnos deben</span></div>
-              <div className="cu-kpi"><small>Cobrado</small><b>{plata(t.pagado)}</b><span>de {plata(t.cuotas)}</span></div>
+              <div className="cu-kpi ok"><small>Cobrado</small><b>{plata(t.pagado)}</b><span>de {plata(t.cuotas)}</span></div>
               <div className="cu-kpi"><small>Alumnos</small><b>{t.alumnos}</b><span>con cuota este mes</span></div>
             </div>
           )}

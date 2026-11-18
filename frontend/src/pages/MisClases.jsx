@@ -307,7 +307,7 @@ function MisHoras({ hoy }) {
           <div className="mc-horas-numeros">
             <div><small>Horas</small><b>{horasTxt(datos.horas)}</b></div>
             <div><small>Tarifa</small><b>{datos.tarifa === null ? "—" : plata(datos.tarifa)}</b></div>
-            <div><small>A cobrar</small><b>{plata(datos.monto)}</b></div>
+            <div><small>A cobrar</small><b className="mc-cobrar">{plata(datos.monto)}</b></div>
           </div>
           {datos.sin_tarifa && <div className="nota">Hay horas sin tarifa cargada: avisale al encargado.</div>}
           {datos.pendientes.length > 0 && (

@@ -53,3 +53,10 @@
   .eh-tabla { font-size: 13px; }
   .eh-tabla th, .eh-tabla td { padding: 7px 8px; }
 }
+
+/* celu: tarjetitas de totales más compactas (son 5 o más) */
+@media (max-width: 820px) {
+  .eh-resumen { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eh-numero { padding: 10px 12px; }
+  .eh-numero b { font-size: 19px; }
+}

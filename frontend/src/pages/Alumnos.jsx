@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import AlumnosFichas from "./AlumnosFichas.jsx";
+import ScrollLateral from "../ScrollLateral.jsx";
 import "./alumnos.css";
 
 const MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
@@ -104,7 +105,7 @@ function ListadoPlanilla() {
       ) : lista.length === 0 ? (
         <div className="alu-vacio">No hay alumnos con esos filtros.</div>
       ) : (
-        <div className="alu-scroll">
+        <ScrollLateral className="alu-scroll">
           <table className="alu-tabla">
             <thead>
               <tr>
@@ -137,7 +138,7 @@ function ListadoPlanilla() {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollLateral>
       )}
     </div>
   );

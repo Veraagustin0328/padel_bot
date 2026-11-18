@@ -57,6 +57,16 @@ function Layout() {
   const cuentas = usePendientes(solapas, pathname);
   const contadores = { pendientes: cuentas.total };
 
+  // nombre de la pantalla para la barra del celu (el ítem del menú más largo que coincide con la ruta)
+  const titulo = useMemo(() => {
+    if (pathname === "/cambiar-password") return "Cambiar contraseña";
+    const items = grupos.flatMap((g) => g.items).filter((m) => m.a);
+    const igual = items
+      .filter((m) => (m.a === "/" ? pathname === "/" : pathname === m.a || pathname.startsWith(m.a + "/")))
+      .sort((x, y) => y.a.length - x.a.length)[0];
+    return igual ? igual.t : MARCA.nombre;
+  }, [pathname, grupos]);
+
   // al cambiar de página el cajón se cierra solo
   useEffect(() => setAbierto(false), [pathname]);
 
@@ -78,6 +88,8 @@ function Layout() {
         <div className="marca">
           <span className="logo"><Logo tam={34} /></span>
           {MARCA.nombre}
+          {/* solo en el celu: cerrar a mano, arriba donde se abrió */}
+          <button className="cerrar-cajon" onClick={() => setAbierto(false)} aria-label="Cerrar menú">✕</button>
         </div>
         {grupos.map((g, i) => (
           <div key={g.t || i} className="grupo">
@@ -115,19 +127,23 @@ function Layout() {
         </div>
       </nav>
 
-      {/* solo en el celu: fondo oscuro detrás del cajón y botón flotante abajo, a mano del pulgar */}
+      {/* solo en el celu: barra fina arriba con el menú y el nombre de la pantalla.
+          Antes era un botón flotante abajo, pero tapaba botones de las filas (Cobrar, No vino) */}
       {abierto && <div className="velo" onClick={() => setAbierto(false)} aria-hidden="true" />}
-      <button
-        className="hamburguesa"
-        onClick={() => setAbierto(!abierto)}
-        aria-expanded={abierto}
-        aria-controls="menu"
-        aria-label={(abierto ? "Cerrar menú" : "Abrir menú") + (cuentas.total > 0 ? `, ${cuentas.total} pendientes` : "")}
-      >
-        {abierto ? "✕" : "☰"}
-        {/* con el cajón cerrado, si no lo muestro acá en el celu no se ve nunca */}
-        {!abierto && cuentas.total > 0 && <span className="contador" aria-hidden="true">{cuentas.total}</span>}
-      </button>
+      <header className="barra-celu">
+        <button
+          className="hamburguesa"
+          onClick={() => setAbierto(!abierto)}
+          aria-expanded={abierto}
+          aria-controls="menu"
+          aria-label={(abierto ? "Cerrar menú" : "Abrir menú") + (cuentas.total > 0 ? `, ${cuentas.total} pendientes` : "")}
+        >
+          ☰
+          {/* si no lo muestro acá, en el celu el total de pendientes no se ve nunca */}
+          {cuentas.total > 0 && <span className="contador" aria-hidden="true">{cuentas.total}</span>}
+        </button>
+        <span className="barra-titulo">{titulo}</span>
+      </header>
 
       <main className="contenido">
         <Outlet context={cuentas} />

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import { NivelAlumno, etiquetaNivel } from "../niveles.jsx";
+import ScrollLateral from "../ScrollLateral.jsx";
 
 // fichas de los alumnos de Neon (no la planilla). Por ahora: contactos.
 // la columna de acciones queda para sumar después "Cambiar días".
@@ -217,7 +218,7 @@ export default function AlumnosFichas() {
           {soloNuevos ? "No hay alumnos nuevos para clasificar." : "No hay alumnos con esos filtros."}
         </div>
       ) : (
-        <div className="alu-scroll">
+        <ScrollLateral className="alu-scroll">
           <table className="alu-tabla fic-tabla">
             <thead>
               <tr>
@@ -255,7 +256,7 @@ export default function AlumnosFichas() {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollLateral>
       )}
 
       {alumno && (

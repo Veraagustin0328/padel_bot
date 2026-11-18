@@ -59,3 +59,25 @@
 .cu-origen.comp { background: #dbeafe; color: #1e40af; }
 /* vista del encargado: alumno, pagó / no pagó y cobrar */
 .cu-fila.simple, .cu-fila.simple.titulos { grid-template-columns: minmax(0, 1fr) 110px 96px; }
+
+/* selector de mes (antes con estilo en línea) */
+.cu-mes {
+  border: 1px solid #c4c8b8; border-radius: 8px; padding: 9px 12px; min-height: 40px; background: #fff;
+  font: 600 14px "Plus Jakarta Sans", system-ui, sans-serif;
+}
+/* plata que entra, en verde */
+.cu-kpi.ok b { color: var(--ok); }
+.cu-cobrado { color: var(--ok); font-weight: 700; }
+
+@media (max-width: 820px) {
+  .cu-mes { flex: 1 1 160px; min-height: 44px; }
+  /* buscador arriba y los tres filtros juntos abajo */
+  .cu-barra { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .cu-barra input[type="search"] { grid-column: 1 / -1; min-height: 44px; }
+  .cu-chip { min-height: 44px; }
+  .cu-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .cu-kpi { padding: 12px; min-width: 0; }
+  .cu-kpi b { font-size: 21px; overflow-wrap: anywhere; }
+  .cu-kpi.mal { grid-column: 1 / -1; }
+  .cu-fila .boton.chico { min-height: 44px; }
+}
