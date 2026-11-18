@@ -35,9 +35,10 @@ export default function Comprobantes() {
   const [resultado, setResultado] = useState(null);
 
   // trasCambio: se aprobó, rechazó o desaprobó algo, así el contador del menú se entera
-  async function cargar(trasCambio = false) {
+  // fresco: lee la planilla de nuevo (si no, el back puede usar una copia de hasta 90 s)
+  async function cargar(trasCambio = false, fresco = false) {
     try {
-      const r = await api(`/api/comprobantes?estado=${filtro}`);
+      const r = await api(`/api/comprobantes?estado=${filtro}` + (fresco || trasCambio ? "&fresco=1" : ""));
       setLista(r);
       // con el filtro en pendientes le paso el número al menú, así no vuelve a leer la planilla
       if (filtro === "pendiente") avisarMenu(r.length);
@@ -114,7 +115,7 @@ export default function Comprobantes() {
     setOcupado("aplicar");
     try {
       setResultado(await api("/api/comprobantes/aplicar", { metodo: "POST" }));
-      await cargar();
+      await cargar(false, true);
     } catch (e) {
       setError(e.message);
     }
@@ -133,7 +134,7 @@ export default function Comprobantes() {
           </button>
         ))}
         <span className="cmp-espacio" />
-        <button className="boton chico claro" onClick={() => cargar()}>Actualizar</button>
+        <button className="boton chico claro" onClick={() => cargar(false, true)}>Actualizar</button>
         <button className="boton chico" onClick={aplicar} disabled={ocupado === "aplicar"}>
           {ocupado === "aplicar" ? "Pasando…" : "Pasar confirmados a la planilla"}
         </button>

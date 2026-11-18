@@ -28,10 +28,11 @@ function ListadoPlanilla() {
   const [estado, setEstado] = useState("activo"); // activo | baja | todos
   const [planillaSel, setPlanillaSel] = useState("todas");
 
-  async function cargar() {
+  // fresco: "Actualizar" lee la planilla de nuevo (si no, el back puede usar una copia de hasta 90 s)
+  async function cargar(fresco = false) {
     setError("");
     try {
-      setDatos(await api("/api/alumnos"));
+      setDatos(await api("/api/alumnos" + (fresco ? "?fresco=1" : "")));
     } catch (e) {
       setError(e.message);
       setDatos([]);
@@ -95,7 +96,7 @@ function ListadoPlanilla() {
           <option value="todas">Todas las planillas</option>
           {planillas.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
-        <button className="boton chico claro" onClick={cargar}>Actualizar</button>
+        <button className="boton chico claro" onClick={() => cargar(true)}>Actualizar</button>
       </div>
 
       {datos === null ? (
