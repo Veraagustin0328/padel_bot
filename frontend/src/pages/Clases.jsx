@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { NivelAlumno, Punto, RAMAS, etiquetaNivel, rangoNivel } from "../niveles.jsx";
 import { MARCA } from "../marca.js";
 import { diaSemana, hoyEn, sumarDias } from "../fechas.js";
+import { useEsCelu } from "../useEsCelu.js";
 import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -18,6 +19,8 @@ const capital = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 const ddmm = (s) => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
 const DIA_CORTO = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
 const conDia = (s) => `${DIA_CORTO[diaSemana(s)]} ${ddmm(s)}`;
+// "2026-11-18" -> "mié 18/11/2026": así se ve la fecha en el celu (iOS muestra el campo vacío o en su formato)
+const fechaLarga = (s) => `${conDia(s)}/${s.slice(0, 4)}`;
 
 // temporada de la clase mirada desde una fecha. vigente_hasta es el primer día que YA NO va,
 // así que el último día que rige es el anterior
@@ -65,7 +68,13 @@ export default function Clases() {
   const [aviso, setAviso] = useState("");
   const [ambito, setAmbito] = useState("adultos");
   const [hoy] = useState(() => hoyEn(MARCA.zonaHoraria));
-  const [fecha, setFecha] = useState(""); // "" = todas las que no terminaron; con fecha = las que rigen ese día
+  // arranca en hoy. "" = todas las que no terminaron; con fecha = las que rigen ese día
+  const [fecha, setFecha] = useState(hoy);
+  // con fecha elegida: las que empiezan después, para avisar que existen (ej. Kids desde el 14/12)
+  const [futuras, setFuturas] = useState([]);
+  const esCelu = useEsCelu();
+  const [diaCelu, setDiaCelu] = useState(null); // en el celu se ve un día a la vez
+  const [verLeyenda, setVerLeyenda] = useState(false); // en el celu la leyenda arranca cerrada
   const [profe, setProfe] = useState("todos");
   const [buscar, setBuscar] = useState("");
   const [abierta, setAbierta] = useState(null);
@@ -86,6 +95,24 @@ export default function Clases() {
     }
   }
   useEffect(() => { cargar(fecha); }, [fecha]);
+  // solo al cambiar la fecha (no después de cada guardado): un pedido sin fecha y se cuentan las que arrancan más adelante
+  useEffect(() => {
+    if (!fecha) { setFuturas([]); return; }
+    let vale = true;
+    api("/api/clases")
+      .then((d) => vale && setFuturas((d.clases || []).filter((c) => c.activa && c.vigente_desde && c.vigente_desde > fecha)))
+      .catch(() => vale && setFuturas([])); // es solo un aviso: si falla, no se muestra
+    return () => { vale = false; };
+  }, [fecha]);
+
+  // ver todas (sin fecha): si en este ámbito no hay ninguna de las que empiezan después, salta al que tenga
+  function verFuturas() {
+    const destino = futuras.some((c) => c.ambito === ambito) ? ambito : futuras[0]?.ambito;
+    setDatos(null); // si no, con los datos viejos el ámbito nuevo no existe y vuelve al primero
+    setAbierta(null);
+    setFecha("");
+    if (destino) { setAmbito(destino); setProfe("todos"); }
+  }
   useEffect(() => {
     api("/api/clases/profes").then(setListaProfes).catch((e) => setError(`No pude traer la lista de profes: ${e.message}`));
   }, []);
@@ -145,6 +172,24 @@ export default function Clases() {
   const celdas = {};
   for (const c of filtradas) (celdas[c.dia + "|" + c.hora] ||= []).push(c);
 
+  // celu: el día que tocó, si no el de la fecha (o hoy) si tiene clases, si no el primero
+  useEffect(() => setDiaCelu(null), [fecha]);
+  const diaRef = diaSemana(fecha || hoy);
+  const diaVisible = dias.includes(diaCelu) ? diaCelu : dias.includes(diaRef) ? diaRef : dias[0];
+  const horasDelDia = horas.filter((h) => celdas[diaVisible + "|" + h]);
+  // fecha de cada día en la semana de la fecha elegida, para las pestañas ("Mié 18")
+  const fechaDelDia = (d) => (fecha ? sumarDias(fecha, d - diaSemana(fecha)) : null);
+
+  // aviso de las que empiezan más adelante: por ámbito, con la primera fecha
+  const futurasPorAmbito = {};
+  for (const c of futuras) {
+    const a = futurasPorAmbito[c.ambito];
+    if (!a || c.vigente_desde < a) futurasPorAmbito[c.ambito] = c.vigente_desde;
+  }
+  const textoFuturas = Object.entries(futurasPorAmbito)
+    .map(([a, desde]) => `${AMBITOS[a] || a} desde el ${ddmm(desde)}`)
+    .join(", ");
+
   const alumnosUnicos = new Set(filtradas.flatMap((c) => c.alumnos.map((a) => a.id))).size;
   const porConfirmar = filtradas.filter((c) => c.estimado).length;
   const vacias = filtradas.filter((c) => c.alumnos.length === 0).length;
@@ -162,6 +207,19 @@ export default function Clases() {
   }, [sel?.id, datos]);
 
   useEffect(() => { setQAlu(""); setResultados([]); }, [abierta]);
+
+  // celu: el detalle es una hoja encima. Mientras está abierta el fondo no scrollea y Escape la cierra
+  const hojaAbierta = esCelu && !!sel;
+  useEffect(() => {
+    if (!hojaAbierta) return;
+    const alTeclear = (e) => e.key === "Escape" && setAbierta(null);
+    window.addEventListener("keydown", alTeclear);
+    document.body.classList.add("sin-scroll");
+    return () => {
+      window.removeEventListener("keydown", alTeclear);
+      document.body.classList.remove("sin-scroll");
+    };
+  }, [hojaAbierta]);
 
   // buscador de alumnos para anotar en la clase
   useEffect(() => {
@@ -270,6 +328,35 @@ export default function Clases() {
     );
   }
 
+  // una clase en la grilla (compu) o en la lista del día (celu)
+  function chip(c) {
+    const n = c.alumnos.length;
+    const nuevos = c.alumnos.filter((a) => a.clasificar).length;
+    const tem = temporada(c, ref);
+    const clase =
+      "cla-chip" +
+      (c.estimado ? " dudosa" : "") +
+      (n > c.cupo ? " pasada" : n === c.cupo ? " llena" : "") +
+      (!c.activa ? " apagada" : "") +
+      (c.id === abierta ? " abierta" : "") +
+      (tem?.estado === "futura" ? " futura" : "") +
+      (hayBusqueda ? (coincide(c) ? " hit" : " opaco") : "");
+    return (
+      <button key={c.id} className={clase} onClick={() => setAbierta(c.id)}>
+        <span className="cla-arriba">
+          <Punto color={c.color} hueco={!!c.nivel} />
+          <b>{c.profe ? capital(c.profe) : "Sin profe"}</b>
+          <i>{TIPO_CORTO[c.tipo] || c.tipo}</i>
+        </span>
+        <span className="cla-abajo">{c.nivel || "—"} · {n}/{c.cupo}</span>
+        {tem && <span className={"cla-vig " + tem.estado} title={tem.largo}>{tem.corto}</span>}
+        {nuevos > 0 && (
+          <span className="cla-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <div>
       <h1>Clases</h1>
@@ -323,7 +410,11 @@ export default function Clases() {
       <div className="cla-fecha">
         <label>
           Clases que rigen el
-          <input type="date" value={fecha} onChange={(e) => { setFecha(e.target.value); setAbierta(null); }} />
+          {/* en el celu se ve el texto y el selector nativo queda encima, invisible: tocar abre el calendario */}
+          <span className="cla-fecha-campo">
+            <span className="cla-fecha-texto" aria-hidden="true">{fecha ? fechaLarga(fecha) : "Todas las fechas"}</span>
+            <input type="date" value={fecha} onChange={(e) => { setFecha(e.target.value); setAbierta(null); }} />
+          </span>
         </label>
         {fecha !== hoy && <button className="boton chico claro" onClick={() => { setFecha(hoy); setAbierta(null); }}>Hoy</button>}
         {fecha && <button className="boton chico claro" onClick={() => { setFecha(""); setAbierta(null); }}>Ver todas</button>}
@@ -336,7 +427,25 @@ export default function Clases() {
         </span>
       </div>
 
-      <Leyenda colores={colores} sinRama={sinRama} hayTemporadas={hayTemporadas && !fecha} />
+      {/* con fecha no se ven las que empiezan después: que no parezca que faltan clases */}
+      {fecha && futuras.length > 0 && (
+        <button type="button" className="cla-futuras" onClick={verFuturas}>
+          <span>
+            Hay {futuras.length === 1 ? "1 clase que empieza" : `${futuras.length} clases que empiezan`} más adelante
+            {textoFuturas && <small> ({textoFuturas})</small>}
+          </span>
+          <b>Ver</b>
+        </button>
+      )}
+
+      {/* en el celu la leyenda ocupa media pantalla: arranca cerrada */}
+      {esCelu && (
+        <button type="button" className="cla-leyenda-boton" aria-expanded={verLeyenda} onClick={() => setVerLeyenda(!verLeyenda)}>
+          <span>Referencias de colores</span>
+          <span aria-hidden="true">{verLeyenda ? "▲" : "▼"}</span>
+        </button>
+      )}
+      {(!esCelu || verLeyenda) && <Leyenda colores={colores} sinRama={sinRama} hayTemporadas={hayTemporadas && !fecha} />}
 
       {datos === null ? (
         <div className="cargando">Cargando…</div>
@@ -344,63 +453,81 @@ export default function Clases() {
         <div className="cla-vacio">No hay clases con esos filtros.</div>
       ) : (
         <div className="cla-cuerpo">
-          <div className="cla-scroll">
-            <table className="cla-grilla">
-              <thead>
-                <tr>
-                  <th className="hora">Hora</th>
-                  {dias.map((d) => (
-                    <th key={d} className={fecha && diaSemana(fecha) === d ? "elegido" : ""}>
-                      {DIAS[d]}{fecha && diaSemana(fecha) === d && ` ${ddmm(fecha)}`}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {horas.map((h) => (
-                  <tr key={h}>
-                    <td className="hora">{h}</td>
+          {esCelu ? (
+            // celu: un día a la vez, con pestañas arriba
+            <div className="cla-dia-celu">
+              <div className="cla-dias" role="tablist" aria-label="Día">
+                {dias.map((d) => {
+                  const f = fechaDelDia(d);
+                  // buscando un alumno: los días donde aparece llevan un punto (los otros días no se ven)
+                  const conHit = hayBusqueda && filtradas.some((c) => c.dia === d && coincide(c));
+                  return (
+                    <button
+                      key={d}
+                      role="tab"
+                      aria-selected={d === diaVisible}
+                      className={"cla-dia" + (d === diaVisible ? " activo" : "") + (f && f === hoy ? " hoy" : "")}
+                      onClick={() => setDiaCelu(d)}
+                    >
+                      <span>{DIAS[d].slice(0, 3)}</span>
+                      {f && <strong>{Number(f.slice(8, 10))}</strong>}
+                      {conHit && <i className="cla-dia-hit" aria-label="tiene coincidencias" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="cla-lista-dia">
+                {horasDelDia.map((h) => (
+                  <div key={h} className="cla-franja">
+                    <div className="cla-franja-hora">{h}</div>
+                    <div className="cla-franja-clases">{celdas[diaVisible + "|" + h].map(chip)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="cla-scroll">
+              <table className="cla-grilla">
+                <thead>
+                  <tr>
+                    <th className="hora">Hora</th>
                     {dias.map((d) => (
-                      <td key={d}>
-                        {(celdas[d + "|" + h] || []).map((c) => {
-                          const n = c.alumnos.length;
-                          const nuevos = c.alumnos.filter((a) => a.clasificar).length;
-                          const tem = temporada(c, ref);
-                          const clase =
-                            "cla-chip" +
-                            (c.estimado ? " dudosa" : "") +
-                            (n > c.cupo ? " pasada" : n === c.cupo ? " llena" : "") +
-                            (!c.activa ? " apagada" : "") +
-                            (c.id === abierta ? " abierta" : "") +
-                            (tem?.estado === "futura" ? " futura" : "") +
-                            (hayBusqueda ? (coincide(c) ? " hit" : " opaco") : "");
-                          return (
-                            <button key={c.id} className={clase} onClick={() => setAbierta(c.id)}>
-                              <span className="cla-arriba">
-                                <Punto color={c.color} hueco={!!c.nivel} />
-                                <b>{c.profe ? capital(c.profe) : "Sin profe"}</b>
-                                <i>{TIPO_CORTO[c.tipo] || c.tipo}</i>
-                              </span>
-                              <span className="cla-abajo">{c.nivel || "—"} · {n}/{c.cupo}</span>
-                              {tem && <span className={"cla-vig " + tem.estado} title={tem.largo}>{tem.corto}</span>}
-                              {nuevos > 0 && (
-                                <span className="cla-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </td>
+                      <th key={d} className={fecha && diaSemana(fecha) === d ? "elegido" : ""}>
+                        {DIAS[d]}{fecha && diaSemana(fecha) === d && ` ${ddmm(fecha)}`}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {horas.map((h) => (
+                    <tr key={h}>
+                      <td className="hora">{h}</td>
+                      {dias.map((d) => (
+                        <td key={d}>{(celdas[d + "|" + h] || []).map(chip)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
+          {/* celu: fondo oscuro detrás de la hoja; tocarlo la cierra */}
+          {hojaAbierta && form && <div className="cla-velo" onClick={() => setAbierta(null)} aria-hidden="true" />}
           {sel && form && (
-            <aside className="cla-detalle">
-              <button className="cla-cerrar" onClick={() => setAbierta(null)} aria-label="Cerrar">×</button>
-              <h2>{DIAS[sel.dia]} {sel.hora}</h2>
+            <aside className={"cla-detalle" + (esCelu ? " hoja" : "")} role={esCelu ? "dialog" : undefined} aria-modal={esCelu || undefined}
+                   aria-label={`Clase del ${DIAS[sel.dia]} ${sel.hora}`}>
+              {esCelu ? (
+                <div className="cla-hoja-cabeza">
+                  <h2>{DIAS[sel.dia]} {sel.hora}</h2>
+                  <button className="boton chico claro" onClick={() => setAbierta(null)}>Cerrar</button>
+                </div>
+              ) : (
+                <>
+                  <button className="cla-cerrar" onClick={() => setAbierta(null)} aria-label="Cerrar">×</button>
+                  <h2>{DIAS[sel.dia]} {sel.hora}</h2>
+                </>
+              )}
               <p className="cla-sub">
                 <Punto color={sel.color} hueco={!!sel.nivel} />
                 {sel.profe ? capital(sel.profe) : "Sin profe"} · {sel.nivel || "Sin nivel"}
@@ -472,7 +599,10 @@ export default function Clases() {
                     {listaProfes.map((p) => <option key={p.id} value={p.id}>{capital(p.nombre)}</option>)}
                   </select>
                 </label>
-                <button className="boton chico" disabled={!hayCambios || !!ocupado} onClick={guardar}>{esperando("guardar", "Guardando…", "Guardar cambios")}</button>
+                {/* con cambios: color de la marca. Sin cambios: gris y lo dice, para que no parezca roto */}
+                <button className="boton chico principal" disabled={!hayCambios || !!ocupado} onClick={guardar}>
+                  {esperando("guardar", "Guardando…", hayCambios ? "Guardar cambios" : "Sin cambios")}
+                </button>
               </div>
 
               <h3>Alumnos ({sel.alumnos.length})</h3>
