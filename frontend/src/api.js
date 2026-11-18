@@ -27,27 +27,69 @@ function sesionVencida(datos) {
   window.dispatchEvent(new CustomEvent("sesion-vencida", { detail: datos.error || "" }));
 }
 
-export async function api(ruta, { metodo = "GET", cuerpo } = {}) {
+// Render (plan gratis) duerme el servidor: el primer pedido puede tardar ~1 minuto o volver con 502/503.
+// Si un pedido tarda más de LENTO_MS se avisa con el evento "servidor-lento" (lo muestra AvisoServidor).
+const LENTO_MS = 3000;
+const REINTENTO_MS = 2500;
+let lentos = 0;
+function avisarLentos(cambio) {
+  lentos = Math.max(0, lentos + cambio);
+  window.dispatchEvent(new CustomEvent("servidor-lento", { detail: lentos }));
+}
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// un GET igual a otro que ya está en vuelo no sale de nuevo: espera la misma respuesta
+const enVuelo = new Map();
+
+async function pedir(ruta, metodo, cuerpo) {
   const headers = {};
   const token = leerToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (cuerpo !== undefined) headers["Content-Type"] = "application/json";
-
-  let resp;
+  // solo los GET se reintentan: un POST repetido podría hacer la acción dos veces
+  const intentos = metodo === "GET" ? 2 : 1;
+  let marcado = false;
+  const reloj = setTimeout(() => { marcado = true; avisarLentos(1); }, LENTO_MS);
   try {
-    resp = await fetch(BASE + ruta, {
-      method: metodo,
-      headers,
-      body: cuerpo !== undefined ? JSON.stringify(cuerpo) : undefined,
-    });
-  } catch {
-    throw errorDeRed();
+    for (let i = 1; ; i++) {
+      let resp;
+      try {
+        resp = await fetch(BASE + ruta, {
+          method: metodo,
+          headers,
+          body: cuerpo !== undefined ? JSON.stringify(cuerpo) : undefined,
+        });
+      } catch {
+        if (i < intentos) { await esperar(REINTENTO_MS); continue; }
+        throw errorDeRed();
+      }
+      // 502/503/504 = el servidor todavía se está levantando
+      if ([502, 503, 504].includes(resp.status) && i < intentos) { await esperar(REINTENTO_MS); continue; }
+      const datos = await resp.json().catch(() => ({}));
+      if (resp.status === 401 && ruta !== "/api/auth/login") sesionVencida(datos);
+      if (!resp.ok) throw errorDeServidor(resp, datos);
+      return datos;
+    }
+  } finally {
+    clearTimeout(reloj);
+    if (marcado) avisarLentos(-1);
   }
+}
 
-  const datos = await resp.json().catch(() => ({}));
-  if (resp.status === 401 && ruta !== "/api/auth/login") sesionVencida(datos);
-  if (!resp.ok) throw errorDeServidor(resp, datos);
-  return datos;
+export async function api(ruta, { metodo = "GET", cuerpo } = {}) {
+  if (metodo !== "GET") return pedir(ruta, metodo, cuerpo);
+  const clave = `${leerToken() || ""} ${ruta}`;
+  if (enVuelo.has(clave)) {
+    // copia: así dos pantallas no comparten el mismo objeto
+    return enVuelo.get(clave).then((d) => structuredClone(d));
+  }
+  const promesa = pedir(ruta, "GET");
+  enVuelo.set(clave, promesa);
+  try {
+    return await promesa;
+  } finally {
+    enVuelo.delete(clave);
+  }
 }
 
 // para archivos (CSV): misma sesión que api(), pero baja el archivo en vez de leer JSON

@@ -194,3 +194,11 @@ a.boton { display: inline-flex; align-items: center; text-decoration: none; }
 }
 body.con-cartel { padding-top: var(--alto-cartel); }
 body.con-cartel .lateral { top: var(--alto-cartel); height: calc(100vh - var(--alto-cartel)); }
+
+/* aviso de servidor dormido (Render): flota abajo, no tapa el menú ni corre el contenido */
+.aviso-servidor {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60;
+  width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box;
+  background: #fef3c7; color: #92400e; border: 1px solid #f5d27a; border-radius: 999px;
+  padding: 8px 16px; font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}

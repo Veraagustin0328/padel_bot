@@ -14,6 +14,22 @@ import { usePendientes } from "./usePendientes.js";
 import { entorno } from "./simulacion.js";
 
 // franja fija arriba, en todas las pantallas (también en la de entrada)
+// Render duerme el servidor si no se usa: el primer pedido tarda. api.js avisa con "servidor-lento"
+function AvisoServidor() {
+  const [lentos, setLentos] = useState(0);
+  useEffect(() => {
+    const alCambiar = (e) => setLentos(e.detail);
+    window.addEventListener("servidor-lento", alCambiar);
+    return () => window.removeEventListener("servidor-lento", alCambiar);
+  }, []);
+  if (!lentos) return null;
+  return (
+    <div className="aviso-servidor" role="status" aria-live="polite">
+      Despertando el servidor… si estuvo un rato sin uso puede tardar hasta un minuto.
+    </div>
+  );
+}
+
 function CartelSimulacion() {
   const e = entorno();
   useEffect(() => {
@@ -166,6 +182,7 @@ export default function App() {
   return (
     <AuthProvider>
       <CartelSimulacion />
+      <AvisoServidor />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
