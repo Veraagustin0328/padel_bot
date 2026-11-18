@@ -4,7 +4,6 @@ import Alumnos from "./pages/Alumnos.jsx";
 import Clases from "./pages/Clases.jsx";
 import Cuotas from "./pages/Cuotas.jsx";
 import MisClases from "./pages/MisClases.jsx";
-import Semana from "./pages/Semana.jsx";
 import Novedades from "./pages/Novedades.jsx";
 import FaltasRecuperaciones, { FaltasPendientes } from "./pages/FaltasRecuperaciones.jsx";
 import CambiosDias from "./pages/CambiosDias.jsx";
@@ -48,6 +47,11 @@ export const SOLAPAS_PENDIENTES = [
   },
 ];
 
+// rutas que ya no existen y a dónde mandan, para no romper links guardados
+export const RUTAS_VIEJAS = [
+  { de: "/semana", a: "/mis-clases" }, // "Clases de la semana" quedó adentro de Mis clases (días que no llegaron)
+];
+
 // grupos del cajón. Sin título = va suelto arriba. Un grupo sin ítems visibles para el rol no se muestra.
 // pagina: la pantalla de la ruta (Inicio y Pendientes las arma App aparte). pronto: se ve apagado.
 // la plata fina (ganancias, pagos a profes, tarifas por hora) va solo con roles: [DUENO]
@@ -64,7 +68,6 @@ export const MENU = [
       { a: "/clases", t: "Clases", roles: GESTION, pagina: Clases },
       { a: "/alumnos", t: "Alumnos", roles: GESTION, pagina: Alumnos },
       { a: "/mis-clases", t: "Mis clases", roles: [...GESTION, "profe"], pagina: MisClases },
-      { a: "/semana", t: "Clases de la semana", roles: [...GESTION, "profe"], pagina: Semana },
       { a: "/faltas-viajes", t: "Faltas y viajes", roles: GESTION, pagina: FaltasRecuperaciones },
       { t: "Planificación", roles: GESTION, pronto: true },
     ],

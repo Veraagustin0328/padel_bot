@@ -9,7 +9,7 @@ import Inicio from "./pages/Inicio.jsx";
 import Pendientes from "./pages/Pendientes.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import { GESTION, nombreRol } from "./roles.js";
-import { pantallas, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
+import { pantallas, RUTAS_VIEJAS, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
 import { usePendientes } from "./usePendientes.js";
 import { entorno } from "./simulacion.js";
 
@@ -182,6 +182,9 @@ export default function App() {
             {/* rutas de antes: van a su solapa de Pendientes */}
             {SOLAPAS_PENDIENTES.filter((s) => s.viejo).map((s) => (
               <Route key={s.viejo} path={s.viejo} element={<Navigate to={`/pendientes/${s.clave}`} replace />} />
+            ))}
+            {RUTAS_VIEJAS.map(({ de, a }) => (
+              <Route key={de} path={de} element={<Navigate to={a} replace />} />
             ))}
             <Route path="/cambiar-password" element={<CambiarPassword />} />
           </Route>
