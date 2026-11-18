@@ -2,6 +2,27 @@ venv/
 instance/
 __pycache__/
 *.pyc
+
+# archivos de entorno (.env, .env.simulacion, .env.simulacion.ejemplo y cualquier otro), nunca al repo.
+# ojo: frontend/.env.development ya estaba trackeado (solo tiene la url de localhost) y sigue trackeado
 .env
-# archivos de entorno (.env.simulacion y cualquier otro), nunca al repo
-.env.*
+.env*
+
+# scripts locales sueltos en la raiz: migraciones, pruebas, cargas, arreglos puntuales.
+# van anclados con / para no ignorar sin querer modulos de app/ que empiecen igual
+/borrar_*.py
+/cargar_*.py
+/corregir_*.py
+/correr_*.py
+/crear_*.py
+/importar_*.py
+/marcar_*.py
+/migrar_*.py
+/probar_*.py
+/reporte_*.py
+/unificar_*.py
+
+# salidas y datos de los scripts locales (tienen datos personales)
+*.csv
+/probar_cuotas_base.json
+/checklist_simulacion.md
