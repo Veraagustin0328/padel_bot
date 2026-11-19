@@ -52,6 +52,7 @@ def create_app():
     from app.routes.consultas import consultas_bp
     from app.routes.horas_profes import horas_profes_bp
     from app.routes.estadistica_horas import estadistica_horas_bp
+    from app.routes.yo import yo_bp
     app.register_blueprint(whatsapp_bp)
     avisar_firma_al_arrancar()  # grita en el log si falta META_APP_SECRET
     app.register_blueprint(auth_bp)
@@ -69,6 +70,7 @@ def create_app():
     app.register_blueprint(consultas_bp)
     app.register_blueprint(horas_profes_bp)
     app.register_blueprint(estadistica_horas_bp)
+    app.register_blueprint(yo_bp)
 
     # en produccion esto no existe: ni la ruta del cartel ni el simulador
     if entorno.es_simulacion():
