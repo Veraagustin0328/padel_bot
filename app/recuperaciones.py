@@ -5,10 +5,23 @@ ConfigAcademia, así cada club pone las suyas:
 - aviso_horas: con cuántas horas de anticipación hay que avisar la falta (24)
 - recupera_mismo_mes: la recuperación tiene que caer en el mes de la falta (true)
 - max_recuperaciones_mes: tope por alumno y por mes (1; 0 o null = sin tope)
+- politicas: los textos que ven el alumno y el agente (ver politicas())
 
-Lo que se sale de la regla no se rechaza solo: queda 'pendiente' con el motivo
-en fuera_de_regla y decide el encargado. Lo que no se puede hacer ni con
-aprobación (clase que no existe, día equivocado, clase llena) tira ErrorRegla.
+Cuando lo pide el alumno o el agente:
+- falta avisada tarde o sin aviso: la clase cuenta como realizada y se pierde -> ErrorRegla
+- tope del mes ya usado -> ErrorRegla
+- sin falta para recuperar -> ErrorRegla
+- falta en otro mes: queda 'pendiente' con el motivo y decide el encargado
+La excepción la hace el encargado a mano (pedida_por="encargado"): queda confirmada
+con el motivo anotado en fuera_de_regla.
+
+Falta de la academia (origen="academia": clase suspendida, no vino el profe): no es culpa
+del alumno, así que se recupera siempre y no cuenta para su tope. Ojo: NO es lo mismo
+que origen="profe", que es el profe marcando que el alumno no vino (esa se pierde).
+A CONFIRMAR CON GABI.
+
+Lo que no se puede hacer ni con aprobación (clase que no existe, día equivocado,
+clase llena) también tira ErrorRegla.
 
 Fechas y horas siempre en hora argentina (ZONA_HORARIA). Las columnas DateTime
 se guardan en UTC sin zona, como el resto de la base.
@@ -28,13 +41,36 @@ from app.models import Alumno
 
 ZONA = ZoneInfo(os.environ.get("ZONA_HORARIA", "America/Argentina/Buenos_Aires"))
 
+# Textos de políticas: los carga migrar_politicas.py en config_academia y cada club los cambia.
+# Marcas que se reemplazan al leer: {aviso_horas}, {recuperaciones_mes} ("1 clase"), {inscripcion} ("$25.000").
+POLITICAS_DEFAULT = [
+    {"titulo": "Inscripción", "items": ["{inscripcion} (pago único)."]},
+    {"titulo": "Reprogramación y asistencia", "items": [
+        "Avisar con al menos {aviso_horas} hs de anticipación.",
+        "Se permite recuperar hasta {recuperaciones_mes} al mes.",
+        "Sin aviso previo de {aviso_horas} hs, la clase se considera realizada y se pierde.",
+    ]},
+    {"titulo": "Condiciones de pago", "items": [
+        "Las clases se abonan por mes adelantado, el total, sin excepción.",
+        "Para paquetes grupales, todos los participantes deben abonar en el mismo momento.",
+    ]},
+]
+
 REGLAS_DEFAULT = {"aviso_horas": 24, "recupera_mismo_mes": True, "max_recuperaciones_mes": 1,
-                  "contacto_club_alquiler": ""}  # WhatsApp del club para alquiler de canchas
+                  "contacto_club_alquiler": "",  # WhatsApp del club para alquiler de canchas
+                  "politicas": POLITICAS_DEFAULT}
 ACTIVAS = ("confirmada", "pendiente")   # las que ocupan la falta y cuentan para el tope
+# falta que no es culpa del alumno (clase suspendida, no vino el profe): ver arriba
+ORIGEN_ACADEMIA = "academia"
 
 
 class ErrorRegla(ValueError):
-    """Algo que no se puede hacer ni con aprobación del encargado."""
+    """Algo que no se puede hacer (o que la regla no deja pedir: solo el encargado hace la excepción).
+    codigo: aviso_tarde / tope / sin_falta, para que el agente arme su texto. None en el resto."""
+
+    def __init__(self, mensaje, codigo=None):
+        super().__init__(mensaje)
+        self.codigo = codigo
 
 
 # ---------- reglas y horas ----------
@@ -81,6 +117,45 @@ def es_a_tiempo(clase, fecha, avisada_en_utc):
 
 def _mes(f):
     return (f.year, f.month)
+
+
+def _plata(monto):
+    return "$" + f"{monto:,}".replace(",", ".")
+
+
+class _Marcas(dict):
+    def __missing__(self, clave):  # una llave que no conozco queda como está
+        return "{" + clave + "}"
+
+
+def _rellenar(texto, marcas):
+    try:
+        return texto.format_map(marcas)
+    except (ValueError, IndexError):  # una llave suelta escrita a mano: va tal cual
+        return texto
+
+
+def politicas():
+    """[{titulo, items: [texto]}] de config_academia, con las marcas ya reemplazadas.
+    Si los números cambian (aviso_horas, tope, inscripción), el texto se acomoda solo."""
+    tope = int(regla("max_recuperaciones_mes") or 0)
+    try:
+        inscripcion = int(regla("inscripcion"))
+    except (TypeError, ValueError):
+        inscripcion = 0
+    marcas = _Marcas(
+        aviso_horas=regla("aviso_horas") or 0,
+        recuperaciones_mes=f"{tope} clase{'s' if tope != 1 else ''}",
+        inscripcion=_plata(inscripcion) if inscripcion > 0 else "Monto a confirmar con el encargado",
+    )
+    salida = []
+    for seccion in regla("politicas") or []:
+        if not isinstance(seccion, dict):
+            continue
+        items = [_rellenar(str(t), marcas) for t in seccion.get("items") or [] if str(t).strip()]
+        if items:
+            salida.append({"titulo": str(seccion.get("titulo") or ""), "items": items})
+    return salida
 
 
 # ---------- quién está en cada clase ----------
@@ -273,6 +348,8 @@ def avisar_ausencia(alumno_id, clase_id, fecha, origen, motivo=None, avisada_en=
         return existente, False
 
     avisada_en = avisada_en or datetime.utcnow()
+    if origen == ORIGEN_ACADEMIA:
+        a_tiempo = True  # la suspendió la academia: no hay aviso tarde que valga
     if a_tiempo is None:
         a_tiempo = es_a_tiempo(clase, fecha, avisada_en)
     aus = m.Ausencia(alumno_id=alumno_id, clase_id=clase.id, fecha=fecha, origen=origen,
@@ -283,9 +360,16 @@ def avisar_ausencia(alumno_id, clase_id, fecha, origen, motivo=None, avisada_en=
     return aus, True
 
 
-def faltas_recuperables(alumno_id, para_fecha=None):
+def es_de_academia(aus):
+    """Falta que no es culpa del alumno (clase suspendida, no vino el profe). A confirmar con Gabi."""
+    return aus.origen == ORIGEN_ACADEMIA
+
+
+def faltas_recuperables(alumno_id, para_fecha=None, solo_en_regla=False):
     """Faltas sin recuperación activa, de la más conveniente a la menos:
-    primero las del mismo mes que para_fecha, después las avisadas a tiempo, después la más vieja."""
+    primero las del mismo mes que para_fecha, después las de la academia (no gastan el tope),
+    después las avisadas a tiempo, después la más vieja.
+    solo_en_regla: deja afuera las avisadas tarde o sin aviso (esas se pierden)."""
     para_fecha = para_fecha or hoy()
     usadas = db.session.query(m.RecuperacionClase.ausencia_id).filter(
         m.RecuperacionClase.ausencia_id.isnot(None),
@@ -295,7 +379,9 @@ def faltas_recuperables(alumno_id, para_fecha=None):
         m.Ausencia.alumno_id == alumno_id,
         m.Ausencia.id.notin_(usadas),
     ).all()
-    faltas.sort(key=lambda a: (_mes(a.fecha) != _mes(para_fecha), not a.a_tiempo, a.fecha))
+    if solo_en_regla:
+        faltas = [a for a in faltas if a.a_tiempo or es_de_academia(a)]
+    faltas.sort(key=lambda a: (_mes(a.fecha) != _mes(para_fecha), not es_de_academia(a), not a.a_tiempo, a.fecha))
     return faltas
 
 
@@ -324,18 +410,64 @@ def sincronizar_asistencia(clase, fecha, alumno_id, estado):
 # ---------- recuperaciones ----------
 
 def _usadas_en_mes(alumno_id, fecha):
+    """Recuperaciones activas del alumno en ese mes que cuentan para su tope.
+    Las de faltas de la academia no cuentan (no fue culpa del alumno)."""
+    de_academia = db.session.query(m.Ausencia.id).filter(
+        m.Ausencia.alumno_id == alumno_id, m.Ausencia.origen == ORIGEN_ACADEMIA)
     return m.RecuperacionClase.query.filter(
         m.RecuperacionClase.alumno_id == alumno_id,
         m.RecuperacionClase.estado.in_(ACTIVAS),
         extract("year", m.RecuperacionClase.fecha) == fecha.year,
         extract("month", m.RecuperacionClase.fecha) == fecha.month,
+        or_(m.RecuperacionClase.ausencia_id.is_(None), m.RecuperacionClase.ausencia_id.notin_(de_academia)),
     ).count()
+
+
+def recuperaciones_disponibles(alumno_id, fecha=None):
+    """Cuántas le quedan en el mes de esa fecha (None = sin tope). Para el Inicio del alumno."""
+    tope = int(regla("max_recuperaciones_mes") or 0)
+    if not tope:
+        return None
+    return max(tope - _usadas_en_mes(alumno_id, fecha or hoy()), 0)
+
+
+def chequear_regla(alumno_id, fecha, aus=None):
+    """Para lo que pide el alumno o el agente: devuelve la falta que se usa para recuperar el día
+    'fecha', o tira ErrorRegla con codigo si la regla no lo deja. aus vacío = elige la mejor.
+    - aviso_tarde: la falta fue sin aviso o tarde -> la clase cuenta como realizada y se pierde
+    - tope: ya usó las recuperaciones del mes (las de faltas de la academia no cuentan)
+    - sin_falta: no hay ninguna falta para recuperar
+    """
+    horas = regla("aviso_horas") or 0
+    if aus is None:
+        candidatas = faltas_recuperables(alumno_id, para_fecha=fecha, solo_en_regla=True)
+        if candidatas:
+            aus = candidatas[0]
+        else:
+            # si lo único que tiene en ese mes son faltas tarde, le digo eso y no "no tenés faltas"
+            tardes = [a for a in faltas_recuperables(alumno_id, para_fecha=fecha) if _mes(a.fecha) == _mes(fecha)]
+            if tardes:
+                aus = tardes[0]
+            else:
+                raise ErrorRegla("No tiene una falta avisada a tiempo para recuperar", codigo="sin_falta")
+    de_academia = es_de_academia(aus)
+    if not aus.a_tiempo and not de_academia:
+        raise ErrorRegla(f"La falta del {aus.fecha:%d/%m} fue sin aviso o con menos de {horas} hs: "
+                         "la clase se considera realizada y no se recupera", codigo="aviso_tarde")
+    tope = int(regla("max_recuperaciones_mes") or 0)
+    if tope and not de_academia:
+        usadas = _usadas_en_mes(alumno_id, fecha)
+        if usadas >= tope:
+            raise ErrorRegla(f"Ya usó {usadas} recuperación(es) en {fecha:%m/%Y} y el tope es {tope}",
+                             codigo="tope")
+    return aus
 
 
 def pedir_recuperacion(alumno_id, clase_id, fecha, ausencia_id=None, pedida_por="agente",
                        forzar=False, usuario_id=None):
-    """Arma la recuperación. Si cumple todo queda confirmada; si no, pendiente con el motivo.
-    Si la carga el encargado queda confirmada igual (él decide), con el motivo anotado.
+    """Arma la recuperación. Alumno o agente: falta tarde, tope usado o sin falta -> ErrorRegla
+    (con codigo); falta de otro mes -> pendiente con el motivo; si cumple todo, confirmada.
+    Si la carga el encargado queda confirmada igual (es la excepción a mano), con el motivo anotado.
     forzar (solo encargado): la mete aunque la clase esté llena.
     """
     _alumno(alumno_id)
@@ -359,6 +491,26 @@ def pedir_recuperacion(alumno_id, clase_id, fecha, ausencia_id=None, pedida_por=
     if duplicada:
         raise ErrorRegla("Ya tiene una recuperación en esa clase ese día")
 
+    # la falta que se recupera: la que eligieron o la más conveniente.
+    # El alumno y el agente solo pueden usar las que entran en la regla; el encargado, cualquiera.
+    if ausencia_id:
+        aus = db.session.get(m.Ausencia, ausencia_id)
+        if not aus or aus.alumno_id != alumno_id:
+            raise ErrorRegla("Esa falta no es de ese alumno")
+        if recuperacion_activa(aus.id):
+            raise ErrorRegla("Esa falta ya tiene una recuperación")
+    elif gestion:
+        candidatas = faltas_recuperables(alumno_id, para_fecha=fecha)
+        aus = candidatas[0] if candidatas else None
+    else:
+        aus = None  # la elige chequear_regla
+    # lo que la regla no deja pedir: se rechaza (antes quedaba pendiente). La excepción, a mano.
+    if not gestion:
+        aus = chequear_regla(alumno_id, fecha, aus)
+    de_academia = bool(aus and es_de_academia(aus))
+    tope = int(regla("max_recuperaciones_mes") or 0)
+    usadas = _usadas_en_mes(alumno_id, fecha) if tope and not de_academia else 0
+
     vienen, _ = alumnos_del_dia(clase, fecha)
     if alumno_id in vienen:
         raise ErrorRegla("Ya está en esa clase ese día")
@@ -366,30 +518,17 @@ def pedir_recuperacion(alumno_id, clase_id, fecha, ausencia_id=None, pedida_por=
     if llena and not forzar:
         raise ErrorRegla("La clase está llena ese día")
 
-    # la falta que se recupera: la que eligieron o la más conveniente
-    if ausencia_id:
-        aus = db.session.get(m.Ausencia, ausencia_id)
-        if not aus or aus.alumno_id != alumno_id:
-            raise ErrorRegla("Esa falta no es de ese alumno")
-        if recuperacion_activa(aus.id):
-            raise ErrorRegla("Esa falta ya tiene una recuperación")
-    else:
-        candidatas = faltas_recuperables(alumno_id, para_fecha=fecha)
-        aus = candidatas[0] if candidatas else None
-
+    # motivos: lo que queda pendiente (otro mes) o, si la carga el encargado, la excepción que hizo
     motivos = []
     if not aus:
         motivos.append("no tiene una falta registrada para recuperar")
     else:
-        if not aus.a_tiempo:
+        if not aus.a_tiempo and not de_academia:
             motivos.append(f"la falta del {aus.fecha:%d/%m} fue sin aviso o con aviso tarde")
         if regla("recupera_mismo_mes") and _mes(aus.fecha) != _mes(fecha):
             motivos.append(f"la falta es del {aus.fecha:%d/%m} y quiere recuperar en otro mes")
-    tope = int(regla("max_recuperaciones_mes") or 0)
-    if tope:
-        usadas = _usadas_en_mes(alumno_id, fecha)
-        if usadas >= tope:
-            motivos.append(f"ya tiene {usadas} recuperación(es) ese mes y el tope es {tope}")
+    if tope and usadas >= tope:
+        motivos.append(f"ya tiene {usadas} recuperación(es) ese mes y el tope es {tope}")
     if llena:
         motivos.append("la clase estaba llena (la metió el encargado)")
 

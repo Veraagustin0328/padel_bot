@@ -13,10 +13,17 @@ Agente de WhatsApp + panel de gestión. Se llama "agente", no "bot".
 ## Pendientes de seguridad
 - La dueña puede quedar trabada por terceros que conozcan su email; evaluar límite por email+IP o aviso al dueño antes de vender el sistema.
 
+## Pendientes de reglas
+- Promo 2x1 (días y horas) y horario del Head Coach siguen fijos en app/cuotas.py: pasarlos a config_academia (tarea aparte).
+- Head Coach: el PDF de planes dice turno mañana = 7 a 14; el código usa 7 a 12. Corregir en esa misma tarea.
+- Falta de la academia (clase suspendida, no vino el profe) se recupera y no cuenta para el tope: confirmar con Gabi.
+
 ## Reglas de negocio
 - Promo 2x1 solo lunes, miércoles y viernes de 9 a 12.
 - Inscripción $25.000, pago único por alumno.
-- Recuperaciones en el mismo mes, con aviso de 24 hs.
+- Recuperaciones en el mismo mes, con aviso de 24 hs, hasta 1 por mes (config_academia: aviso_horas, max_recuperaciones_mes).
+- Falta sin aviso o con menos de 24 hs: la clase se considera realizada y se pierde. Ni el alumno ni el agente la pueden pedir; la excepción la carga el encargado a mano.
+- Clases por mes adelantado, el total, sin excepción. Paquetes grupales: todos pagan en el mismo momento. Los textos de políticas viven en config_academia 'politicas'.
 - Reemplazo por viaje solo por el lapso del viaje.
 - Cada profe ve solo sus clases.
 - Nunca inventar precios: si no hay tarifa exacta, derivar al encargado.

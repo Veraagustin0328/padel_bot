@@ -192,9 +192,11 @@ def crear_ausencia():
         except ValueError:
             return _error("La hora del aviso no es válida")
     a_tiempo = datos.get("a_tiempo")
+    # de_la_academia: clase suspendida o no vino el profe -> se recupera y no cuenta para el tope
+    origen = r.ORIGEN_ACADEMIA if datos.get("de_la_academia") else "encargado"
     aus, nueva = r.avisar_ausencia(
         _int(datos.get("alumno_id")), _int(datos.get("clase_id")), _fecha(datos.get("fecha")),
-        origen="encargado", motivo=datos.get("motivo"), avisada_en=avisada_en,
+        origen=origen, motivo=datos.get("motivo"), avisada_en=avisada_en,
         a_tiempo=None if a_tiempo is None else bool(a_tiempo),
     )
     if not nueva:

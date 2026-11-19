@@ -109,19 +109,14 @@ _TURNOS = {"manana": "manana", "mananas": "manana", "tarde": "tarde", "tardes": 
            "sabado": "sabado", "sabados": "sabado"}
 
 def _politicas() -> str:
-    """Las reglas salen de ConfigAcademia: cada club pone las suyas."""
-    horas = rec.regla("aviso_horas") or 0
-    tope = int(rec.regla("max_recuperaciones_mes") or 0)
-    mismo_mes = rec.regla("recupera_mismo_mes")
-    texto = "Las clases se pagan por mes adelantado. "
-    if horas:
-        texto += (f"Si no se puede ir, hay que avisar con al menos {horas} hs de anticipación; "
-                  "si no, la clase no se puede recuperar. ")
-    if tope:
-        texto += f"Se puede recuperar hasta {tope} clase{'s' if tope > 1 else ''} por mes"
-    else:
-        texto += "Las clases avisadas a tiempo se pueden recuperar"
-    texto += ", dentro del mismo mes de la falta." if mismo_mes else "."
+    """Los textos salen de config_academia 'politicas' (los mismos que ve el alumno en el panel)."""
+    partes = []
+    for seccion in rec.politicas():
+        items = " ".join(seccion["items"])
+        partes.append(f"{seccion['titulo']}: {items}" if seccion["titulo"] else items)
+    texto = " ".join(partes)
+    if rec.regla("recupera_mismo_mes"):
+        texto += " La recuperación tiene que ser dentro del mismo mes de la falta."
     return texto
 
 # ---------------------------------------------------------------- prompts
@@ -518,7 +513,7 @@ def _procesar_mensaje_interno(telefono: str, texto: str, es_jefe: bool = False) 
             "content": SALUDO_YA_SALUDASTE if ya_hablo_bot else _saludo_primer_mensaje(),
         })
         mensajes.append({"role": "system", "content": _nota_registro(telefono)})
-        mensajes.append({"role": "system", "content": "Reglas de faltas y recuperaciones: " + _politicas()})
+        mensajes.append({"role": "system", "content": "Políticas de la academia: " + _politicas()})
 
     mensajes.extend(_historial(telefono))
 
@@ -1981,19 +1976,30 @@ def _dias_del_alumno(alumno_id: int) -> list[str]:
             if c.vigente_en(proxima[c.id]) and rec.inscripto(alumno_id, c.id, proxima[c.id])]
 
 
-def _texto_recupero(alumno_id: int, fecha: date, a_tiempo: bool) -> tuple[bool, str]:
+def _texto_aviso_tarde() -> str:
     horas = rec.regla("aviso_horas") or 0
+    return (f"Como avisaste con menos de {horas} hs, la clase se considera realizada y no se puede "
+            "recuperar.")
+
+
+def _texto_tope(fecha: date) -> str:
+    tope = int(rec.regla("max_recuperaciones_mes") or 0)
+    ya = "tu recuperación" if tope == 1 else f"tus {tope} recuperaciones"
+    return f"Ya usaste {ya} de {_mes_nombre(fecha)}, así que esta no se puede recuperar."
+
+
+def _texto_recupero(alumno_id: int, fecha: date, a_tiempo: bool,
+                    de_academia: bool = False) -> tuple[bool, str]:
+    """Si la falta se puede recuperar y qué decirle. Tarde o con el tope usado: se pierde y NO se
+    ofrece pedirla igual (la excepción la hace el encargado a mano, no el agente)."""
     tope = int(rec.regla("max_recuperaciones_mes") or 0)
     en_mes = f" en {_mes_nombre(fecha)}" if rec.regla("recupera_mismo_mes") else ""
-    if not a_tiempo:
-        return False, (f"Como avisaste con menos de {horas} hs, la falta queda anotada pero la "
-                       "recuperación no entra en la regla. Si querés te la pido igual y la decide el encargado.")
-    if tope and rec._usadas_en_mes(alumno_id, fecha) >= tope:
-        return False, (f"Ya usaste {'tu recuperación' if tope == 1 else f'tus {tope} recuperaciones'} "
-                       f"de {_mes_nombre(fecha)}, así que esta no entra en la regla. Si querés te la "
-                       "pido igual y la decide el encargado.")
-    return True, (f"Como avisaste a tiempo, la podés recuperar{en_mes}. Decime qué día y horario te "
-                  "queda bien y me fijo si hay lugar.")
+    if not a_tiempo and not de_academia:
+        return False, _texto_aviso_tarde()
+    if not de_academia and tope and rec._usadas_en_mes(alumno_id, fecha) >= tope:
+        return False, _texto_tope(fecha)
+    return True, (f"La podés recuperar{en_mes}. Decime qué día y horario te queda bien y me fijo "
+                  "si hay lugar.")
 
 
 def _avisar_ausencia(telefono: str, args: dict) -> dict:
@@ -2051,7 +2057,7 @@ def _avisar_ausencia(telefono: str, args: dict) -> dict:
         db.session.rollback()
         aus, nueva = rec.avisar_ausencia(alumno.id, clase.id, fecha, origen="agente")
 
-    puede, texto = _texto_recupero(alumno.id, fecha, aus.a_tiempo)
+    puede, texto = _texto_recupero(alumno.id, fecha, aus.a_tiempo, rec.es_de_academia(aus))
     if nueva:
         _notificar(f"{alumno.nombre} avisó por WhatsApp que falta el {que} "
                    f"({'a tiempo' if aus.a_tiempo else 'tarde'})", tipo="ausencia")
@@ -2059,16 +2065,35 @@ def _avisar_ausencia(telefono: str, args: dict) -> dict:
     return {"status": "registrada" if nueva else "ya_estaba_registrada",
             "alumno": alumno.nombre, "fecha": que, "a_tiempo": bool(aus.a_tiempo), "puede_recuperar": puede,
             "decile": f"{inicio} el {que} no venís. {texto}",
-            "mensaje": _RESPUESTA_TOOL}
+            "mensaje": _RESPUESTA_TOOL if puede else
+            "NO se puede recuperar: no ofrezcas pedirla igual ni pasarla al encargado. " + _RESPUESTA_TOOL}
 
 
+def _texto_rechazo_regla(error, fecha: date) -> str | None:
+    """Lo que la regla no deja pedir (recuperaciones.py tira ErrorRegla con codigo). None si es otra cosa."""
+    codigo = getattr(error, "codigo", None)
+    if codigo == "aviso_tarde":
+        return _texto_aviso_tarde()
+    if codigo == "tope":
+        return _texto_tope(fecha)
+    if codigo == "sin_falta":
+        horas = rec.regla("aviso_horas") or 0
+        return ("No tengo anotada ninguna falta tuya avisada a tiempo para recuperar. Cuando no puedas "
+                f"ir a una clase, avisame con al menos {horas} hs y la podés recuperar.")
+    return None
+
+
+def _rechazo_regla(error, fecha: date) -> dict:
+    texto = _texto_rechazo_regla(error, fecha) or f"No se puede pedir esa recuperación ({error})."
+    return {"status": "fuera_de_regla", "decile": texto,
+            "mensaje": "NO pediste nada y NO se puede: no ofrezcas pedirla igual ni pasarla al encargado. "
+                       + _RESPUESTA_TOOL}
+
+
+# tarde, tope y sin falta ya no quedan pendientes (se rechazan): solo queda el de otro mes
 _MOTIVOS_ALUMNO = [
-    (re.compile(r"no tiene una falta"), lambda m: "no encontré una falta tuya anotada para recuperar"),
-    (re.compile(r"la falta del (\S+) fue sin aviso"), lambda m: f"la falta del {m.group(1)} fue sin aviso o con aviso tarde"),
     (re.compile(r"la falta es del (\S+) y quiere recuperar en otro mes"),
      lambda m: f"la falta es del {m.group(1)} y la recuperación cae en otro mes"),
-    (re.compile(r"ya tiene (\d+) recuperaci.n\(es\) ese mes y el tope es (\d+)"),
-     lambda m: f"ya usaste las recuperaciones de ese mes (el máximo es {m.group(2)})"),
 ]
 
 
@@ -2150,6 +2175,11 @@ def _pedir_recuperacion(telefono: str, args: dict) -> dict:
     ya = _recuperacion_ya_pedida(alumno, clase, fecha, que)
     if ya:
         return ya
+    # la regla antes que el cupo: si avisó tarde no tiene sentido ofrecerle otros horarios
+    try:
+        rec.chequear_regla(alumno.id, fecha)
+    except rec.ErrorRegla as e:
+        return _rechazo_regla(e, fecha)
     # la llena la aviso antes de confirmar la fecha: no tiene sentido hacerle confirmar algo imposible
     if rec.inicio_clase(clase, fecha) > rec.ahora() and rec.lugares_libres(clase, fecha) <= 0:
         return _clase_llena(clase, fecha, que)
@@ -2166,6 +2196,8 @@ def _pedir_recuperacion(telefono: str, args: dict) -> dict:
     except rec.ErrorRegla as e:
         db.session.rollback()
         motivo = str(e)
+        if getattr(e, "codigo", None):
+            return _rechazo_regla(e, fecha)
         if "llena" in motivo:
             return _clase_llena(clase, fecha, que)
         if "Ya tiene una recuperación" in motivo:
