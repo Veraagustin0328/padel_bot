@@ -10,6 +10,9 @@ Agente de WhatsApp + panel de gestión. Se llama "agente", no "bot".
 - Webhook de WhatsApp: el POST exige firma X-Hub-Signature-256 con `META_APP_SECRET`. En Render, sin esa variable rechaza todo con 403: hay que cargarla en Render ANTES del deploy. En local, sin la variable acepta sin firma (con aviso). Variables en `.env.example`.
 - Comprobantes viven en la pestaña "comprobantes" de la planilla de Google, no en Neon. Su id es el número de fila.
 
+## Pendientes de seguridad
+- La dueña puede quedar trabada por terceros que conozcan su email; evaluar límite por email+IP o aviso al dueño antes de vender el sistema.
+
 ## Reglas de negocio
 - Promo 2x1 solo lunes, miércoles y viernes de 9 a 12.
 - Inscripción $25.000, pago único por alumno.
