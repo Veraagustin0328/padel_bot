@@ -1,6 +1,11 @@
 """
 Novedades del panel: avisos que se ven en el Inicio.
-GET lo puede pedir cualquiera logueado y trae solo las vigentes.
+GET lo puede pedir cualquiera logueado y trae solo las vigentes de su audiencia:
+- "todos": las ve todo el mundo.
+- "equipo": dueño, encargado y profe.
+- "alumnos": jugador, tutor y jugador_tutor.
+Dueño y encargado ven todas siempre (las gestionan).
+Lo que no le corresponde a alguien, ni por id: 404, como si no existiera.
 Crear, editar y borrar: dueño y encargado.
 Las vencidas no se muestran pero no se borran solas (quedan de historial).
 """
@@ -11,12 +16,14 @@ from zoneinfo import ZoneInfo
 from flask import Blueprint, request, jsonify, g
 
 from app.extensions import db
-from app.models_academia import Novedad, TIPOS_NOVEDAD
+from app.models_academia import Novedad, TIPOS_NOVEDAD, AUDIENCIAS_NOVEDAD
 from app.routes.auth import requiere_login
 
 novedades_bp = Blueprint("novedades", __name__)
 
 GESTION = ("dueno", "encargado")
+ROLES_EQUIPO = ("dueno", "encargado", "profe")
+ROLES_ALUMNOS = ("jugador", "tutor", "jugador_tutor")
 TITULO_MAX = 120
 TEXTO_MAX = 2000
 # configurable por club; por defecto hora argentina
@@ -28,6 +35,17 @@ def _hoy():
     return datetime.now(ZONA).date()
 
 
+def audiencias_de(rol):
+    """Qué audiencias ve ese rol. None = todas (gestión)."""
+    if rol in GESTION:
+        return None
+    if rol in ROLES_EQUIPO:
+        return ("todos", "equipo")
+    if rol in ROLES_ALUMNOS:
+        return ("todos", "alumnos")
+    return ("todos",)  # un rol que no conocemos: solo lo de todos
+
+
 def _json(n):
     hoy = _hoy()
     return {
@@ -35,6 +53,7 @@ def _json(n):
         "titulo": n.titulo,
         "texto": n.texto,
         "tipo": n.tipo,
+        "audiencia": n.audiencia,
         "publicada_desde": n.publicada_desde.isoformat() + "Z" if n.publicada_desde else None,
         "visible_hasta": n.visible_hasta.isoformat() if n.visible_hasta else None,
         "vigente": n.visible_hasta is None or n.visible_hasta >= hoy,
@@ -48,6 +67,11 @@ def _vigentes(consulta):
         Novedad.publicada_desde <= datetime.utcnow(),
         db.or_(Novedad.visible_hasta.is_(None), Novedad.visible_hasta >= hoy),
     )
+
+
+def _de_su_audiencia(consulta):
+    permitidas = audiencias_de(g.usuario.rol)
+    return consulta if permitidas is None else consulta.filter(Novedad.audiencia.in_(permitidas))
 
 
 def _error(texto, codigo=400):
@@ -76,6 +100,13 @@ def _validar(datos, parcial):
             return None, "Elegí un tipo válido"
         campos["tipo"] = tipo
 
+    # al crear es obligatoria: que nadie publique para los padres sin querer
+    if not parcial or "audiencia" in datos:
+        audiencia = datos.get("audiencia")
+        if not isinstance(audiencia, str) or audiencia.strip() not in AUDIENCIAS_NOVEDAD:
+            return None, "Elegí para quién es: todos, equipo o alumnos"
+        campos["audiencia"] = audiencia.strip()
+
     if "visible_hasta" in datos:
         valor = datos.get("visible_hasta")
         if valor in (None, ""):
@@ -95,7 +126,7 @@ def _validar(datos, parcial):
 @novedades_bp.get("/api/novedades")
 @requiere_login()
 def listar():
-    consulta = Novedad.query
+    consulta = _de_su_audiencia(Novedad.query)
     # ?todas=1 es para la pantalla de gestión: ve también las vencidas, para borrarlas
     todas = request.args.get("todas") == "1" and g.usuario.rol in GESTION
     if not todas:
@@ -108,6 +139,19 @@ def listar():
 @requiere_login()
 def tipos():
     return jsonify(list(TIPOS_NOVEDAD))
+
+
+@novedades_bp.get("/api/novedades/<int:id_>")
+@requiere_login()
+def una(id_):
+    # misma regla que la lista: si no es de su audiencia (o está vencida y no gestiona), 404
+    consulta = _de_su_audiencia(Novedad.query.filter(Novedad.id == id_))
+    if g.usuario.rol not in GESTION:
+        consulta = _vigentes(consulta)
+    n = consulta.first()
+    if not n:
+        return _error("No encontré esa novedad", 404)
+    return jsonify(_json(n))
 
 
 @novedades_bp.post("/api/novedades")

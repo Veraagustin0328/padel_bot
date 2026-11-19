@@ -275,6 +275,8 @@ class Auditoria(db.Model):
 # ---------- novedades del panel ----------
 
 TIPOS_NOVEDAD = ("aviso", "evento", "promo", "importante")
+# para quién es: todos, equipo (dueño, encargado, profe) o alumnos (jugador, tutor, ambos)
+AUDIENCIAS_NOVEDAD = ("todos", "equipo", "alumnos")
 
 
 class Novedad(db.Model):
@@ -288,6 +290,8 @@ class Novedad(db.Model):
     publicada_desde = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     visible_hasta = db.Column(db.Date, nullable=True, index=True)  # inclusive; vacío = sin vencimiento
     creada_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    # default "equipo": si algo la crea sin decir para quién, no le llega a los padres (migrar_novedades_audiencia.py)
+    audiencia = db.Column(db.String(10), nullable=False, default="equipo", server_default="equipo")
 
 
 class Nota(db.Model):

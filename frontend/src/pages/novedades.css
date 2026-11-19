@@ -23,8 +23,37 @@
 }
 .nov-texto { margin: 6px 0; white-space: pre-line; overflow-wrap: anywhere; }
 .nov-pie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.nov-acciones { display: flex; gap: 8px; }
+.nov-acciones .boton { min-height: 44px; }  /* en celu, dedo */
+.nov-form .botones { display: flex; flex-direction: column; gap: 8px; }
+
+/* para quién es: etiqueta chica en la lista */
+.nov-para {
+  font-size: 11px; font-weight: 700; border-radius: 6px; padding: 2px 8px;
+  border: 1px solid var(--linea); color: var(--suave); background: #fff;
+}
+.nov-para.aud-equipo { border-color: var(--azul); color: var(--azul); }
+.nov-para.aud-alumnos { border-color: var(--ok); color: var(--ok); background: var(--ok-fondo); }
+
+/* selector: tarjetas con radio, una abajo de la otra en celu */
+.nov-audiencia { border: 0; margin: 0; padding: 0; min-width: 0; }
+.nov-audiencia legend { font-size: 12px; color: var(--suave); font-weight: 600; padding: 0; margin-bottom: 6px; }
+.nov-audiencia-opciones { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.nov-aud-opcion {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 12px;
+  border: 1px solid #c4c8b8; border-radius: 8px; background: #fff; cursor: pointer;
+}
+.nov-aud-opcion input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--verde); }
+.nov-aud-opcion.elegida { border-color: var(--verde); box-shadow: inset 0 0 0 1px var(--verde); background: var(--fondo); }
+.nov-aud-opcion:focus-within { outline: 2px solid var(--azul); outline-offset: 2px; }
+.nov-aud-textos { display: flex; flex-direction: column; line-height: 1.25; }
+.nov-aud-textos strong { font-size: 15px; }
+.nov-aud-textos span { font-size: 13px; color: var(--suave); }
 
 @media (min-width: 821px) {
   .nov-par { grid-template-columns: 1fr 1fr; }
   .nov-form .boton { width: auto; }
+  .nov-form .botones { flex-direction: row; }
+  .nov-audiencia-opciones { grid-template-columns: repeat(3, 1fr); }
+  .nov-acciones .boton { min-height: 36px; }
 }
