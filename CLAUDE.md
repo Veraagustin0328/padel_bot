@@ -17,6 +17,7 @@ Agente de WhatsApp + panel de gestión. Se llama "agente", no "bot".
 - Promo 2x1 (días y horas) y horario del Head Coach siguen fijos en app/cuotas.py: pasarlos a config_academia (tarea aparte).
 - Head Coach: el PDF de planes dice turno mañana = 7 a 14; el código usa 7 a 12. Corregir en esa misma tarea.
 - Falta de la academia (clase suspendida, no vino el profe) se recupera y no cuenta para el tope: confirmar con Gabi.
+- No permitir reservar una recuperación en la misma clase y el mismo día que la clase fija del alumno (por ningún camino: panel, agente ni scripts de carga). Si había avisado falta, lo que corresponde es cancelar la falta, sin gastar la recuperación.
 
 ## Reglas de negocio
 - Promo 2x1 solo lunes, miércoles y viernes de 9 a 12.

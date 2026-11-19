@@ -2,6 +2,8 @@ venv/
 instance/
 __pycache__/
 *.pyc
+# cache de Vite si se arranca desde la raíz del repo
+.vite/
 
 # archivos de entorno (.env, .env.simulacion, .env.simulacion.ejemplo y cualquier otro), nunca al repo.
 # ojo: frontend/.env.development ya estaba trackeado (solo tiene la url de localhost) y sigue trackeado
