@@ -25,6 +25,19 @@ export default function Usuarios() {
     }
   }
 
+  // se pasó de intentos de login: lo destraba sin tocarle la clave
+  async function destrabar(u) {
+    setError(""); setOcupado(u.id);
+    try {
+      await api(`/api/auth/usuarios/${u.id}/desbloquear`, { metodo: "POST" });
+      setLista((l) => l.map((x) => (x.id === u.id ? { ...x, bloqueado: false } : x)));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   return (
     <div>
       <div className="cabecera">
@@ -48,13 +61,21 @@ export default function Usuarios() {
             <div>
               <strong>{u.nombre}</strong>
               <div className="sub">{u.email} · {nombreRol(u.rol)}{!u.activo && " · inactivo"}</div>
+              {u.bloqueado && <div className="sub">Trabado por intentos fallidos de entrar</div>}
             </div>
-            {/* el backend dice a quién se puede: el admin no resetea a dueños ni a otros admins */}
-            {u.puede_resetear && (
-              <button className="boton chico claro" disabled={ocupado === u.id} onClick={() => resetear(u)}>
-                Resetear contraseña
-              </button>
-            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {u.bloqueado && (
+                <button className="boton chico" disabled={ocupado === u.id} onClick={() => destrabar(u)}>
+                  Destrabar
+                </button>
+              )}
+              {/* el backend dice a quién se puede: el admin no resetea a dueños ni a otros admins */}
+              {u.puede_resetear && (
+                <button className="boton chico claro" disabled={ocupado === u.id} onClick={() => resetear(u)}>
+                  Resetear contraseña
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

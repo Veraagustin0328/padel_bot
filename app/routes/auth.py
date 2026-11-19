@@ -11,10 +11,7 @@ import os
 import re
 import logging
 import secrets
-import time
 import datetime
-import threading
-from collections import deque
 
 import jwt
 from flask import Blueprint, request, jsonify, g
@@ -23,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
+from app.limites import Ventana, numero_de_entorno
 from app.models_plataforma import Usuario
 from app.models_academia import UsuarioPerfil
 
@@ -46,9 +44,68 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # cambio de clave: cuántas veces puede errarle a la actual antes de frenarlo
 FALLOS_CLAVE_POR_USUARIO = 5
 VENTANA_FALLOS_SEGUNDOS = 15 * 60
+# login: fallos por email y por IP en la ventana; se cambian con variables de entorno
+LOGIN_FALLOS_POR_EMAIL = numero_de_entorno("LOGIN_FALLOS_POR_EMAIL", 5)
+LOGIN_FALLOS_POR_IP = numero_de_entorno("LOGIN_FALLOS_POR_IP", 20)
+LOGIN_VENTANA_SEGUNDOS = numero_de_entorno("LOGIN_VENTANA_MINUTOS", 15) * 60
+MENSAJE_DEMASIADOS = "Demasiados intentos. Probá de nuevo en unos minutos."
 # clave que genera el reset: sin letras que se confunden (0/O, 1/l/I)
 ALFABETO_CLAVE = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 LARGO_CLAVE_RESET = 12
+
+
+# todos en memoria (ver app/limites.py): con un solo proceso alcanza
+_registros_por_ip = Ventana(REGISTROS_POR_IP, VENTANA_SEGUNDOS)
+_registros_totales = Ventana(REGISTROS_TOTALES, VENTANA_SEGUNDOS)
+_fallos_clave = Ventana(FALLOS_CLAVE_POR_USUARIO, VENTANA_FALLOS_SEGUNDOS)
+_login_por_email = Ventana(LOGIN_FALLOS_POR_EMAIL, LOGIN_VENTANA_SEGUNDOS)
+_login_por_ip = Ventana(LOGIN_FALLOS_POR_IP, LOGIN_VENTANA_SEGUNDOS)
+
+# headers que pone Cloudflare (adelante de Render) con la IP real; el cliente no los puede pisar
+HEADERS_IP = [h.strip() for h in os.environ.get(
+    "IP_HEADERS", "True-Client-IP,CF-Connecting-IP").split(",") if h.strip()]
+_avise_sin_header_ip = False
+
+
+def _ip_cliente():
+    """IP del que pega. En Render el primer valor de X-Forwarded-For lo puede inventar el cliente
+    (el proxy agrega, no reemplaza), así que primero miro los headers de Cloudflare."""
+    global _avise_sin_header_ip
+    if not os.environ.get("RENDER"):
+        return request.remote_addr or "?"  # en la PC no hay proxy
+    for nombre in HEADERS_IP:
+        valor = request.headers.get(nombre, "").strip()
+        if valor:
+            return valor
+    if not _avise_sin_header_ip:
+        _avise_sin_header_ip = True
+        log.warning("No llegó ningún header de IP (%s): uso X-Forwarded-For", ", ".join(HEADERS_IP))
+    reenviada = request.headers.get("X-Forwarded-For", "")
+    if reenviada:
+        return reenviada.split(",")[0].strip()
+    return request.remote_addr or "?"
+
+
+def _demasiados(segundos):
+    resp = jsonify({"error": MENSAJE_DEMASIADOS})
+    resp.headers["Retry-After"] = str(segundos)
+    return resp, 429
+
+
+_hash_de_relleno = None
+
+
+def _clave_de_relleno(password):
+    """Con un email que no existe igual se chequea un hash, así tarda lo mismo y no se nota."""
+    global _hash_de_relleno
+    if _hash_de_relleno is None:
+        _hash_de_relleno = generate_password_hash(secrets.token_hex(16))
+    check_password_hash(_hash_de_relleno, password)
+    return False
+
+
+def _email_clave(u):
+    return (u.email or "").strip().lower()  # igual que lo arma el login
 
 
 def _secreto():
@@ -137,9 +194,19 @@ def login():
     datos = request.get_json(silent=True) or {}
     email = (datos.get("email") or "").strip().lower()
     password = datos.get("password") or ""
+    ip = _ip_cliente()
+
+    # se frena antes de mirar la clave, y el mensaje es el mismo exista o no el email
+    espera = max(_login_por_email.espera(email), _login_por_ip.espera(ip))
+    if espera:
+        log.warning("Login frenado por demasiados intentos desde %s", ip)
+        return _demasiados(espera)
 
     usuario = Usuario.query.filter_by(email=email).first()
-    clave_ok = bool(usuario) and check_password_hash(usuario.password_hash, password)
+    if usuario:
+        clave_ok = check_password_hash(usuario.password_hash, password)
+    else:
+        clave_ok = _clave_de_relleno(password)
 
     # solo con la clave correcta le contamos que está pendiente, así no se puede
     # averiguar qué mails se registraron. Los usuarios de siempre no tienen perfil: siguen igual
@@ -151,9 +218,14 @@ def login():
             return jsonify({"error": "Tu solicitud de acceso no fue aprobada"}), 403
 
     # mismo mensaje si falla el mail o la clave, así no se sabe cuál existe
-    if not clave_ok or not usuario.activo:
+    if not clave_ok:
+        _login_por_email.anotar(email)
+        _login_por_ip.anotar(ip)
+        return jsonify({"error": "Email o contraseña incorrectos"}), 401
+    if not usuario.activo:  # clave bien pero dado de baja: no cuenta como fallo
         return jsonify({"error": "Email o contraseña incorrectos"}), 401
 
+    _login_por_email.borrar(email)  # entró bien: arranca de cero
     cambiar = _debe_cambiar(usuario)
     return jsonify({"token": crear_token(usuario, cambiar), "usuario": _usuario_json(usuario, cambiar)})
 
@@ -166,46 +238,15 @@ def yo():
 
 # ---------- registro por link ----------
 
-# en memoria alcanza: Render free corre un solo proceso. Si se reinicia, se resetea y listo
-_intentos_por_ip = {}
-_intentos_totales = deque()
-_candado = threading.Lock()
-
-
-def _ip_cliente():
-    # detrás del proxy de Render la IP real viene en X-Forwarded-For (la primera)
-    reenviada = request.headers.get("X-Forwarded-For", "")
-    if reenviada:
-        return reenviada.split(",")[0].strip()
-    return request.remote_addr or "?"
-
-
-def _limpiar(cola, ahora):
-    while cola and ahora - cola[0] > VENTANA_SEGUNDOS:
-        cola.popleft()
-
-
-def _pasa_limite(ip):
-    """Anota el intento y dice si todavía está dentro del límite."""
-    ahora = time.monotonic()
-    with _candado:
-        _limpiar(_intentos_totales, ahora)
-        cola = _intentos_por_ip.setdefault(ip, deque())
-        _limpiar(cola, ahora)
-        if len(cola) >= REGISTROS_POR_IP or len(_intentos_totales) >= REGISTROS_TOTALES:
-            return False
-        cola.append(ahora)
-        _intentos_totales.append(ahora)
-        # que el dict no crezca para siempre
-        for otra in [k for k, v in _intentos_por_ip.items() if not v]:
-            del _intentos_por_ip[otra]
-        return True
-
-
 @auth_bp.post("/api/auth/registro")
 def registro():
-    if not _pasa_limite(_ip_cliente()):
-        return jsonify({"error": "Demasiados intentos, probá de nuevo en un rato"}), 429
+    # acá cuenta cada intento, no solo los fallidos: por IP y en total, por si rotan IPs
+    ip = _ip_cliente()
+    espera = max(_registros_por_ip.espera(ip), _registros_totales.espera("todos"))
+    if espera:
+        return _demasiados(espera)
+    _registros_por_ip.anotar(ip)
+    _registros_totales.anotar("todos")
 
     datos = request.get_json(silent=True) or {}
     nombre = (datos.get("nombre") or "").strip()
@@ -249,29 +290,6 @@ def registro():
 
 # ---------- cambio y reset de contraseña ----------
 
-# mismo esquema que el registro: en memoria, se resetea si reinicia el proceso
-_fallos_clave = {}
-
-
-def _bloqueado_por_fallos(usuario_id):
-    ahora = time.monotonic()
-    with _candado:
-        cola = _fallos_clave.get(usuario_id)
-        if not cola:
-            return False
-        while cola and ahora - cola[0] > VENTANA_FALLOS_SEGUNDOS:
-            cola.popleft()
-        if not cola:
-            del _fallos_clave[usuario_id]
-            return False
-        return len(cola) >= FALLOS_CLAVE_POR_USUARIO
-
-
-def _anotar_fallo(usuario_id):
-    with _candado:
-        _fallos_clave.setdefault(usuario_id, deque()).append(time.monotonic())
-
-
 def _validar_clave_nueva(clave):
     """Devuelve el texto del error o None si está bien."""
     if len(clave) < CLAVE_MINIMA:
@@ -285,8 +303,9 @@ def _validar_clave_nueva(clave):
 @requiere_login()
 def cambiar_password():
     u = g.usuario
-    if _bloqueado_por_fallos(u.id):
-        return jsonify({"error": "Demasiados intentos, probá de nuevo en un rato"}), 429
+    espera = _fallos_clave.espera(u.id)
+    if espera:
+        return _demasiados(espera)
 
     datos = request.get_json(silent=True) or {}
     actual = datos.get("actual") or ""
@@ -294,7 +313,7 @@ def cambiar_password():
 
     # 400 y no 401: el panel cierra la sesión con cualquier 401
     if not actual or not check_password_hash(u.password_hash, actual):
-        _anotar_fallo(u.id)
+        _fallos_clave.anotar(u.id)
         return jsonify({"error": "La contraseña actual no es correcta"}), 400
 
     error = _validar_clave_nueva(nueva)
@@ -308,8 +327,7 @@ def cambiar_password():
     if perfil:
         perfil.debe_cambiar_clave = False
     db.session.commit()
-    with _candado:
-        _fallos_clave.pop(u.id, None)
+    _fallos_clave.borrar(u.id)
     # token nuevo sin la marca de clave temporal, así sigue sin volver a entrar
     return jsonify({"ok": True, "mensaje": "Listo, cambiaste tu contraseña",
                     "token": crear_token(u), "usuario": _usuario_json(u)})
@@ -324,7 +342,9 @@ def listar_usuarios():
     yo = g.usuario
     return jsonify([
         {**_usuario_json(u), "activo": bool(u.activo),
-         "puede_resetear": u.id != yo.id and puede_tocar_rol(yo, u.rol)}
+         "puede_resetear": u.id != yo.id and puede_tocar_rol(yo, u.rol),
+         # solo se lo muestro a quien lo puede destrabar
+         "bloqueado": puede_tocar_rol(yo, u.rol) and _login_por_email.bloqueado(_email_clave(u))}
         for u in filas
     ])
 
@@ -344,8 +364,22 @@ def resetear_password(id_):
     u.password_hash = generate_password_hash(clave)
     _perfil(u, crear=True).debe_cambiar_clave = True  # la clave del reset es temporal
     db.session.commit()
-    with _candado:
-        _fallos_clave.pop(u.id, None)
+    _fallos_clave.borrar(u.id)
+    _login_por_email.borrar(_email_clave(u))  # con la clave nueva tiene que poder entrar ya
     log.info("El usuario %s reseteó la contraseña del usuario %s", g.usuario.id, u.id)
     # se devuelve una sola vez; no queda guardada en ningún lado
     return jsonify({"ok": True, "id": u.id, "password": clave})
+
+
+@auth_bp.post("/api/auth/usuarios/<int:id_>/desbloquear")
+@requiere_login("encargado")
+def desbloquear(id_):
+    """Destraba el login de alguien que se pasó de intentos, sin tocarle la clave."""
+    u = db.session.get(Usuario, id_)
+    if not u or u.rol == ROL_PENDIENTE:
+        return jsonify({"error": "No encontré ese usuario"}), 404
+    if not puede_tocar_rol(g.usuario, u.rol):
+        return jsonify({"error": "A un dueño o un admin solo lo destraba el dueño"}), 403
+    _login_por_email.borrar(_email_clave(u))
+    log.info("El usuario %s destrabó el login del usuario %s", g.usuario.id, u.id)
+    return jsonify({"ok": True, "id": u.id})

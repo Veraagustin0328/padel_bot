@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 import { MARCA } from "../marca.js";
@@ -11,6 +11,14 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [frenadoHasta, setFrenadoHasta] = useState(0); // con 429: hasta cuándo no dejo mandar
+
+  // cuando vence la espera se habilita el botón solo
+  useEffect(() => {
+    if (!frenadoHasta) return;
+    const t = setTimeout(() => setFrenadoHasta(0), Math.max(0, frenadoHasta - Date.now()));
+    return () => clearTimeout(t);
+  }, [frenadoHasta]);
 
   if (usuario) return <Navigate to="/" replace />;
 
@@ -23,6 +31,7 @@ export default function Login() {
       navegar("/");
     } catch (err) {
       setError(err.message);
+      if (err.status === 429) setFrenadoHasta(Date.now() + (err.reintentarEn || 60) * 1000);
     } finally {
       setEnviando(false);
     }
@@ -46,7 +55,9 @@ export default function Login() {
           <input id="clave" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </div>
         {error && <div className="msg-error" role="alert">{error}</div>}
-        <button className="boton" disabled={enviando}>{enviando ? "Entrando…" : "Entrar"}</button>
+        <button className="boton" disabled={enviando || frenadoHasta > 0}>
+          {enviando ? "Entrando…" : frenadoHasta ? "Esperá unos minutos" : "Entrar"}
+        </button>
         <Link to="/registro" className="login-link">¿No tenés cuenta? Pedí acceso</Link>
       </form>
     </div>

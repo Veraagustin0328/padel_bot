@@ -18,6 +18,9 @@ function errorDeRed() {
 function errorDeServidor(resp, datos) {
   const e = new Error(datos.error || "Algo salió mal");
   e.status = resp.status;
+  // 429: el servidor dice cuántos segundos esperar
+  const espera = parseInt(resp.headers.get("Retry-After") || "", 10);
+  if (espera > 0) e.reintentarEn = espera;
   return e;
 }
 
@@ -63,7 +66,7 @@ async function pedir(ruta, metodo, cuerpo) {
         if (i < intentos) { await esperar(REINTENTO_MS); continue; }
         throw errorDeRed();
       }
-      // 502/503/504 = el servidor todavía se está levantando
+      // 502/503/504 = el servidor todavía se está levantando. Un 429 (demasiados intentos) no se reintenta
       if ([502, 503, 504].includes(resp.status) && i < intentos) { await esperar(REINTENTO_MS); continue; }
       const datos = await resp.json().catch(() => ({}));
       if (resp.status === 401 && ruta !== "/api/auth/login") sesionVencida(datos);
