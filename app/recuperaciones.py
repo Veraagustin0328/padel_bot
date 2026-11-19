@@ -148,8 +148,11 @@ def politicas():
         recuperaciones_mes=f"{tope} clase{'s' if tope != 1 else ''}",
         inscripcion=_plata(inscripcion) if inscripcion > 0 else "Monto a confirmar con el encargado",
     )
+    secciones = regla("politicas")
+    if not isinstance(secciones, list):  # falta la clave o la cargaron con otra forma: las de siempre
+        secciones = POLITICAS_DEFAULT
     salida = []
-    for seccion in regla("politicas") or []:
+    for seccion in secciones:
         if not isinstance(seccion, dict):
             continue
         items = [_rellenar(str(t), marcas) for t in seccion.get("items") or [] if str(t).strip()]

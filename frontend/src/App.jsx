@@ -6,9 +6,11 @@ import Logo from "./Logo.jsx";
 import Login from "./pages/Login.jsx";
 import Registro from "./pages/Registro.jsx";
 import Inicio from "./pages/Inicio.jsx";
+import InicioAlumno from "./pages/InicioAlumno.jsx";
 import Pendientes from "./pages/Pendientes.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
-import { GESTION, nombreRol } from "./roles.js";
+import { GESTION, esAlumno, nombreRol } from "./roles.js";
+import "./alumno.css";
 import { pantallas, RUTAS_VIEJAS, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
 import { usePendientes } from "./usePendientes.js";
 import { entorno } from "./simulacion.js";
@@ -69,6 +71,14 @@ function Layout() {
 
   // al cambiar de página el cajón se cierra solo
   useEffect(() => setAbierto(false), [pathname]);
+
+  // alumnos y padres: tema oscuro de la marca (alumno.css). El resto de los roles no cambia
+  const alumno = esAlumno(usuario);
+  useEffect(() => {
+    if (!alumno) return;
+    document.body.classList.add("tema-alumno");
+    return () => document.body.classList.remove("tema-alumno");
+  }, [alumno]);
 
   // con el cajón abierto: Escape lo cierra y el fondo no scrollea
   useEffect(() => {
@@ -176,10 +186,11 @@ function Protegida() {
   return <Layout />;
 }
 
-// el profe arranca directo en Mis clases
+// el profe arranca directo en Mis clases; alumnos y padres tienen su propio Inicio
 function PaginaInicial() {
   const { usuario } = useAuth();
   if (usuario.rol === "profe") return <Navigate to="/mis-clases" replace />;
+  if (esAlumno(usuario)) return <InicioAlumno />;
   return <Inicio />;
 }
 

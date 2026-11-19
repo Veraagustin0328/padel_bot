@@ -1,6 +1,9 @@
 // roles del panel. En el código el encargado sigue siendo "encargado", pero se muestra como "Admin"
 export const DUENO = "dueno";
 export const GESTION = [DUENO, "encargado"];
+// alumnos y padres: tienen sus propias pantallas (tema oscuro de la marca)
+export const ALUMNO = ["jugador", "tutor", "jugador_tutor"];
+export const esAlumno = (usuario) => ALUMNO.includes(usuario?.rol);
 
 export const NOMBRE_ROL = {
   dueno: "Dueño",

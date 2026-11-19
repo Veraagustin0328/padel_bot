@@ -2,6 +2,7 @@ import { useAuth } from "../auth.jsx";
 import { MARCA } from "../marca.js";
 import { NovedadesVigentes } from "./Novedades.jsx";
 
+// Inicio de dueño y encargado (alumnos y padres usan InicioAlumno)
 export default function Inicio() {
   const { usuario } = useAuth();
   return (
@@ -14,13 +15,6 @@ export default function Inicio() {
       </div>
       {/* si no hay vigentes no aparece nada */}
       <NovedadesVigentes />
-      <section className="tarjeta">
-        <h2>Lo que ya funciona</h2>
-        <p className="nota">
-          Alumnos, comprobantes (confirmar y pasar a la planilla) y planes y precios con historial y aumento por
-          porcentaje. El resto de las secciones se va sumando.
-        </p>
-      </section>
     </>
   );
 }
