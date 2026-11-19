@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import os
 from flask import Blueprint, request, jsonify
 from app.llm.agent import (
@@ -34,8 +36,56 @@ def verificar_webhook():
     return "Token inválido", 403
 
 
+def _en_produccion():
+    # Render pone RENDER solo; en la PC no existe
+    return bool(os.environ.get("RENDER"))
+
+
+def avisar_firma_al_arrancar():
+    """Se llama en create_app: que quede bien a la vista en el log si falta el secret."""
+    if os.environ.get("META_APP_SECRET"):
+        return
+    if _en_produccion():
+        print("!" * 70, flush=True)
+        print("[webhook] FALTA META_APP_SECRET: el webhook va a rechazar todos los mensajes", flush=True)
+        print("!" * 70, flush=True)
+    else:
+        print("[webhook] sin META_APP_SECRET en local: acepto mensajes sin firma (solo para probar)",
+              flush=True)
+
+
+def _ip():
+    # en Render viene atras de un proxy: la primera de X-Forwarded-For es la del que pega
+    return (request.access_route or [request.remote_addr or "?"])[0]
+
+
+def _motivo_rechazo(cuerpo: bytes):
+    """None si el pedido vale; si no, el motivo (para el log, nunca para la respuesta)."""
+    secreto = os.environ.get("META_APP_SECRET", "")
+    if not secreto:
+        if _en_produccion():
+            return "falta META_APP_SECRET en el servidor"
+        print("[webhook] aviso: sin META_APP_SECRET, acepto sin chequear firma (local)", flush=True)
+        return None
+    firma = request.headers.get("X-Hub-Signature-256", "")
+    if not firma:
+        return "sin firma"
+    if not firma.startswith("sha256="):
+        return "firma con formato raro"
+    esperada = "sha256=" + hmac.new(secreto.encode(), cuerpo, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(firma.encode(), esperada.encode()):
+        return "firma que no coincide"
+    return None
+
+
 @whatsapp_bp.route("/whatsapp", methods=["POST"])
 def recibir_mensaje():
+    # la firma va sobre el body tal cual llego, antes de parsear nada
+    cuerpo = request.get_data(cache=True)
+    motivo = _motivo_rechazo(cuerpo)
+    if motivo:
+        print(f"[webhook] rechazado 403 desde {_ip()}: {motivo}", flush=True)
+        return "", 403
     return procesar_payload(request.get_json(silent=True) or {})
 
 

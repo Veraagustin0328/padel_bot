@@ -7,6 +7,8 @@ __pycache__/
 # ojo: frontend/.env.development ya estaba trackeado (solo tiene la url de localhost) y sigue trackeado
 .env
 .env*
+# el ejemplo si va: solo nombres de variables, sin valores
+!/.env.example
 
 # scripts locales sueltos en la raiz: migraciones, pruebas, cargas, arreglos puntuales.
 # van anclados con / para no ignorar sin querer modulos de app/ que empiecen igual

@@ -36,7 +36,7 @@ def create_app():
     origenes = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
     CORS(app, resources={r"/api/*": {"origins": origenes}})
 
-    from app.routes.whatsapp import whatsapp_bp
+    from app.routes.whatsapp import whatsapp_bp, avisar_firma_al_arrancar
     from app.routes.auth import auth_bp
     from app.routes.planes import planes_bp
     from app.routes.cuotas import cuotas_bp
@@ -53,6 +53,7 @@ def create_app():
     from app.routes.horas_profes import horas_profes_bp
     from app.routes.estadistica_horas import estadistica_horas_bp
     app.register_blueprint(whatsapp_bp)
+    avisar_firma_al_arrancar()  # grita en el log si falta META_APP_SECRET
     app.register_blueprint(auth_bp)
     app.register_blueprint(planes_bp)
     app.register_blueprint(cuotas_bp)

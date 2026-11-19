@@ -7,6 +7,7 @@ Agente de WhatsApp + panel de gestión. Se llama "agente", no "bot".
 - Panel: React 18 + Vite en /frontend. Llamadas con `api(path, { metodo, cuerpo })` desde `../api.js`.
 - Agente: app/llm/agent.py + tools.py (LLM gpt-oss-20b, modelo chico e inestable).
 - Auth: `@requiere_login("encargado")` de app.routes.auth. El admin siempre pasa.
+- Webhook de WhatsApp: el POST exige firma X-Hub-Signature-256 con `META_APP_SECRET`. En Render, sin esa variable rechaza todo con 403: hay que cargarla en Render ANTES del deploy. En local, sin la variable acepta sin firma (con aviso). Variables en `.env.example`.
 - Comprobantes viven en la pestaña "comprobantes" de la planilla de Google, no en Neon. Su id es el número de fila.
 
 ## Reglas de negocio
