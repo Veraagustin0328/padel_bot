@@ -21,7 +21,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
 from app.limites import Ventana, numero_de_entorno
-from app.models_plataforma import Usuario
+from app.models_plataforma import Profesor, Usuario
 from app.models_academia import UsuarioPerfil
 
 auth_bp = Blueprint("auth", __name__)
@@ -39,6 +39,9 @@ ROL_PENDIENTE = "pendiente"
 # el dueño entra a todo; el encargado (en el panel se ve como "Admin") a casi todo menos la plata
 ROL_DUENO = "dueno"
 ROLES_ALTOS = ("dueno", "encargado")  # estos solo los da o los toca el dueño
+# "Ver como profe": el dueño mira la pantalla de un profe. Va en este header en cada pedido
+HEADER_VER_COMO = "X-Ver-Como"
+METODOS_LECTURA = ("GET", "HEAD", "OPTIONS")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # cambio de clave: cuántas veces puede errarle a la actual antes de frenarlo
@@ -146,7 +149,28 @@ def crear_token(usuario, cambiar=False):
 
 
 def _usuario_json(u, cambiar=False):
-    return {"id": u.id, "nombre": u.nombre, "email": u.email, "rol": u.rol, "debe_cambiar_clave": cambiar}
+    # profesor_id: el panel muestra "Mis clases" solo si la cuenta está vinculada a un profe
+    return {"id": u.id, "nombre": u.nombre, "email": u.email, "rol": u.rol,
+            "profesor_id": u.profesor_id, "debe_cambiar_clave": cambiar}
+
+
+def _ver_como(usuario):
+    """Lee el header de "Ver como". Devuelve (profesor o None, respuesta de error o None).
+    Solo el dueño, y solo lectura: cualquier escritura en ese modo se rechaza acá, para todas las rutas."""
+    valor = (request.headers.get(HEADER_VER_COMO) or "").strip()
+    if not valor:
+        return None, None
+    if usuario.rol != ROL_DUENO:
+        return None, (jsonify({"error": "Solo el dueño puede ver como otro profe"}), 403)
+    if request.method not in METODOS_LECTURA:
+        return None, (jsonify({"error": "Estás viendo como otro profe: es solo lectura"}), 403)
+    try:
+        profe = db.session.get(Profesor, int(valor))
+    except ValueError:
+        profe = None
+    if not profe:
+        return None, (jsonify({"error": "No encontré ese profe"}), 404)
+    return profe, None
 
 
 def requiere_login(*roles):
@@ -176,7 +200,11 @@ def requiere_login(*roles):
             if roles and usuario.rol != ROL_DUENO and usuario.rol not in roles:
                 return jsonify({"error": "No tenés permiso para esto"}), 403
 
+            profe, error = _ver_como(usuario)
+            if error:
+                return error
             g.usuario = usuario
+            g.ver_como = profe  # None = el usuario se ve a sí mismo
             return f(*args, **kwargs)
         # queda anotado quien entra, para la prueba de humo (no cambia nada del permiso)
         envoltura.roles_permitidos = roles

@@ -110,7 +110,9 @@ def exportar_csv():
 @requiere_login("profe")
 def mis_horas():
     """Las horas del mes del profe logueado: sus clases, su tarifa y su monto. Nada de otros."""
-    profesor_id = g.usuario.profesor_id  # solo de acá: se ignora cualquier id que venga en la url
+    # solo de acá: se ignora cualquier id que venga en la url. "Ver como" ya viene validado (solo dueño)
+    vista = g.get("ver_como")
+    profesor_id = vista.id if vista else g.usuario.profesor_id
     if not profesor_id:
         return jsonify({"error": "Tu usuario no está vinculado a un profe"}), 403
     rango, error = _mes_o_error()

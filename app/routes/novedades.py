@@ -70,7 +70,8 @@ def _vigentes(consulta):
 
 
 def _de_su_audiencia(consulta):
-    permitidas = audiencias_de(g.usuario.rol)
+    # en "Ver como" el dueño ve las novedades que ve un profe
+    permitidas = audiencias_de("profe" if g.get("ver_como") else g.usuario.rol)
     return consulta if permitidas is None else consulta.filter(Novedad.audiencia.in_(permitidas))
 
 
@@ -146,7 +147,7 @@ def tipos():
 def una(id_):
     # misma regla que la lista: si no es de su audiencia (o está vencida y no gestiona), 404
     consulta = _de_su_audiencia(Novedad.query.filter(Novedad.id == id_))
-    if g.usuario.rol not in GESTION:
+    if g.usuario.rol not in GESTION or g.get("ver_como"):
         consulta = _vigentes(consulta)
     n = consulta.first()
     if not n:

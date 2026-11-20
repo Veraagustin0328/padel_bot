@@ -1,4 +1,6 @@
-"""Mis clases: el profe ve sus clases y marca asistencia. Encargado y dueño ven todas.
+"""Mis clases: cada uno ve las clases del profe al que está vinculado y marca asistencia.
+Dueño o encargado sin profe vinculado no tienen Mis clases (la academia entera está en Clases).
+"Ver como": el dueño mira la pantalla de otro profe, solo lectura (lo frena requiere_login).
 
 La asistencia cuelga de ClaseDictada (una por clase + fecha), así que marcar
 un alumno deja registrada la clase de ese día.
@@ -29,20 +31,27 @@ def _hoy():
     return datetime.now(timezone(timedelta(hours=-3))).date()
 
 
-def _sin_profe():
-    """Un profe sin profesor_id no tiene clases propias: no ve nada."""
-    return g.usuario.rol not in GESTION and not g.usuario.profesor_id
+def _profe_vista():
+    """De quién son las clases que se miran: el que eligió el dueño en "Ver como", o el vinculado."""
+    vista = g.get("ver_como")
+    return vista.id if vista else g.usuario.profesor_id
+
+
+def _gestion():
+    """Dueño o encargado mirando con su propia cuenta (en "Ver como" es como un profe más)."""
+    return g.usuario.rol in GESTION and not g.get("ver_como")
 
 
 def _puede(clase):
-    if g.usuario.rol in GESTION:
+    # gestión puede tocar cualquier clase por la API (ej. "la dio"); la lista igual es la de su profe
+    if _gestion():
         return True
-    return bool(g.usuario.profesor_id) and clase.profesor_id == g.usuario.profesor_id
+    return bool(_profe_vista()) and clase.profesor_id == _profe_vista()
 
 
 def _clase_o_error(clase_id):
     """Devuelve (clase, None) o (None, respuesta de error)."""
-    if _sin_profe():
+    if not _gestion() and not _profe_vista():
         return None, (jsonify({"error": "Tu usuario no está vinculado a un profe"}), 403)
     clase = db.session.get(m.Clase, clase_id)
     if not clase:
@@ -111,16 +120,16 @@ def _lista_del_dia(clase, fecha):
 @asistencia_bp.get("/api/mis-clases")
 @requiere_login("profe", "encargado")
 def mis_clases():
-    if _sin_profe():
+    profesor_id = _profe_vista()
+    if not profesor_id:
         return jsonify({"error": "Tu usuario no está vinculado a un profe"}), 403
 
+    # siempre las del profe de la vista, también para dueño o encargado vinculados
     consulta = (
         db.session.query(m.Clase, Profesor.nombre)
         .outerjoin(Profesor, m.Clase.profesor_id == Profesor.id)
-        .filter(m.Clase.activa.is_(True))
+        .filter(m.Clase.activa.is_(True), m.Clase.profesor_id == profesor_id)
     )
-    if g.usuario.rol not in GESTION:
-        consulta = consulta.filter(m.Clase.profesor_id == g.usuario.profesor_id)
 
     # el conteo es por fecha: fijos - faltas - viajes + reemplazos + recuperaciones
     hoy = _hoy()
@@ -205,12 +214,13 @@ def ver_asistencia(clase_id):
     # primero los que vienen, después los que avisaron o están de viaje
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
     la_dio = _la_dio(clase, dictada)
-    salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": False,
+    # en "Ver como" se ve la lista tal cual, pero sin marcar nada
+    salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": bool(g.get("ver_como")),
               "dictada": bool(dictada), "alumnos": alumnos,
               "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
               "titular_id": clase.profesor_id, "la_dio_id": la_dio,
               "la_dio": (db.session.get(Profesor, la_dio).nombre if la_dio else "")}
-    if g.usuario.rol in GESTION:
+    if _gestion():
         # para el selector: los activos, más el que figura aunque ya no esté activo
         profes = Profesor.query.filter(or_(Profesor.activo.is_(True), Profesor.id == la_dio)).order_by(Profesor.nombre)
         salida["profes"] = [{"id": p.id, "nombre": p.nombre} for p in profes]
@@ -241,6 +251,14 @@ def _lista_futura(clase, fecha):
             "alumnos": alumnos, "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
             "titular_id": clase.profesor_id, "la_dio_id": clase.profesor_id,
             "la_dio": titular.nombre if titular else ""}
+
+
+@asistencia_bp.get("/api/mis-clases/profes")
+@requiere_login("dueno")
+def profes_para_ver_como():
+    """Para el selector de "Ver como profe": los profes activos. Solo el dueño."""
+    profes = Profesor.query.filter(Profesor.activo.is_(True)).order_by(Profesor.nombre)
+    return jsonify([{"id": p.id, "nombre": p.nombre} for p in profes])
 
 
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/la-dio")

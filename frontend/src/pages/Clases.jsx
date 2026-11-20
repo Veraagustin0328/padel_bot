@@ -42,7 +42,8 @@ const textoColumna = (col) =>
   [col.caballeros.length && `Cab. ${rangoNivel(col.caballeros)}`, col.damas.length && `Damas ${rangoNivel(col.damas)}`]
     .filter(Boolean).join(" · ");
 
-function Leyenda({ colores, sinRama, hayTemporadas }) {
+// hayPasadas: "Más alumnos que cupo" solo si alguna de las que se ven está pasada de cupo
+function Leyenda({ colores, sinRama, hayTemporadas, hayPasadas }) {
   return (
     <div className="cla-leyenda">
       {(colores?.columnas || []).map((col) => (
@@ -56,7 +57,7 @@ function Leyenda({ colores, sinRama, hayTemporadas }) {
       </span>
       <span className="cla-ley"><span className="cla-muestra dudosa" />Tipo por confirmar</span>
       <span className="cla-ley"><span className="cla-muestra llena" />Cupo completo</span>
-      <span className="cla-ley"><span className="cla-muestra pasada" />Más alumnos que cupo</span>
+      {hayPasadas && <span className="cla-ley"><span className="cla-muestra pasada" />Más alumnos que cupo</span>}
       {hayTemporadas && <span className="cla-ley"><span className="cla-muestra futura" />Empieza más adelante</span>}
     </div>
   );
@@ -161,6 +162,9 @@ export default function Clases() {
     () => delAmbito.filter((c) => profe === "todos" || c.profe === profe),
     [delAmbito, profe]
   );
+
+  // misma cuenta que el borde rojo del chip, sobre lo que se está viendo (ámbito, profe, fecha)
+  const hayPasadas = filtradas.some((c) => c.alumnos.length > c.cupo);
 
   const q = norm(buscar);
   const coincide = (c) => q.length >= 2 && c.alumnos.some((a) => norm(a.nombre).includes(q));
@@ -445,7 +449,7 @@ export default function Clases() {
           <span aria-hidden="true">{verLeyenda ? "▲" : "▼"}</span>
         </button>
       )}
-      {(!esCelu || verLeyenda) && <Leyenda colores={colores} sinRama={sinRama} hayTemporadas={hayTemporadas && !fecha} />}
+      {(!esCelu || verLeyenda) && <Leyenda colores={colores} sinRama={sinRama} hayTemporadas={hayTemporadas && !fecha} hayPasadas={hayPasadas} />}
 
       {datos === null ? (
         <div className="cargando">Cargando…</div>

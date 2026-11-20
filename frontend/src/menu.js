@@ -16,6 +16,7 @@ import Solicitudes from "./pages/Solicitudes.jsx";
 import Usuarios from "./pages/Usuarios.jsx";
 import Notas from "./pages/Notas.jsx";
 import Simulador from "./pages/Simulador.jsx";
+import VerComo from "./pages/VerComo.jsx";
 import { entorno } from "./simulacion.js";
 import { DUENO, GESTION } from "./roles.js";
 
@@ -67,7 +68,9 @@ export const MENU = [
     items: [
       { a: "/clases", t: "Clases", roles: GESTION, pagina: Clases },
       { a: "/alumnos", t: "Alumnos", roles: GESTION, pagina: Alumnos },
-      { a: "/mis-clases", t: "Mis clases", roles: [...GESTION, "profe"], pagina: MisClases },
+      // conProfe: solo si la cuenta está vinculada a un profesor (profe, o dueño/encargado que también dan clase)
+      { a: "/mis-clases", t: "Mis clases", roles: [...GESTION, "profe"], pagina: MisClases, conProfe: true },
+      { a: "/ver-como", t: "Ver como profe", roles: [DUENO], pagina: VerComo },
       { a: "/faltas-viajes", t: "Faltas y viajes", roles: GESTION, pagina: FaltasRecuperaciones },
       { t: "Planificación", roles: GESTION, pronto: true },
     ],
@@ -103,8 +106,11 @@ export const MENU = [
 // lo de solo simulación se mira al dibujar (entorno() ya está cargado), no al importar
 const disponible = (i) => !i.soloSimulacion || entorno().simulacion;
 
-export function menuDe(rol) {
-  return MENU.map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(rol) && disponible(i)) }))
+// si ese usuario puede ver la pantalla: el rol, y para Mis clases que tenga un profe vinculado
+export const puedeVer = (i, usuario) => i.roles.includes(usuario.rol) && (!i.conProfe || !!usuario.profesor_id);
+
+export function menuDe(usuario) {
+  return MENU.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(i, usuario) && disponible(i)) }))
     .filter((g) => g.items.length);
 }
 

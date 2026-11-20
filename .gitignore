@@ -25,6 +25,7 @@ __pycache__/
 /probar_*.py
 /reporte_*.py
 /unificar_*.py
+/vincular_*.py
 
 # salidas y datos de los scripts locales (tienen datos personales)
 *.csv

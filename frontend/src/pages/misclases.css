@@ -134,3 +134,21 @@
 @media (max-width: 820px) {
   .mc > .mc-horas { order: 1; }
 }
+
+/* "Ver como profe": cartel fijo arriba mientras se mira la pantalla de otro */
+.vc-cartel {
+  position: sticky; top: 0; z-index: 15;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; border-radius: var(--radio);
+  background: var(--azul); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .15);
+}
+.vc-cartel span { min-width: 0; overflow-wrap: anywhere; }
+.vc-cartel .boton { flex: none; background: #fff; color: var(--azul); }
+body.con-cartel .vc-cartel { top: var(--alto-cartel); }
+.vc-elegir { display: flex; flex-direction: column; gap: 6px; max-width: 360px; margin-top: 16px; }
+.vc-elegir span { font-weight: 600; }
+@media (max-width: 820px) {
+  /* abajo de la barra del celu (52px) */
+  .vc-cartel { top: 52px; }
+  body.con-cartel .vc-cartel { top: calc(52px + var(--alto-cartel)); }
+}

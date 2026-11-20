@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
-import { GESTION } from "../roles.js";
 import { MARCA } from "../marca.js";
 import { diaSemana, diasDeSemana, hoyEn, lunesDe, mesDe, numeroDia, sumarDias, ultimoDiaConClases } from "../fechas.js";
 import { NivelAlumno, Punto, colorAlumno, etiquetaNivel } from "../niveles.jsx";
@@ -61,7 +60,8 @@ function NivelFijo({ alumno, colores }) {
   );
 }
 
-function Clase({ clase, fecha, futuro, verProfe }) {
+// soloLectura: "Ver como profe" del dueño. Se ve igual, pero sin marcar nada (el back igual lo rechaza)
+function Clase({ clase, fecha, futuro, soloLectura }) {
   const [abierta, setAbierta] = useState(false);
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
@@ -141,8 +141,8 @@ function Clase({ clase, fecha, futuro, verProfe }) {
       setError(e.message);
     }
   }
-  // día que no llegó: la lista de los que se esperan, sin marcar nada
-  const soloMirar = futuro || !!datos?.solo_lectura;
+  // día que no llegó (o "Ver como"): la lista de los que se esperan, sin marcar nada
+  const soloMirar = futuro || soloLectura || !!datos?.solo_lectura;
   const reemplazo = datos
     ? (datos.la_dio_id && datos.la_dio_id !== datos.titular_id ? datos.la_dio : "")
     : reemplazoCab;
@@ -163,7 +163,6 @@ function Clase({ clase, fecha, futuro, verProfe }) {
             {clase.nivel && ` · ${clase.nivel}`}
           </span>
           <span className="mc-sub">
-            {verProfe && clase.profe ? `${clase.profe}${reemplazo ? ` → la dio ${reemplazo}` : ""} · ` : ""}
             {datos && !soloMirar
               ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
               : resumen(clase)}
@@ -340,9 +339,10 @@ function MisHoras({ hoy }) {
   );
 }
 
-export default function MisClases() {
+// verComo: { id, nombre } cuando el dueño mira la pantalla de un profe (la arma VerComo.jsx)
+export default function MisClases({ verComo }) {
   const { usuario } = useAuth();
-  const verTodas = GESTION.includes(usuario.rol);
+  const comoProfe = usuario.rol === "profe" || !!verComo;
   const sinClases = MARCA.diasSinClases || [];
   // "hoy" se calcula una vez al abrir; si queda abierta de un día para el otro, se recarga y listo
   const [hoy] = useState(() => hoyEn(MARCA.zonaHoraria));
@@ -408,14 +408,14 @@ export default function MisClases() {
           <h1>Mis clases</h1>
           <div className="sub">
             {DIAS[dia]} {numeroDia(elegido)} de {MESES[mesDe(elegido)]} ·{" "}
-            {futuro ? "solo para mirar quiénes se esperan" : "tocá un estado y se guarda solo"}
+            {futuro || verComo ? "solo para mirar quiénes se esperan" : "tocá un estado y se guarda solo"}
           </div>
         </div>
       </div>
 
       {/* el profe no pasa por el Inicio, así que las novedades las ve acá */}
-      {usuario.rol === "profe" && <NovedadesVigentes />}
-      {usuario.rol === "profe" && <MisHoras hoy={hoy} />}
+      {comoProfe && <NovedadesVigentes />}
+      {comoProfe && <MisHoras hoy={hoy} />}
 
       <div className="mc-semana">
         <button
@@ -459,16 +459,12 @@ export default function MisClases() {
       {clases === null && <div className="nota">Cargando…</div>}
       {clases && !error && visibles.length === 0 && (
         <div className="mc-vacio">
-          {delDia.length > 0
-            ? "No hay clases con alumnos este día."
-            : verTodas
-              ? "No hay clases este día."
-              : "No tenés clases este día."}
+          {delDia.length > 0 ? "No hay clases con alumnos este día." : "No tenés clases este día."}
         </div>
       )}
       <div className="mc-lista">
         {visibles.map((c) => (
-          <Clase key={c.id} clase={c} fecha={elegido} futuro={futuro} verProfe={verTodas} />
+          <Clase key={c.id} clase={c} fecha={elegido} futuro={futuro} soloLectura={!!verComo} />
         ))}
       </div>
       {vacias > 0 && (

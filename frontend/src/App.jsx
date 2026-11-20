@@ -11,7 +11,7 @@ import Pendientes from "./pages/Pendientes.jsx";
 import CambiarPassword from "./pages/CambiarPassword.jsx";
 import { GESTION, esAlumno, nombreRol } from "./roles.js";
 import "./alumno.css";
-import { pantallas, RUTAS_VIEJAS, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
+import { pantallas, puedeVer, RUTAS_VIEJAS, SOLAPAS_PENDIENTES, menuDe } from "./menu.js";
 import { usePendientes } from "./usePendientes.js";
 import { entorno } from "./simulacion.js";
 
@@ -54,7 +54,7 @@ function Layout() {
   const [abierto, setAbierto] = useState(false);
   const { pathname } = useLocation();
 
-  const grupos = useMemo(() => menuDe(usuario.rol), [usuario.rol]);
+  const grupos = useMemo(() => menuDe(usuario), [usuario]);
   const solapas = useMemo(() => SOLAPAS_PENDIENTES.filter((s) => s.roles.includes(usuario.rol)), [usuario.rol]);
   const cuentas = usePendientes(solapas, pathname);
   const contadores = { pendientes: cuentas.total };
@@ -189,14 +189,24 @@ function Protegida() {
 // el profe arranca directo en Mis clases; alumnos y padres tienen su propio Inicio
 function PaginaInicial() {
   const { usuario } = useAuth();
+  if (usuario.rol === "profe" && !usuario.profesor_id) return <SinVinculo />;
   if (usuario.rol === "profe") return <Navigate to="/mis-clases" replace />;
   if (esAlumno(usuario)) return <InicioAlumno />;
   return <Inicio />;
 }
 
-function SoloRoles({ roles, children }) {
+// un profe sin profesor vinculado no tiene ninguna pantalla todavía
+function SinVinculo() {
+  return <p>Tu usuario todavía no está vinculado a un profe. Avisale al encargado.</p>;
+}
+
+// item: el del menú, para chequear también lo que no es el rol (ej. Mis clases pide profe vinculado)
+function SoloRoles({ roles, item, children }) {
   const { usuario } = useAuth();
   if (!roles.includes(usuario.rol)) return <p>No tenés permiso para ver esta sección.</p>;
+  if (item && !puedeVer(item, usuario)) {
+    return usuario.rol === "profe" ? <SinVinculo /> : <p>Tu cuenta no está vinculada a un profe, así que no tiene clases propias.</p>;
+  }
   return children;
 }
 
@@ -220,9 +230,10 @@ export default function App() {
               path="/pendientes/:solapa?"
               element={<SoloRoles roles={GESTION}><Pendientes solapas={SOLAPAS_PENDIENTES} /></SoloRoles>}
             />
-            {pantallas().map(({ a, roles, pagina: Pagina }) => (
-              <Route key={a} path={a} element={<SoloRoles roles={roles}><Pagina /></SoloRoles>} />
-            ))}
+            {pantallas().map((item) => {
+              const { a, roles, pagina: Pagina } = item;
+              return <Route key={a} path={a} element={<SoloRoles roles={roles} item={item}><Pagina /></SoloRoles>} />;
+            })}
             {/* rutas de antes: van a su solapa de Pendientes */}
             {SOLAPAS_PENDIENTES.filter((s) => s.viejo).map((s) => (
               <Route key={s.viejo} path={s.viejo} element={<Navigate to={`/pendientes/${s.clave}`} replace />} />

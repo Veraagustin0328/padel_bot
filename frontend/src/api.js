@@ -7,6 +7,11 @@ export const guardarToken = (t) => localStorage.setItem(CLAVE, t);
 export const leerToken = () => localStorage.getItem(CLAVE);
 export const borrarToken = () => localStorage.removeItem(CLAVE);
 
+// "Ver como profe" (solo dueño): mientras está activo, todos los pedidos llevan el header y el
+// back rechaza cualquier escritura. Lo prende y lo apaga la pantalla VerComo
+let verComoId = null;
+export const verComo = (id) => { verComoId = id || null; };
+
 // el error lleva .red (no llegó al servidor) o .status (el servidor contestó mal),
 // así quien lo agarra distingue "sin conexión" de "sesión vencida"
 function errorDeRed() {
@@ -48,6 +53,7 @@ async function pedir(ruta, metodo, cuerpo) {
   const headers = {};
   const token = leerToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (verComoId) headers["X-Ver-Como"] = String(verComoId);
   if (cuerpo !== undefined) headers["Content-Type"] = "application/json";
   // solo los GET se reintentan: un POST repetido podría hacer la acción dos veces
   const intentos = metodo === "GET" ? 2 : 1;
@@ -81,7 +87,7 @@ async function pedir(ruta, metodo, cuerpo) {
 
 export async function api(ruta, { metodo = "GET", cuerpo } = {}) {
   if (metodo !== "GET") return pedir(ruta, metodo, cuerpo);
-  const clave = `${leerToken() || ""} ${ruta}`;
+  const clave = `${leerToken() || ""} ${verComoId || ""} ${ruta}`;
   if (enVuelo.has(clave)) {
     // copia: así dos pantallas no comparten el mismo objeto
     return enVuelo.get(clave).then((d) => structuredClone(d));
