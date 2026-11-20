@@ -8,7 +8,10 @@ Reglas:
 - Dictada y todos marcados ausentes: no se paga, va aparte como "sin alumnos".
 - Pendiente de confirmar: dictada sin presentes con gente todavía sin marcar, o clase
   de la grilla ya pasada que nadie marcó. No suma hasta que haya un presente.
+- Los pendientes se cuentan desde config_academia 'horas_pendientes_desde' (AAAA-MM-DD).
+  Lo anterior sin presentes no aparece como pendiente. Sin la clave, se cuenta todo.
 """
+import json
 from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -29,6 +32,21 @@ TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "
 def ahora_ar():
     # misma hora que el resto (Argentina, UTC-3)
     return datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
+
+
+def pendientes_desde():
+    """Fecha de config_academia 'horas_pendientes_desde', o None si no está o está mal escrita."""
+    cfg = db.session.get(m.ConfigAcademia, "horas_pendientes_desde")
+    if not cfg or not cfg.valor:
+        return None
+    try:
+        valor = json.loads(cfg.valor)
+    except ValueError:
+        valor = cfg.valor  # por si la cargaron sin comillas
+    try:
+        return date.fromisoformat(str(valor).strip()) if valor else None
+    except ValueError:
+        return None
 
 
 def leer_mes(texto):
@@ -140,6 +158,10 @@ def tarifa_en(filas, fecha):
 def resumen_mes(desde, hasta, profesor_id=None):
     """Todo el mes, por profe. profesor_id = solo ese profe (para la vista de cada uno)."""
     ahora = ahora_ar()
+    corte = pendientes_desde()  # antes de esta fecha no hay pendientes
+
+    def cuenta_pendiente(fecha):
+        return corte is None or fecha >= corte
 
     # 1) clases dictadas del mes, con presentes y cuántos tienen marca
     q = (db.session.query(
@@ -187,16 +209,19 @@ def resumen_mes(desde, hasta, profesor_id=None):
     for d, c, presentes, _ in dictadas:
         fila = {"fecha": d.fecha.isoformat(), "hora": c.hora_inicio.strftime("%H:%M"), "clase_id": c.id,
                 "grupo": _grupo(c), "tipo": c.tipo, "presentes": presentes, "horas": _horas(c)}
+        falta_marcar = not presentes and esperados.get((c.id, d.fecha), set()) - marcados[d.id]
+        if falta_marcar and not cuenta_pendiente(d.fecha):
+            continue  # antes del corte: no se muestra como pendiente
         p = profe(d.profesor_id)
         if presentes:
             p["clases"].append(fila)
-        elif esperados.get((c.id, d.fecha), set()) - marcados[d.id]:
+        elif falta_marcar:
             p["pendientes"].append({**fila, "motivo": "faltan marcar alumnos"})
         else:
             p["sin_alumnos"].append(fila)
 
     for c in grilla:
-        for f in _fechas_de(c, desde, min(hasta, ahora.date())):
+        for f in _fechas_de(c, max(desde, corte or desde), min(hasta, ahora.date())):
             if (c.id, f) in hechas or not esperados.get((c.id, f)):
                 continue  # ya se marcó, o no tenía a nadie anotado ese día
             if f == ahora.date() and c.hora_inicio > ahora.time():
