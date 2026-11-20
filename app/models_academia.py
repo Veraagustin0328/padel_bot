@@ -104,12 +104,45 @@ class Clase(db.Model):
     # temporada (ej. kids tarde / kids mañana): desde = primer día que se da, hasta = primer día que ya no
     vigente_desde = db.Column(db.Date, nullable=True)  # vacío = desde siempre
     vigente_hasta = db.Column(db.Date, nullable=True)  # vacío = sin fin
+    # fila de apoyo: otro profe en el mismo grupo. Los alumnos se anotan solo en la titular;
+    # el de apoyo marca "di la clase" y cobra su hora según la titular. Vacío = clase normal
+    apoyo_de_clase_id = db.Column(db.Integer, db.ForeignKey("clases.id", ondelete="SET NULL"),
+                                  nullable=True, index=True)
     creado_en = db.Column(db.DateTime, default=datetime.utcnow)
 
     def vigente_en(self, fecha):
         """True si la clase se da en esa fecha según su temporada (no mira 'activa' ni el día)."""
         return ((self.vigente_desde is None or self.vigente_desde <= fecha)
                 and (self.vigente_hasta is None or self.vigente_hasta > fecha))
+
+
+def problema_apoyo(apoyo, titular, anotados_apoyo=0):
+    """Por qué 'apoyo' no puede ser fila de apoyo de 'titular', o None si se puede.
+    anotados_apoyo: alumnos vigentes en la fila de apoyo (tienen que estar en la titular).
+    Sirve para cualquier clase y cualquier club: no mira ámbito, nivel ni tipo."""
+    if titular is None:
+        return "la clase titular no existe"
+    if apoyo.id is not None and apoyo.id == titular.id:
+        return "una clase no puede ser apoyo de sí misma"
+    if titular.apoyo_de_clase_id is not None:
+        return "la titular ya es apoyo de otra clase: tiene que ser una clase normal"
+    if apoyo.id is not None and Clase.query.filter(Clase.apoyo_de_clase_id == apoyo.id).first():
+        return "esta clase tiene filas de apoyo propias: no puede ser apoyo de otra"
+    if not titular.activa:
+        return "la clase titular no está activa"
+    if apoyo.profesor_id is None:
+        return "la fila de apoyo necesita un profe"
+    if apoyo.profesor_id == titular.profesor_id:
+        return "el profe de apoyo es el mismo que el de la titular"
+    if apoyo.dia_semana != titular.dia_semana:
+        return "la fila de apoyo tiene que ser el mismo día que la titular"
+    ini_a = apoyo.hora_inicio.hour * 60 + apoyo.hora_inicio.minute
+    ini_t = titular.hora_inicio.hour * 60 + titular.hora_inicio.minute
+    if ini_a < ini_t or ini_a + (apoyo.duracion_min or 60) > ini_t + (titular.duracion_min or 60):
+        return "el horario de la fila de apoyo tiene que estar dentro del de la titular"
+    if anotados_apoyo:
+        return f"la fila de apoyo tiene {anotados_apoyo} alumno(s) anotados: se anotan solo en la titular"
+    return None
 
 
 def clase_vigente_en(fecha):
