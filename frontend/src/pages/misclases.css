@@ -152,3 +152,8 @@ body.con-cartel .vc-cartel { top: var(--alto-cartel); }
   .vc-cartel { top: 52px; }
   body.con-cartel .vc-cartel { top: calc(52px + var(--alto-cartel)); }
 }
+
+/* fila de apoyo: sin lista de alumnos, solo "di la clase" */
+.mc-apoyo { display: grid; gap: 8px; padding: 8px 0; }
+.mc-apoyo p { margin: 0; font-size: .9rem; }
+.mc-apoyo .mc-estado { justify-self: start; }

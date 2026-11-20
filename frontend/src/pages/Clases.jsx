@@ -175,6 +175,12 @@ export default function Clases() {
   const horas = [...new Set(filtradas.map((c) => c.hora))].sort();
   const celdas = {};
   for (const c of filtradas) (celdas[c.dia + "|" + c.hora] ||= []).push(c);
+  // la de apoyo va pegada abajo de su titular (si están en la misma celda); el resto, en el orden de siempre
+  for (const lista of Object.values(celdas)) {
+    const pos = new Map(lista.map((c, i) => [c.id, i]));
+    const base = (c) => (c.apoyo_de && pos.has(c.apoyo_de) ? pos.get(c.apoyo_de) : pos.get(c.id));
+    lista.sort((a, b) => base(a) - base(b) || (a.apoyo_de ? 1 : 0) - (b.apoyo_de ? 1 : 0) || pos.get(a.id) - pos.get(b.id));
+  }
 
   // celu: el día que tocó, si no el de la fecha (o hoy) si tiene clases, si no el primero
   useEffect(() => setDiaCelu(null), [fecha]);
@@ -196,13 +202,26 @@ export default function Clases() {
 
   const alumnosUnicos = new Set(filtradas.flatMap((c) => c.alumnos.map((a) => a.id))).size;
   const porConfirmar = filtradas.filter((c) => c.estimado).length;
-  const vacias = filtradas.filter((c) => c.alumnos.length === 0).length;
+  // las de apoyo no tienen alumnos a propósito (se anotan en la titular): no cuentan como vacías
+  const vacias = filtradas.filter((c) => c.alumnos.length === 0 && !c.apoyo_de).length;
   // sin fecha se ven juntas las de distintas temporadas: avisamos
   const hayTemporadas = filtradas.some((c) => c.vigente_desde || c.vigente_hasta);
   const grupalesObvias = clases.filter((c) => c.estimado && c.activa && c.tipo === "grupal" && c.alumnos.length >= 3).length;
 
   const sel = clases.find((c) => c.id === abierta);
   const temSel = sel && temporada(sel, ref);
+
+  // filas de apoyo: otro profe en el mismo grupo, los alumnos van solo en la titular
+  const porId = useMemo(() => Object.fromEntries((datos?.clases || []).map((c) => [c.id, c])), [datos]);
+  const titularSel = sel?.apoyo_de ? porId[sel.apoyo_de] : null;
+  const apoyosSel = sel ? (datos?.clases || []).filter((c) => c.apoyo_de === sel.id && c.activa) : [];
+  // candidatas a titular: mismo día, activas, que no sean apoyo. El horario lo valida el back
+  const candidatas = sel
+    ? (datos?.clases || [])
+        .filter((c) => c.id !== sel.id && c.activa && !c.apoyo_de && c.dia === sel.dia && c.ambito === sel.ambito)
+        .sort((a, b) => a.hora.localeCompare(b.hora))
+    : [];
+  const textoClase = (c) => `${c.hora} · ${c.profe ? capital(c.profe) : "Sin profe"} · ${c.nivel || "sin nivel"}`;
 
   // el formulario del panel arranca con lo que tiene la clase
   useEffect(() => {
@@ -272,6 +291,15 @@ export default function Clases() {
       () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { columna: valor === "" ? null : Number(valor) } }),
       valor === "" ? "Color automático." : "Color cambiado.",
       "columna"
+    );
+  }
+
+  // se guarda con un toque, como la rama. "" = vuelve a ser clase normal
+  function elegirApoyo(valor) {
+    hacer(
+      () => api(`/api/clases/${sel.id}`, { metodo: "PATCH", cuerpo: { apoyo_de: valor === "" ? null : Number(valor) } }),
+      valor === "" ? "Ahora es una clase normal." : "Marcada como fila de apoyo.",
+      "apoyo"
     );
   }
 
@@ -352,7 +380,7 @@ export default function Clases() {
           <b>{c.profe ? capital(c.profe) : "Sin profe"}</b>
           <i>{TIPO_CORTO[c.tipo] || c.tipo}</i>
         </span>
-        <span className="cla-abajo">{c.nivel || "—"} · {n}/{c.cupo}</span>
+        <span className="cla-abajo">{c.nivel || "—"} · {c.apoyo_de ? "apoyo" : `${n}/${c.cupo}`}</span>
         {tem && <span className={"cla-vig " + tem.estado} title={tem.largo}>{tem.corto}</span>}
         {nuevos > 0 && (
           <span className="cla-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
@@ -574,6 +602,34 @@ export default function Clases() {
 
               {temSel && <div className={"cla-temporada " + temSel.estado}>{temSel.largo}</div>}
 
+              {/* fila de apoyo: otro profe en el mismo grupo; cobra según la titular */}
+              <div className="cla-rama">
+                <span className="cla-rama-titulo">Fila de apoyo</span>
+                {apoyosSel.length > 0 ? (
+                  <span className="cla-sub">
+                    Es la titular. Apoyo: {apoyosSel.map((a) => (a.profe ? capital(a.profe) : "Sin profe")).join(", ")}.
+                  </span>
+                ) : (
+                  <>
+                    <label className="cla-columna">Es apoyo de
+                      <select value={sel.apoyo_de ?? ""} disabled={!!ocupado} onChange={(e) => elegirApoyo(e.target.value)}>
+                        <option value="">No, es una clase normal</option>
+                        {titularSel && !candidatas.includes(titularSel) && (
+                          <option value={titularSel.id}>{textoClase(titularSel)}</option>
+                        )}
+                        {candidatas.map((c) => <option key={c.id} value={c.id}>{textoClase(c)}</option>)}
+                      </select>
+                    </label>
+                    {ocupado === "apoyo" && <span className="cla-sub">Guardando…</span>}
+                    <span className="cla-sub">
+                      {sel.apoyo_de
+                        ? "Los alumnos se anotan en la titular. El profe marca “di la clase” en Mis clases para que cuente su hora."
+                        : "Para un segundo profe en el mismo grupo: no lleva alumnos propios."}
+                    </span>
+                  </>
+                )}
+              </div>
+
               {sel.estimado && (
                 <div className="cla-alerta">
                   El tipo ({TIPOS[sel.tipo]}) se estimó por la cantidad de alumnos.
@@ -609,6 +665,14 @@ export default function Clases() {
                 </button>
               </div>
 
+              {sel.apoyo_de ? (
+                <p className="cla-sub">
+                  Los alumnos van en la titular{titularSel ? ` (${textoClase(titularSel)})` : ""}.
+                  {titularSel && (
+                    <> <button type="button" className="boton chico claro" onClick={() => setAbierta(titularSel.id)}>Ver la titular</button></>
+                  )}
+                </p>
+              ) : (<>
               <h3>Alumnos ({sel.alumnos.length})</h3>
               {sel.alumnos.length === 0 ? (
                 <p className="cla-sub">Nadie anotado todavía.</p>
@@ -648,6 +712,7 @@ export default function Clases() {
                   </ul>
                 )}
               </div>
+              </>)}
 
               <button className="cla-peligro" disabled={!!ocupado} onClick={alternarActiva}>
                 {esperando("activa", "Guardando…", sel.activa ? "Desactivar clase" : "Reactivar clase")}

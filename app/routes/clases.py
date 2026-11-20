@@ -123,6 +123,8 @@ def listar():
             "rama_sugerida": None if c.rama else sugerir_rama(a["nombre"] for a in alumnos),
             **niveles.color_clase(c.nivel, c.rama, c.columna_color, tabla),
             "columna_manual": c.columna_color,
+            # fila de apoyo: id de la titular (los alumnos se anotan ahí). Vacío = clase normal
+            "apoyo_de": c.apoyo_de_clase_id,
             "alumnos": alumnos,
         })
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
@@ -204,6 +206,29 @@ def editar(clase_id):
             if not 1 <= col <= len(niveles.tabla()["columnas"]):
                 return jsonify({"error": "Esa columna de color no existe"}), 400
         cambiar("columna_color", col or None)
+    if "apoyo_de" in datos:
+        # vacío = vuelve a ser clase normal
+        try:
+            tid = int(datos["apoyo_de"]) if datos["apoyo_de"] not in (None, "") else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "La clase titular tiene que ser un id"}), 400
+        cambiar("apoyo_de_clase_id", tid)
+
+    # que la fila siga siendo un apoyo válido (también si cambió el profe), y que no quede apoyo colgado
+    if c.apoyo_de_clase_id and c.activa and ("apoyo_de" in datos or "profesor_id" in datos or "activa" in datos):
+        anotados = db.session.query(m.Inscripcion.id).filter(
+            m.Inscripcion.clase_id == c.id, vigente_en(recuperaciones.hoy())).count()
+        problema = m.problema_apoyo(c, db.session.get(m.Clase, c.apoyo_de_clase_id), anotados)
+        if problema:
+            db.session.rollback()
+            return jsonify({"error": f"No se puede como apoyo: {problema}"}), 400
+    apoyos = m.Clase.query.filter(m.Clase.apoyo_de_clase_id == c.id, m.Clase.activa.is_(True)).all()
+    if apoyos and not c.activa:
+        db.session.rollback()
+        return jsonify({"error": f"Tiene {len(apoyos)} fila(s) de apoyo activas: sacalas o desactivalas primero"}), 400
+    if apoyos and "profesor_id" in datos and any(a.profesor_id == c.profesor_id for a in apoyos):
+        db.session.rollback()
+        return jsonify({"error": "Ese profe ya está como apoyo en esta clase"}), 400
 
     if despues:
         _auditar(c.id, "editar", antes, despues)
@@ -223,6 +248,9 @@ def anotar(clase_id):
     alumno = db.session.get(Alumno, int(datos.get("alumno_id") or 0))
     if not alumno:
         return jsonify({"error": "No encontré el alumno"}), 400
+    if c.apoyo_de_clase_id:
+        # si se anota en las dos, la cuota le cuenta dos clases
+        return jsonify({"error": "Es una fila de apoyo: anotalo en la clase titular"}), 400
     hoy = recuperaciones.hoy()
     # anotado hoy o más adelante ('hasta' es el primer día que ya no va)
     ya = m.Inscripcion.query.filter(

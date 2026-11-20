@@ -5,6 +5,8 @@ Dueño o encargado sin profe vinculado no tienen Mis clases (la academia entera 
 La asistencia cuelga de ClaseDictada (una por clase + fecha), así que marcar
 un alumno deja registrada la clase de ese día.
 Si la dio otro profe (reemplazo), gestión lo cambia en "la dio": la hora se le paga a ese.
+Fila de apoyo (apoyo_de_clase_id): no tiene alumnos, se marcan en la titular. El de apoyo
+marca "di la clase" (una ClaseDictada sin asistencias) y la hora sale de horas_profes.
 """
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -100,6 +102,28 @@ def _dictada(clase, fecha):
     return m.ClaseDictada.query.filter_by(clase_id=clase.id, fecha=fecha).first()
 
 
+def _titulares(clases):
+    """{id de la fila de apoyo: (titular, nombre del profe titular)} para las que son de apoyo."""
+    ids = {c.apoyo_de_clase_id for c in clases if c.apoyo_de_clase_id}
+    if not ids:
+        return {}
+    filas = (db.session.query(m.Clase, Profesor.nombre)
+             .outerjoin(Profesor, m.Clase.profesor_id == Profesor.id)
+             .filter(m.Clase.id.in_(ids)).all())
+    por_id = {t.id: (t, nombre) for t, nombre in filas}
+    return {c.id: por_id[c.apoyo_de_clase_id] for c in clases if c.apoyo_de_clase_id in por_id}
+
+
+def _info_apoyo(clase, fecha, dictada):
+    """Lo que ve el de apoyo al abrir su clase: de quién es apoyo, si ya marcó y cómo va la titular."""
+    titular, nombre = _titulares([clase])[clase.id]
+    d_titular = _dictada(titular, fecha)
+    presentes = m.Asistencia.query.filter_by(
+        clase_dictada_id=d_titular.id, estado="presente").count() if d_titular else 0
+    return {"titular_id": titular.id, "titular_profe": nombre or "", "titular_hora": titular.hora_inicio.strftime("%H:%M"),
+            "marcada": bool(dictada), "presentes_titular": presentes}
+
+
 def _la_dio(clase, dictada):
     """Quién dio la clase: el de la dictada si ya hay, si no el titular."""
     return dictada.profesor_id if dictada and dictada.profesor_id else clase.profesor_id
@@ -142,9 +166,12 @@ def mis_clases():
 
     salida = []
     filas = consulta.all()
+    # filas de apoyo: los chicos (y el conteo) son los de la titular
+    titulares = _titulares([c for c, _ in filas])
     # quiénes vienen: 4 consultas para todas las clases del día, no 4 por clase
-    del_dia = recuperaciones.alumnos_del_dia_en_lote([c for c, _ in filas], fecha)
-    listas = [(c, profe, *del_dia[c.id]) for c, profe in filas]
+    del_dia = recuperaciones.alumnos_del_dia_en_lote(
+        [c for c, _ in filas] + [t for t, _ in titulares.values()], fecha)
+    listas = [(c, profe, *del_dia[titulares[c.id][0].id if c.id in titulares else c.id]) for c, profe in filas]
     # reemplazos del día: una consulta para todas las clases
     dio = {d.clase_id: d.profesor_id for d in m.ClaseDictada.query.filter(
         m.ClaseDictada.clase_id.in_([c.id for c, *_ in listas] or [0]),
@@ -157,8 +184,15 @@ def mis_clases():
     tabla = niveles.tabla()
     for c, profe, vienen, no_vienen in listas:
         etiquetas = list(vienen.values())
-        nuevos = sum(1 for aid in {*vienen, *no_vienen} if nivel_de.get(aid, {}).get("clasificar"))
+        apoyo = None
+        if c.id in titulares:
+            t, nombre_t = titulares[c.id]
+            # "marcada" = ya dijo "di la clase" ese día (o gestión cargó quién la dio)
+            apoyo = {"titular_id": t.id, "titular_profe": nombre_t or "", "marcada": c.id in dio}
+        # en la de apoyo no se clasifica a nadie: eso es de la titular
+        nuevos = 0 if apoyo else sum(1 for aid in {*vienen, *no_vienen} if nivel_de.get(aid, {}).get("clasificar"))
         salida.append({
+            "apoyo": apoyo,
             "id": c.id,
             "dia": c.dia_semana,
             "hora": c.hora_inicio.strftime("%H:%M"),
@@ -190,6 +224,20 @@ def ver_asistencia(clase_id):
         return jsonify({"error": msg}), 400
     if fecha > _hoy():
         return jsonify(_lista_futura(clase, fecha))
+
+    if clase.apoyo_de_clase_id and _titulares([clase]):
+        # fila de apoyo: no hay lista para marcar, solo "di la clase"
+        dictada = _dictada(clase, fecha)
+        la_dio = _la_dio(clase, dictada)
+        salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": bool(g.get("ver_como")),
+                  "dictada": bool(dictada), "alumnos": [], "niveles": niveles.niveles(),
+                  "colores": niveles.colores_panel(), "titular_id": clase.profesor_id, "la_dio_id": la_dio,
+                  "la_dio": (db.session.get(Profesor, la_dio).nombre if la_dio else ""),
+                  "apoyo": _info_apoyo(clase, fecha, dictada)}
+        if _gestion():
+            profes = Profesor.query.filter(or_(Profesor.activo.is_(True), Profesor.id == la_dio)).order_by(Profesor.nombre)
+            salida["profes"] = [{"id": p.id, "nombre": p.nombre} for p in profes]
+        return jsonify(salida)
 
     ids, dictada, marcas = _lista_del_dia(clase, fecha)
 
@@ -229,10 +277,13 @@ def ver_asistencia(clase_id):
 
 def _lista_futura(clase, fecha):
     """Un día que todavía no llegó: los que se esperan, solo para mirar.
-    Sin estados ni notas (no hay nada marcado), sin selector de "la dio" y sin las bajas."""
-    vienen, no_vienen = recuperaciones.alumnos_en_rango([clase], fecha, fecha).get((clase.id, fecha), ({}, {}))
+    Sin estados ni notas (no hay nada marcado), sin selector de "la dio" y sin las bajas.
+    Fila de apoyo: se ven los que se esperan en la titular."""
+    tit = _titulares([clase]).get(clase.id) if clase.apoyo_de_clase_id else None
+    fuente = tit[0] if tit else clase
+    vienen, no_vienen = recuperaciones.alumnos_en_rango([fuente], fecha, fecha).get((fuente.id, fecha), ({}, {}))
     ids = {**no_vienen, **vienen}
-    avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=clase.id, fecha=fecha)}
+    avisos = {a.alumno_id: a for a in m.Ausencia.query.filter_by(clase_id=fuente.id, fecha=fecha)}
     nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(
         Alumno.id.in_(ids), or_(Alumno.estado.is_(None), Alumno.estado != "baja"))) if ids else {}
     nivel_de = niveles.datos_de(list(nombres))
@@ -247,10 +298,15 @@ def _lista_futura(clase, fecha):
     } for aid, tipo in ids.items() if aid in nombres]  # las bajas quedan afuera
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
     titular = db.session.get(Profesor, clase.profesor_id) if clase.profesor_id else None
-    return {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": True, "dictada": False,
-            "alumnos": alumnos, "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
-            "titular_id": clase.profesor_id, "la_dio_id": clase.profesor_id,
-            "la_dio": titular.nombre if titular else ""}
+    salida = {"clase_id": clase.id, "fecha": fecha.isoformat(), "solo_lectura": True, "dictada": False,
+              "alumnos": alumnos, "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
+              "titular_id": clase.profesor_id, "la_dio_id": clase.profesor_id,
+              "la_dio": titular.nombre if titular else ""}
+    if tit:
+        salida["apoyo"] = {"titular_id": fuente.id, "titular_profe": tit[1] or "",
+                           "titular_hora": fuente.hora_inicio.strftime("%H:%M"), "marcada": False,
+                           "presentes_titular": 0}
+    return salida
 
 
 @asistencia_bp.get("/api/mis-clases/profes")
@@ -308,6 +364,55 @@ def cambiar_la_dio(clase_id):
                 raise
 
 
+@asistencia_bp.post("/api/mis-clases/<int:clase_id>/di-la-clase")
+@requiere_login("profe", "encargado")
+def di_la_clase(clase_id):
+    """Fila de apoyo: el profe dice que dio (o no) la clase ese día. {fecha, dio: true/false}.
+    dio=true crea la ClaseDictada (sin asistencias); dio=false la borra. En "Ver como" lo frena requiere_login."""
+    clase, error = _clase_o_error(clase_id)
+    if error:
+        return error
+    if not clase.apoyo_de_clase_id:
+        return jsonify({"error": "Esta clase no es de apoyo: se marca la asistencia de los alumnos"}), 400
+    datos = request.get_json(silent=True) or {}
+    fecha, msg = _leer_fecha(datos.get("fecha"), clase)
+    if msg:
+        return jsonify({"error": msg}), 400
+    dio = datos.get("dio", True) is not False
+
+    for intento in range(2):
+        try:
+            dictada = _dictada(clase, fecha)
+            if dio and not dictada:
+                # la dio el profe de la fila; si fue otro, gestión lo cambia en "la dio"
+                dictada = m.ClaseDictada(clase_id=clase.id, fecha=fecha, profesor_id=clase.profesor_id,
+                                         marcada_por=g.usuario.id)
+                db.session.add(dictada)
+                db.session.flush()
+                _auditar_apoyo(dictada.id, clase, fecha, False, True)
+            elif not dio and dictada:
+                if m.Asistencia.query.filter_by(clase_dictada_id=dictada.id).first():
+                    return jsonify({"error": "Esa clase tiene asistencias marcadas: no se puede desmarcar"}), 400
+                _auditar_apoyo(dictada.id, clase, fecha, True, False)
+                db.session.delete(dictada)
+            db.session.commit()
+            return jsonify({"ok": True, "marcada": dio, "apoyo": _info_apoyo(clase, fecha, _dictada(clase, fecha))})
+        except IntegrityError:
+            # dos toques a la vez: se reintenta una vez
+            db.session.rollback()
+            if intento:
+                raise
+
+
+def _auditar_apoyo(dictada_id, clase, fecha, antes, despues):
+    db.session.add(m.Auditoria(
+        entidad="clase_dictada", entidad_id=dictada_id, accion="di_la_clase",
+        antes=json.dumps({"clase_id": clase.id, "fecha": fecha.isoformat(), "dio": antes}),
+        despues=json.dumps({"clase_id": clase.id, "fecha": fecha.isoformat(), "dio": despues}),
+        usuario_id=g.usuario.id,
+    ))
+
+
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/nivel")
 @requiere_login("profe", "encargado")
 def clasificar_nivel(clase_id):
@@ -341,6 +446,8 @@ def marcar(clase_id):
     clase, error = _clase_o_error(clase_id)
     if error:
         return error
+    if clase.apoyo_de_clase_id:
+        return jsonify({"error": "Es una fila de apoyo: los alumnos se marcan en la clase titular"}), 400
     datos = request.get_json(silent=True) or {}
     fecha, msg = _leer_fecha(datos.get("fecha"), clase)
     if msg:

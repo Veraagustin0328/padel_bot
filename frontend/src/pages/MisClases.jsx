@@ -141,6 +141,23 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
       setError(e.message);
     }
   }
+  // fila de apoyo: no se marcan alumnos (van en la titular), solo "di la clase"
+  const [diGuardando, setDiGuardando] = useState(false);
+  async function marcarDi(dio) {
+    setError("");
+    setDiGuardando(true);
+    try {
+      const r = await api(`/api/mis-clases/${clase.id}/di-la-clase`, { metodo: "POST", cuerpo: { fecha, dio } });
+      setDatos((d) => ({ ...d, dictada: r.marcada, apoyo: r.apoyo }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDiGuardando(false);
+    }
+  }
+  const apoyo = datos?.apoyo || clase.apoyo;
+  const apoyoMarcada = datos?.apoyo ? datos.apoyo.marcada : !!clase.apoyo?.marcada;
+
   // día que no llegó (o "Ver como"): la lista de los que se esperan, sin marcar nada
   const soloMirar = futuro || soloLectura || !!datos?.solo_lectura;
   const reemplazo = datos
@@ -163,9 +180,12 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
             {clase.nivel && ` · ${clase.nivel}`}
           </span>
           <span className="mc-sub">
-            {datos && !soloMirar
-              ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
-              : resumen(clase)}
+            {apoyo
+              ? `Apoyo de ${apoyo.titular_profe || "la titular"} · ` +
+                (futuro ? resumen(clase) : apoyoMarcada ? "diste la clase ✓" : "falta marcar “di la clase”")
+              : datos && !soloMirar
+                ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
+                : resumen(clase)}
           </span>
           {nuevos > 0 && (
             <span className="mc-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
@@ -199,7 +219,25 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
             </label>
           )}
           {datos && !datos.profes && !soloMirar && reemplazo && <div className="nota">Esta clase la dio {reemplazo}.</div>}
-          {datos && datos.alumnos.length === 0 && <div className="nota">No hay alumnos anotados ese día.</div>}
+          {datos?.apoyo && (
+            <div className="mc-apoyo">
+              <p>
+                Sos apoyo en la clase de <b>{datos.apoyo.titular_profe || "la titular"}</b> ({datos.apoyo.titular_hora}).
+                Los alumnos los marca la titular{futuro ? "." : ` · ${plural(datos.apoyo.presentes_titular, "presente", "presentes")} hasta ahora.`}
+              </p>
+              {!soloMirar && (
+                <button
+                  className={"mc-estado presente" + (datos.apoyo.marcada ? " activo" : "")}
+                  aria-pressed={datos.apoyo.marcada}
+                  disabled={diGuardando}
+                  onClick={() => marcarDi(!datos.apoyo.marcada)}
+                >
+                  {diGuardando ? "…" : datos.apoyo.marcada ? "Di la clase ✓" : "Di la clase"}
+                </button>
+              )}
+            </div>
+          )}
+          {datos && !datos.apoyo && datos.alumnos.length === 0 && <div className="nota">No hay alumnos anotados ese día.</div>}
           {datos?.alumnos.map((a) => (
             <div key={a.id} className={"mc-alumno" + (a.viene === false ? " no-viene" : "")}>
               <div className="mc-nombre">
@@ -312,7 +350,8 @@ function MisHoras({ hoy }) {
           {datos.pendientes.length > 0 && (
             <div className="nota">
               {datos.pendientes.length === 1 ? "1 clase pendiente" : `${datos.pendientes.length} clases pendientes`} (
-              {horasTxt(datos.horas_pendientes)}): se suman cuando marcás al menos un presente.
+              {horasTxt(datos.horas_pendientes)}): se suman cuando marcás al menos un presente
+              {datos.pendientes.some((c) => c.apoyo_de) ? ", o “di la clase” en las de apoyo." : "."}
             </div>
           )}
           {filas.length > 0 && (

@@ -10,6 +10,10 @@ Reglas:
   de la grilla ya pasada que nadie marcó. No suma hasta que haya un presente.
 - Los pendientes se cuentan desde config_academia 'horas_pendientes_desde' (AAAA-MM-DD).
   Lo anterior sin presentes no aparece como pendiente. Sin la clave, se cuenta todo.
+- Filas de apoyo (Clase.apoyo_de_clase_id): no tienen alumnos, el profe marca "di la clase"
+  (ClaseDictada sin asistencias) y la hora depende de la titular de ese día (APOYO_SOLO_CON_PRESENTES).
+  Si la titular todavía no se marcó, queda pendiente. Si pasó el día y no marcó "di la clase"
+  (y la titular tenía alumnos), también es pendiente.
 """
 import json
 from calendar import monthrange
@@ -27,6 +31,11 @@ CENTAVOS = Decimal("0.01")
 
 TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "Particular x2", "otro": "Otro",
                "fisico": "Físico"}
+
+# Fila de apoyo que marcó "di la clase":
+# True = cobra solo si ese día la titular tuvo al menos un presente (misma regla que el titular).
+# False = cobra siempre, aunque no haya venido ningún alumno (confirmado por Gabi el 20/11/2026).
+APOYO_SOLO_CON_PRESENTES = False
 
 
 def ahora_ar():
@@ -71,6 +80,8 @@ def _grupo(clase):
     partes = [TIPOS_TEXTO.get(clase.tipo, clase.tipo or "")]
     if clase.nivel:
         partes.append(clase.nivel)
+    if clase.apoyo_de_clase_id:
+        partes.append("(apoyo)")
     return " ".join(p for p in partes if p)
 
 
@@ -193,7 +204,40 @@ def resumen_mes(desde, hasta, profesor_id=None):
     clases_todas = {c.id: c for c in grilla}
     for _, c, _, _ in dictadas:
         clases_todas[c.id] = c
+
+    # filas de apoyo: se traen sus titulares (aunque sean de otro profe) para saber cómo les fue ese día
+    titular_ids = {c.apoyo_de_clase_id for c in clases_todas.values() if c.apoyo_de_clase_id}
+    titulares = {c.id: c for c in m.Clase.query.filter(m.Clase.id.in_(titular_ids))} if titular_ids else {}
+    for c in titulares.values():
+        clases_todas.setdefault(c.id, c)
     esperados = _esperados(list(clases_todas.values()), desde, min(hasta, ahora.date()))
+
+    # dictadas de las titulares: presentes y quiénes tienen marca
+    dictada_titular, marcas_titular = {}, defaultdict(set)  # (clase_id, fecha) -> (dictada_id, presentes)
+    if titulares:
+        for did, cid, f, pres in (db.session.query(
+                m.ClaseDictada.id, m.ClaseDictada.clase_id, m.ClaseDictada.fecha,
+                func.count(m.Asistencia.id).filter(m.Asistencia.estado == "presente"))
+                .outerjoin(m.Asistencia, m.Asistencia.clase_dictada_id == m.ClaseDictada.id)
+                .filter(m.ClaseDictada.clase_id.in_(list(titulares)), m.ClaseDictada.fecha.between(desde, hasta))
+                .group_by(m.ClaseDictada.id)):
+            dictada_titular[(cid, f)] = (did, pres)
+        ids = [did for did, _ in dictada_titular.values()]
+        if ids:
+            for did, aid in db.session.query(m.Asistencia.clase_dictada_id, m.Asistencia.alumno_id).filter(
+                    m.Asistencia.clase_dictada_id.in_(ids)):
+                marcas_titular[did].add(aid)
+
+    def como_le_fue_a_la_titular(titular_id, fecha):
+        """(estado, presentes): 'presentes', 'pendiente' (falta marcar alguien) o 'sin_alumnos'."""
+        did, pres = dictada_titular.get((titular_id, fecha), (None, 0))
+        if pres:
+            return "presentes", pres
+        falta = esperados.get((titular_id, fecha), set()) - (marcas_titular[did] if did else set())
+        return ("pendiente" if falta else "sin_alumnos"), 0
+
+    def es_apoyo(c):
+        return c.apoyo_de_clase_id in titulares
 
     profes = {}
 
@@ -209,6 +253,19 @@ def resumen_mes(desde, hasta, profesor_id=None):
     for d, c, presentes, _ in dictadas:
         fila = {"fecha": d.fecha.isoformat(), "hora": c.hora_inicio.strftime("%H:%M"), "clase_id": c.id,
                 "grupo": _grupo(c), "tipo": c.tipo, "presentes": presentes, "horas": _horas(c)}
+        if es_apoyo(c):
+            # marcó "di la clase": la hora depende de la titular de ese día
+            estado, pres = como_le_fue_a_la_titular(c.apoyo_de_clase_id, d.fecha)
+            fila.update(presentes=pres, apoyo_de=c.apoyo_de_clase_id)
+            p = profe(d.profesor_id)
+            if estado == "presentes" or not APOYO_SOLO_CON_PRESENTES:
+                p["clases"].append(fila)
+            elif estado == "pendiente":
+                if cuenta_pendiente(d.fecha):
+                    p["pendientes"].append({**fila, "motivo": "falta marcar la titular"})
+            else:
+                p["sin_alumnos"].append(fila)
+            continue
         falta_marcar = not presentes and esperados.get((c.id, d.fecha), set()) - marcados[d.id]
         if falta_marcar and not cuenta_pendiente(d.fecha):
             continue  # antes del corte: no se muestra como pendiente
@@ -221,15 +278,19 @@ def resumen_mes(desde, hasta, profesor_id=None):
             p["sin_alumnos"].append(fila)
 
     for c in grilla:
+        apoyo = es_apoyo(c)
         for f in _fechas_de(c, max(desde, corte or desde), min(hasta, ahora.date())):
-            if (c.id, f) in hechas or not esperados.get((c.id, f)):
+            # la de apoyo no tiene alumnos propios: se mira si la titular tenía a alguien ese día
+            if (c.id, f) in hechas or not esperados.get((c.apoyo_de_clase_id if apoyo else c.id, f)):
                 continue  # ya se marcó, o no tenía a nadie anotado ese día
             if f == ahora.date() and c.hora_inicio > ahora.time():
                 continue  # todavía no empezó
-            profe(c.profesor_id)["pendientes"].append({
-                "fecha": f.isoformat(), "hora": c.hora_inicio.strftime("%H:%M"), "clase_id": c.id,
-                "grupo": _grupo(c), "tipo": c.tipo, "presentes": 0, "horas": _horas(c),
-                "motivo": "sin marcar"})
+            fila = {"fecha": f.isoformat(), "hora": c.hora_inicio.strftime("%H:%M"), "clase_id": c.id,
+                    "grupo": _grupo(c), "tipo": c.tipo, "presentes": 0, "horas": _horas(c),
+                    "motivo": "falta marcar di la clase" if apoyo else "sin marcar"}
+            if apoyo:
+                fila["apoyo_de"] = c.apoyo_de_clase_id
+            profe(c.profesor_id)["pendientes"].append(fila)
 
     # 3) plata: tarifa por fecha de cada clase
     nombres = dict(db.session.query(Profesor.id, Profesor.nombre).filter(

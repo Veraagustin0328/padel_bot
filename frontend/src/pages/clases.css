@@ -131,8 +131,9 @@
 .cla-rama-op.activo { background: var(--verde, #1e6b3a); border-color: var(--verde, #1e6b3a); color: #fff; font-weight: 700; }
 .cla-sugerida { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .85rem; color: #3a4651; }
 .cla-sugerida span { color: #5b6672; }
-.cla-columna { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: #3a4651; }
-.cla-columna select { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; max-width: 100%; }
+.cla-columna { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: #3a4651; min-width: 0; }
+/* width + min-width 0: con una opción larga (ej. "Es apoyo de") el select no se pasa del panel */
+.cla-columna select { padding: 7px 9px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; width: 100%; min-width: 0; max-width: 100%; }
 
 /* temporadas: desde / hasta de cada clase y selector de fecha */
 .cla-fecha { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
