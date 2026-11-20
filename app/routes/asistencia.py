@@ -15,6 +15,7 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
+from app import horas_profes
 from app import models_academia as m
 from app import niveles
 from app import recuperaciones
@@ -114,6 +115,11 @@ def _titulares(clases):
     return {c.id: por_id[c.apoyo_de_clase_id] for c in clases if c.apoyo_de_clase_id in por_id}
 
 
+def _con_di_la_clase():
+    """Ids de las titulares que tienen botón "di la clase" (las que tienen apoyo, si la regla está prendida)."""
+    return horas_profes.titulares_con_apoyo() if horas_profes.TITULAR_CON_APOYO_COBRA_SIN_PRESENTES else set()
+
+
 def _info_apoyo(clase, fecha, dictada):
     """Lo que ve el de apoyo al abrir su clase: de quién es apoyo, si ya marcó y cómo va la titular."""
     titular, nombre = _titulares([clase])[clase.id]
@@ -182,6 +188,7 @@ def mis_clases():
     # nuevos a clasificar: una sola consulta para todas las clases del día
     nivel_de = niveles.datos_de([aid for *_, v, nv in listas for aid in (*v, *nv)])
     tabla = niveles.tabla()
+    con_di = _con_di_la_clase()
     for c, profe, vienen, no_vienen in listas:
         etiquetas = list(vienen.values())
         apoyo = None
@@ -193,6 +200,8 @@ def mis_clases():
         nuevos = 0 if apoyo else sum(1 for aid in {*vienen, *no_vienen} if nivel_de.get(aid, {}).get("clasificar"))
         salida.append({
             "apoyo": apoyo,
+            # titular con apoyo: tiene "di la clase" (se ve aunque no tenga chicos ese día)
+            "di_la_clase": {"marcada": c.id in dio} if c.id in con_di else None,
             "id": c.id,
             "dia": c.dia_semana,
             "hora": c.hora_inicio.strftime("%H:%M"),
@@ -268,6 +277,8 @@ def ver_asistencia(clase_id):
               "niveles": niveles.niveles(), "colores": niveles.colores_panel(),
               "titular_id": clase.profesor_id, "la_dio_id": la_dio,
               "la_dio": (db.session.get(Profesor, la_dio).nombre if la_dio else "")}
+    if clase.id in _con_di_la_clase():
+        salida["di_la_clase"] = {"marcada": bool(dictada)}
     if _gestion():
         # para el selector: los activos, más el que figura aunque ya no esté activo
         profes = Profesor.query.filter(or_(Profesor.activo.is_(True), Profesor.id == la_dio)).order_by(Profesor.nombre)
@@ -367,13 +378,14 @@ def cambiar_la_dio(clase_id):
 @asistencia_bp.post("/api/mis-clases/<int:clase_id>/di-la-clase")
 @requiere_login("profe", "encargado")
 def di_la_clase(clase_id):
-    """Fila de apoyo: el profe dice que dio (o no) la clase ese día. {fecha, dio: true/false}.
-    dio=true crea la ClaseDictada (sin asistencias); dio=false la borra. En "Ver como" lo frena requiere_login."""
+    """Fila de apoyo, o titular de una clase con apoyo: el profe dice que dio (o no) la clase ese día.
+    {fecha, dio: true/false}. dio=true crea la ClaseDictada (sin asistencias); dio=false la borra
+    (si no tiene alumnos marcados). En "Ver como" lo frena requiere_login."""
     clase, error = _clase_o_error(clase_id)
     if error:
         return error
-    if not clase.apoyo_de_clase_id:
-        return jsonify({"error": "Esta clase no es de apoyo: se marca la asistencia de los alumnos"}), 400
+    if not clase.apoyo_de_clase_id and clase.id not in _con_di_la_clase():
+        return jsonify({"error": "Esta clase no tiene apoyo: se marca la asistencia de los alumnos"}), 400
     datos = request.get_json(silent=True) or {}
     fecha, msg = _leer_fecha(datos.get("fecha"), clase)
     if msg:
@@ -396,7 +408,10 @@ def di_la_clase(clase_id):
                 _auditar_apoyo(dictada.id, clase, fecha, True, False)
                 db.session.delete(dictada)
             db.session.commit()
-            return jsonify({"ok": True, "marcada": dio, "apoyo": _info_apoyo(clase, fecha, _dictada(clase, fecha))})
+            salida = {"ok": True, "marcada": dio}
+            if clase.apoyo_de_clase_id:
+                salida["apoyo"] = _info_apoyo(clase, fecha, _dictada(clase, fecha))
+            return jsonify(salida)
         except IntegrityError:
             # dos toques a la vez: se reintenta una vez
             db.session.rollback()

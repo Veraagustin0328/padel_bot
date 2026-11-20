@@ -10,6 +10,8 @@ Reglas:
   de la grilla ya pasada que nadie marcó. No suma hasta que haya un presente.
 - Los pendientes se cuentan desde config_academia 'horas_pendientes_desde' (AAAA-MM-DD).
   Lo anterior sin presentes no aparece como pendiente. Sin la clave, se cuenta todo.
+- Titular de una clase con filas de apoyo: también marca "di la clase" y cobra aunque no venga
+  nadie (TITULAR_CON_APOYO_COBRA_SIN_PRESENTES). Las clases sin apoyo siguen igual.
 - Filas de apoyo (Clase.apoyo_de_clase_id): no tienen alumnos, el profe marca "di la clase"
   (ClaseDictada sin asistencias) y la hora depende de la titular de ese día (APOYO_SOLO_CON_PRESENTES).
   Si la titular todavía no se marcó, queda pendiente. Si pasó el día y no marcó "di la clase"
@@ -36,6 +38,17 @@ TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "
 # True = cobra solo si ese día la titular tuvo al menos un presente (misma regla que el titular).
 # False = cobra siempre, aunque no haya venido ningún alumno (confirmado por Gabi el 20/11/2026).
 APOYO_SOLO_CON_PRESENTES = False
+
+# Titular de una clase CON filas de apoyo activas: también tiene "di la clase" y cobra aunque no venga
+# ningún chico (regla de Gabi, 20/11/2026). False = cobra solo con al menos un presente, como siempre.
+# Las clases sin apoyo no cambian: cobran solo con presentes.
+TITULAR_CON_APOYO_COBRA_SIN_PRESENTES = True
+
+
+def titulares_con_apoyo():
+    """Ids de las clases que tienen al menos una fila de apoyo activa."""
+    return {cid for (cid,) in db.session.query(m.Clase.apoyo_de_clase_id).filter(
+        m.Clase.apoyo_de_clase_id.isnot(None), m.Clase.activa.is_(True)).distinct()}
 
 
 def ahora_ar():
@@ -239,6 +252,9 @@ def resumen_mes(desde, hasta, profesor_id=None):
     def es_apoyo(c):
         return c.apoyo_de_clase_id in titulares
 
+    # titulares con apoyo que cobran con "di la clase" aunque no haya presentes
+    con_apoyo = titulares_con_apoyo() if TITULAR_CON_APOYO_COBRA_SIN_PRESENTES else set()
+
     profes = {}
 
     def profe(pid):
@@ -266,6 +282,10 @@ def resumen_mes(desde, hasta, profesor_id=None):
             else:
                 p["sin_alumnos"].append(fila)
             continue
+        if c.id in con_apoyo and not presentes:
+            # titular de una clase con apoyo: la dictada ("di la clase" o alguna marca) alcanza para cobrar
+            profe(d.profesor_id)["clases"].append(fila)
+            continue
         falta_marcar = not presentes and esperados.get((c.id, d.fecha), set()) - marcados[d.id]
         if falta_marcar and not cuenta_pendiente(d.fecha):
             continue  # antes del corte: no se muestra como pendiente
@@ -290,6 +310,8 @@ def resumen_mes(desde, hasta, profesor_id=None):
                     "motivo": "falta marcar di la clase" if apoyo else "sin marcar"}
             if apoyo:
                 fila["apoyo_de"] = c.apoyo_de_clase_id
+            elif c.id in con_apoyo:
+                fila["di_la_clase"] = True  # la titular con apoyo también se resuelve con "di la clase"
             profe(c.profesor_id)["pendientes"].append(fila)
 
     # 3) plata: tarifa por fecha de cada clase

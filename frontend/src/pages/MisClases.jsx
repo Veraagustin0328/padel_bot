@@ -100,6 +100,8 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
         cuerpo: { fecha, alumno_id: alumno.id, estado, ...("nota" in cambios ? { nota: cambios.nota } : {}) },
       });
       cambiarLocal(alumno.id, { estado: r.estado, nota: r.nota });
+      // marcar a alguien ya deja la clase como dada
+      setDatos((d) => ({ ...d, dictada: true, ...(d.di_la_clase ? { di_la_clase: { marcada: true } } : {}) }));
       setGuardando((g) => ({ ...g, [alumno.id]: "✓" }));
     } catch (e) {
       cambiarLocal(alumno.id, antes);
@@ -148,7 +150,12 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
     setDiGuardando(true);
     try {
       const r = await api(`/api/mis-clases/${clase.id}/di-la-clase`, { metodo: "POST", cuerpo: { fecha, dio } });
-      setDatos((d) => ({ ...d, dictada: r.marcada, apoyo: r.apoyo }));
+      setDatos((d) => ({
+        ...d,
+        dictada: r.marcada,
+        ...(r.apoyo ? { apoyo: r.apoyo } : {}),
+        ...(d.di_la_clase ? { di_la_clase: { marcada: r.marcada } } : {}),
+      }));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -157,6 +164,10 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
   }
   const apoyo = datos?.apoyo || clase.apoyo;
   const apoyoMarcada = datos?.apoyo ? datos.apoyo.marcada : !!clase.apoyo?.marcada;
+  // titular con apoyo: en la cabecera se ve si ya dijo "di la clase"
+  const conDi = datos?.di_la_clase || clase.di_la_clase;
+  const diMarcada = datos?.di_la_clase ? datos.di_la_clase.marcada : !!clase.di_la_clase?.marcada;
+  const sufijoDi = conDi && !futuro ? (diMarcada ? " · diste la clase ✓" : " · falta marcar “di la clase”") : "";
 
   // día que no llegó (o "Ver como"): la lista de los que se esperan, sin marcar nada
   const soloMirar = futuro || soloLectura || !!datos?.solo_lectura;
@@ -184,8 +195,10 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
               ? `Apoyo de ${apoyo.titular_profe || "la titular"} · ` +
                 (futuro ? resumen(clase) : apoyoMarcada ? "diste la clase ✓" : "falta marcar “di la clase”")
               : datos && !soloMirar
-                ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
-                : resumen(clase)}
+                ? (datos.alumnos.length
+                    ? `${presentes} presentes · ${marcados}/${datos.alumnos.length} marcados`
+                    : "Sin chicos ese día") + sufijoDi
+                : resumen(clase) + sufijoDi}
           </span>
           {nuevos > 0 && (
             <span className="mc-nuevos">{nuevos === 1 ? "1 nuevo a clasificar" : `${nuevos} nuevos a clasificar`}</span>
@@ -233,6 +246,21 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
                   onClick={() => marcarDi(!datos.apoyo.marcada)}
                 >
                   {diGuardando ? "…" : datos.apoyo.marcada ? "Di la clase ✓" : "Di la clase"}
+                </button>
+              )}
+            </div>
+          )}
+          {datos?.di_la_clase && !futuro && (
+            <div className="mc-apoyo">
+              <p>Clase con profes de apoyo: marcá “Di la clase” aunque no venga ningún chico, así cuenta tu hora.</p>
+              {!soloMirar && (
+                <button
+                  className={"mc-estado presente" + (datos.di_la_clase.marcada ? " activo" : "")}
+                  aria-pressed={datos.di_la_clase.marcada}
+                  disabled={diGuardando}
+                  onClick={() => marcarDi(!datos.di_la_clase.marcada)}
+                >
+                  {diGuardando ? "…" : datos.di_la_clase.marcada ? "Di la clase ✓" : "Di la clase"}
                 </button>
               )}
             </div>
@@ -351,7 +379,7 @@ function MisHoras({ hoy }) {
             <div className="nota">
               {datos.pendientes.length === 1 ? "1 clase pendiente" : `${datos.pendientes.length} clases pendientes`} (
               {horasTxt(datos.horas_pendientes)}): se suman cuando marcás al menos un presente
-              {datos.pendientes.some((c) => c.apoyo_de) ? ", o “di la clase” en las de apoyo." : "."}
+              {datos.pendientes.some((c) => c.apoyo_de || c.di_la_clase) ? ", o “di la clase” en las que tienen apoyo." : "."}
             </div>
           )}
           {filas.length > 0 && (
@@ -436,7 +464,8 @@ export default function MisClases({ verComo }) {
   const futuro = elegido > hoy; // AAAA-MM-DD se compara bien como texto
   const delDia = (clases || []).filter((c) => c.dia === dia);
   // se esconden las que no tienen nadie ese día, salvo que pidan verlas
-  const conGente = (c) => c.alumnos > 0;
+  // la titular con apoyo se ve igual: tiene "di la clase" aunque no haya chicos
+  const conGente = (c) => c.alumnos > 0 || !!c.di_la_clase;
   const vacias = delDia.filter((c) => !conGente(c)).length;
   const visibles = verVacias ? delDia : delDia.filter(conGente);
 
