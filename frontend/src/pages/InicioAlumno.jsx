@@ -66,17 +66,26 @@ function diaCorto(clase) {
   return `${clase.dia.slice(0, 3)} ${d}/${m}`;
 }
 
+// el alumno ve solo el color de la clase, nunca el nivel (pedido de Gabi). El backend ya no manda
+// el nivel: { nombre, hex }, y si la clase no tiene color, nombre null y un gris
+const hexClase = (clase) => clase.color?.hex || "#9ca3af";
+
+// para lectores de pantalla: no se ve, se lee
+function ColorOculto({ clase }) {
+  const nombre = clase.color?.nombre;
+  return <span className="alu-oculto">{nombre ? `Clase de color ${nombre}` : "Clase sin color asignado"}</span>;
+}
+
 function FilaSemana({ clase }) {
   const { estado } = clase;
   const tachada = estado === "falta" || estado === "viaje";
   return (
-    <li className={"alu-sem-fila est-" + estado}>
+    <li className={"alu-sem-fila est-" + estado} style={{ "--color-clase": hexClase(clase) }}>
       <span className="alu-sem-dia">{diaCorto(clase)}</span>
       <span className="alu-sem-cuerpo">
         <span className={"alu-sem-hora" + (tachada ? " tachada" : "")}>{clase.hora} a {clase.hora_fin} hs</span>
-        <span className="alu-sem-detalle">
-          {[clase.nivel && `Nivel ${clase.nivel}`, clase.profe && `con ${clase.profe}`].filter(Boolean).join(" · ")}
-        </span>
+        <ColorOculto clase={clase} />
+        {clase.profe && <span className="alu-sem-detalle">con {clase.profe}</span>}
       </span>
       <span className="alu-sem-chips">
         {ETIQUETA[estado] && <span className={"alu-sem-chip chip-" + estado}>{ETIQUETA[estado]}</span>}
@@ -117,10 +126,12 @@ function TarjetaProxima({ clase, t }) {
       {clase ? (
         <>
           <div className="alu-grande">{cuandoEs(clase)}</div>
-          <div className="alu-linea-fuerte">{clase.hora} a {clase.hora_fin} hs</div>
-          <div className="alu-detalle">
-            {[clase.nivel && `Nivel ${clase.nivel}`, clase.profe && `con ${clase.profe}`].filter(Boolean).join(" · ")}
+          <div className="alu-linea-fuerte alu-con-color">
+            <span className="alu-color" style={{ background: hexClase(clase) }} aria-hidden="true" />
+            {clase.hora} a {clase.hora_fin} hs
           </div>
+          <ColorOculto clase={clase} />
+          {clase.profe && <div className="alu-detalle">con {clase.profe}</div>}
           {clase.recuperacion && <span className="alu-chip-estado">Recuperación</span>}
         </>
       ) : (

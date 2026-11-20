@@ -21,6 +21,7 @@ from functools import wraps
 from flask import Blueprint, jsonify, g
 
 from app import cambios_dias
+from app import niveles
 from app import recuperaciones as rec
 from app.extensions import db
 from app.models import Alumno
@@ -168,7 +169,22 @@ def _clases_en(alumno_id, desde, hasta):
     return salida
 
 
-def _json_clase(item, profes):
+# clase sin color (sin rama, mixta o el club no la cargó): gris neutro
+GRIS_SIN_COLOR = "#9ca3af"
+
+
+def _color_de(clase, tabla):
+    """Solo el color de la clase, nunca el nivel (pedido de Gabi: el alumno ve el color y listo).
+    Sale de config_academia 'colores_rama', igual que en el panel de gestión."""
+    col = niveles.color_clase(clase.nivel, clase.rama, clase.columna_color, tabla)["columna"]
+    fila = tabla["columnas"][col - 1] if col else None
+    if not fila or not fila["color"]:
+        return {"nombre": None, "hex": GRIS_SIN_COLOR}
+    nombre = fila["nombre"] if not fila["nombre"].startswith("#") else None  # si la columna es un hex suelto
+    return {"nombre": nombre, "hex": fila["color"]}
+
+
+def _json_clase(item, profes, tabla):
     clase, fecha = item["clase"], item["fecha"]
     fin = datetime.combine(fecha, clase.hora_inicio) + timedelta(minutes=clase.duracion_min or 60)
     profe = profes.get(clase.profesor_id)
@@ -177,7 +193,7 @@ def _json_clase(item, profes):
         "dia": cambios_dias.NOMBRE_DIA[fecha.weekday()],
         "hora": clase.hora_inicio.strftime("%H:%M"),
         "hora_fin": fin.strftime("%H:%M"),
-        "nivel": clase.nivel or None,
+        "color": _color_de(clase, tabla),  # sin nivel a propósito: no se filtra ni mirando la API
         "profe": _pila(profe) if profe else None,
         "recuperacion": item["recuperacion"],
     }
@@ -195,6 +211,7 @@ def _agenda(alumno_id):
                     and i["fecha"] <= hoy + timedelta(days=DIAS_PROXIMA)), None)
     ids_profe = {i["clase"].profesor_id for i in items if i["clase"].profesor_id}
     profes = dict(db.session.query(Profesor.id, Profesor.nombre).filter(Profesor.id.in_(ids_profe))) if ids_profe else {}
+    tabla = niveles.tabla()
 
     semana = []
     for i in items:
@@ -206,8 +223,8 @@ def _agenda(alumno_id):
             estado = i["estado"]  # falta / viaje: tachadas, pasadas o no
         else:
             estado = "paso" if i["inicio"] <= ahora else "viene"
-        semana.append({**_json_clase(i, profes), "estado": estado})
-    return (_json_clase(proxima, profes) if proxima else None), semana
+        semana.append({**_json_clase(i, profes, tabla), "estado": estado})
+    return (_json_clase(proxima, profes, tabla) if proxima else None), semana
 
 
 def _cuota_del_mes(alumno_id):
