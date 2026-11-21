@@ -260,3 +260,12 @@
 @media (prefers-reduced-motion: reduce) { .cla-detalle.hoja { animation: none; } }
 /* la regla vieja de .cla-filtros input (flex: 1) estiraba el checkbox */
 .cla-filtros .cla-check input { flex: none; }
+
+/* anotar en una particular con el head coach: casilla de tarifa Head Coach */
+.cla-agregar .cla-check-hc { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; font-size: .88rem; color: var(--tinta); cursor: pointer; }
+.cla-agregar .cla-check-hc input { width: auto; margin: 2px 0 0; flex: none; }
+.cla-chip-hc { justify-self: start; font-size: .75rem; padding: 1px 8px; border-radius: 999px; background: var(--ok-fondo); color: var(--ok); border: 1px solid currentColor; }
+@media (max-width: 700px) {
+  .cla-agregar .cla-check-hc { min-height: 44px; align-items: center; }
+  .cla-agregar .cla-check-hc input { width: 20px; height: 20px; margin: 0; }
+}

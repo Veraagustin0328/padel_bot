@@ -7,6 +7,7 @@ from datetime import date
 
 from flask import Blueprint, g, jsonify, request
 
+from app import cuotas
 from app import models_academia as m
 from app import niveles
 from app import recuperaciones
@@ -15,6 +16,7 @@ from app.extensions import db
 from app.models import Alumno
 from app.models_plataforma import Profesor
 from app.nombres_pila import sugerir_rama
+from app.routes.alumnos import auditar_tarifa_head_coach
 from app.routes.auth import requiere_login
 
 clases_bp = Blueprint("clases_panel", __name__)
@@ -96,11 +98,14 @@ def listar():
 
     estimada, confirmada, notas = _estados()
     tabla = niveles.tabla()
+    head_coach = cuotas.profes_head_coach()
+    con_hc = cuotas.con_tarifa_head_coach({a["id"] for lista in inscriptos.values() for a in lista})
 
     salida = []
     for c, profe in filas:
         alumnos = [
-            {**a, **nivel_de.get(a["id"], {}), "rama": niveles.rama_en_clase(nivel_de.get(a["id"], {}), c.rama)}
+            {**a, **nivel_de.get(a["id"], {}), "rama": niveles.rama_en_clase(nivel_de.get(a["id"], {}), c.rama),
+             "tarifa_head_coach": a["id"] in con_hc}
             for a in inscriptos.get(c.id, [])
         ]
         salida.append({
@@ -125,6 +130,8 @@ def listar():
             "columna_manual": c.columna_color,
             # fila de apoyo: id de la titular (los alumnos se anotan ahí). Vacío = clase normal
             "apoyo_de": c.apoyo_de_clase_id,
+            # particular de mañana con el head coach: al anotar a un nuevo se puede prender su tarifa
+            "head_coach": cuotas.es_clase_head_coach(c, head_coach),
             "alumnos": alumnos,
         })
     salida.sort(key=lambda x: (x["dia"], x["hora"], x["profe"]))
@@ -261,6 +268,13 @@ def anotar(clase_id):
         return jsonify({"error": f"{alumno.nombre} ya está en esta clase"}), 409
     db.session.add(m.Inscripcion(clase_id=c.id, alumno_id=alumno.id, desde=hoy))
     _auditar(c.id, "anotar_alumno", None, {"alumno_id": alumno.id, "nombre": alumno.nombre})
+    # alta de un nuevo que pidió con el head coach: se le prende la tarifa (solo se prende, nunca se apaga acá)
+    if datos.get("tarifa_head_coach") is True and not alumno.tarifa_head_coach:
+        if not cuotas.es_clase_head_coach(c, cuotas.profes_head_coach()):
+            db.session.rollback()
+            return jsonify({"error": "Esa clase no es una particular de mañana con el Head Coach"}), 400
+        alumno.tarifa_head_coach = True
+        auditar_tarifa_head_coach(alumno.id, False, True, g.usuario.id)
     db.session.commit()
     return jsonify({"ok": True})
 

@@ -135,6 +135,7 @@ export default function AlumnosFichas() {
   const [abierto, setAbierto] = useState(null); // id del alumno con el modal abierto
   const [ok, setOk] = useState("");
   const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
+  const [guardandoHC, setGuardandoHC] = useState(null); // id del alumno que se está guardando
 
   async function cargar() {
     setError("");
@@ -176,6 +177,31 @@ export default function AlumnosFichas() {
     } catch (e) {
       setError(`${a.nombre}: ${e.message}`);
       throw e;
+    }
+  }
+
+  // casilla Tarifa Head Coach: solo para los nuevos que pidieron con el head coach
+  async function cambiarHC(a, valor) {
+    setError("");
+    setOk("");
+    setGuardandoHC(a.id);
+    // se tilda al toque; si el guardado falla, vuelve como estaba
+    const poner = (v) => setDatos((d) => ({
+      ...d,
+      alumnos: d.alumnos.map((x) => (x.id === a.id ? { ...x, tarifa_head_coach: v } : x)),
+    }));
+    poner(valor);
+    try {
+      const r = await api(`/api/alumnos/${a.id}/tarifa-head-coach`, { metodo: "POST", cuerpo: { valor } });
+      poner(r.tarifa_head_coach);
+      setOk(r.tarifa_head_coach
+        ? `Listo, ${a.nombre} paga tarifa Head Coach en sus particulares con el Head Coach.`
+        : `Listo, ${a.nombre} paga la particular normal.`);
+    } catch (e) {
+      poner(!valor);
+      setError(`${a.nombre}: no se guardó la tarifa Head Coach. ${e.message}`);
+    } finally {
+      setGuardandoHC(null);
     }
   }
 
@@ -226,6 +252,7 @@ export default function AlumnosFichas() {
                 <th>Cat</th>
                 <th>Planilla</th>
                 <th>Contactos</th>
+                {datos.hay_head_coach && <th className="fic-hc" title="Solo alumnos nuevos que pidieron con el Head Coach">Tarifa Head Coach</th>}
                 <th></th>
               </tr>
             </thead>
@@ -249,6 +276,15 @@ export default function AlumnosFichas() {
                       ))
                     )}
                   </td>
+                  {datos.hay_head_coach && (
+                    <td className="fic-hc">
+                      <label title="Solo alumnos nuevos que pidieron con el Head Coach">
+                        <input type="checkbox" checked={!!a.tarifa_head_coach} disabled={guardandoHC === a.id}
+                               aria-label={`Tarifa Head Coach para ${a.nombre}`}
+                               onChange={(e) => cambiarHC(a, e.target.checked)} />
+                      </label>
+                    </td>
+                  )}
                   <td className="fic-acciones">
                     <button className="boton chico claro" onClick={() => { setOk(""); setAbierto(a.id); }}>Contactos</button>
                   </td>

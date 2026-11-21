@@ -84,6 +84,9 @@ export default function Clases() {
   const [form, setForm] = useState(null);
   const [qAlu, setQAlu] = useState("");
   const [resultados, setResultados] = useState([]);
+  // al anotar en una particular con el head coach: alumno nuevo que pidió con él (paga su tarifa)
+  const [nuevoHC, setNuevoHC] = useState(false);
+  useEffect(() => { setNuevoHC(false); }, [abierta]); // otra clase: arranca destildada
   const [ocupado, setOcupado] = useState(""); // qué botón está esperando ("" = ninguno)
   const enCurso = useRef(false); // candado contra el doble click
 
@@ -325,9 +328,11 @@ export default function Clases() {
     if (enCurso.current) return;
     setQAlu("");
     setResultados([]);
+    const hc = !!sel.head_coach && nuevoHC;
+    setNuevoHC(false);
     hacer(
-      () => api(`/api/clases/${sel.id}/alumnos`, { metodo: "POST", cuerpo: { alumno_id: a.id } }),
-      `${a.nombre} quedó anotado.`,
+      () => api(`/api/clases/${sel.id}/alumnos`, { metodo: "POST", cuerpo: { alumno_id: a.id, tarifa_head_coach: hc } }),
+      `${a.nombre} quedó anotado${hc ? " con tarifa Head Coach" : ""}.`,
       "anotar"
     );
   }
@@ -682,6 +687,7 @@ export default function Clases() {
                     <li key={a.id}>
                       <div className="cla-alumno">
                         <span>{a.nombre}</span>
+                        {sel.head_coach && a.tarifa_head_coach && <span className="cla-chip-hc">Tarifa Head Coach</span>}
                         <NivelAlumno alumno={a} niveles={datos.niveles} colores={colores}
                                      onElegir={(n) => elegirNivel(a, n)} />
                       </div>
@@ -694,6 +700,13 @@ export default function Clases() {
               )}
 
               <div className="cla-agregar">
+                {/* antes del buscador: se tilda y después se elige al alumno (la lista de resultados no la tapa) */}
+                {sel.head_coach && (
+                  <label className="cla-check-hc">
+                    <input type="checkbox" checked={nuevoHC} onChange={(e) => setNuevoHC(e.target.checked)} />
+                    <span>Es nuevo y pidió con el Head Coach: paga tarifa Head Coach</span>
+                  </label>
+                )}
                 <input placeholder="Anotar un alumno (mín. 2 letras)…" value={qAlu} onChange={(e) => setQAlu(e.target.value)} />
                 {/* el buscador se limpia al elegir: que se vea que está anotando */}
                 {ocupado === "anotar" && <p className="cla-sub">Anotando…</p>}

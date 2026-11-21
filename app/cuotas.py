@@ -74,6 +74,18 @@ def bucket_de(clase, head_coach=frozenset()):
     return None
 
 
+def profes_head_coach() -> frozenset:
+    """Ids de los profes marcados es_head_coach (sin mirar si su tarifa ya rige)."""
+    return frozenset(pid for (pid,) in Profesor.query.with_entities(Profesor.id).filter(
+        Profesor.es_head_coach.is_(True)))
+
+
+def es_clase_head_coach(clase, head_coach) -> bool:
+    """La clase se cobraría a precio Head Coach a un alumno con la casilla prendida."""
+    b = bucket_de(clase, head_coach) if head_coach else None
+    return bool(b) and b[0] == FRANJA_HEAD_COACH
+
+
 def _tramo_en_mes(clase, inicio: date, fin: date):
     """(desde, hasta) inclusive de la temporada de la clase dentro del mes, o None si no se da ese mes."""
     desde = max(inicio, clase.vigente_desde) if clase.vigente_desde else inicio
@@ -143,8 +155,7 @@ def cargar_tarifas(fecha: date | None = None):
         ultimas[(t.franja, t.tipo, t.personas, t.veces_por_semana)] = t  # la más nueva queda última
     tarifas = Tarifas({k: t.precio for k, t in ultimas.items() if t.activa})
     if any(k[0] == FRANJA_HEAD_COACH for k in tarifas):
-        tarifas.head_coach = frozenset(
-            pid for (pid,) in Profesor.query.with_entities(Profesor.id).filter(Profesor.es_head_coach.is_(True)))
+        tarifas.head_coach = profes_head_coach()
     return tarifas
 
 

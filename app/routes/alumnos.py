@@ -7,11 +7,11 @@ import re
 
 from flask import Blueprint, g, jsonify, request
 
-from app import niveles, planilla
+from app import cuotas, niveles, planilla
 from app.contactos import alumnos_de_telefono, tel10
 from app.extensions import db
 from app.models import PARENTESCOS, Alumno, ContactoAlumno
-from app.models_academia import ConfigAcademia
+from app.models_academia import Auditoria, ConfigAcademia
 from app.privacidad import es_dueno
 from app.routes.auth import requiere_login
 from app.sheets_client import valores_pestana
@@ -118,6 +118,8 @@ def fichas():
         "parentescos": list(PARENTESCOS),
         "niveles": niveles.niveles(),
         "colores": niveles.colores_panel(),
+        # sin head coach en el club la columna no se muestra
+        "hay_head_coach": bool(cuotas.profes_head_coach()),
         "alumnos": [
             {
                 "id": a.id,
@@ -130,10 +132,33 @@ def fichas():
                 "planilla": a.planilla,
                 "estado": a.estado or "activo",
                 "contactos": contactos.get(a.id, []),
+                "tarifa_head_coach": bool(a.tarifa_head_coach),
             }
             for a in alumnos
         ],
     })
+
+
+def auditar_tarifa_head_coach(alumno_id, antes, despues, usuario_id):
+    db.session.add(Auditoria(entidad="alumno", entidad_id=alumno_id, accion="tarifa_head_coach",
+                             antes=json.dumps(antes), despues=json.dumps(despues), usuario_id=usuario_id))
+
+
+@alumnos_bp.post("/api/alumnos/<int:alumno_id>/tarifa-head-coach")
+@requiere_login("encargado")
+def cambiar_tarifa_head_coach(alumno_id):
+    """Casilla Tarifa Head Coach: solo para los nuevos que pidieron con el head coach. Dueño y encargado."""
+    alumno = db.session.get(Alumno, alumno_id)
+    if not alumno:
+        return jsonify({"error": "No encontré el alumno"}), 404
+    valor = (request.get_json(silent=True) or {}).get("valor")
+    if not isinstance(valor, bool):
+        return jsonify({"error": "Falta valor (sí o no)"}), 400
+    if alumno.tarifa_head_coach != valor:
+        auditar_tarifa_head_coach(alumno.id, bool(alumno.tarifa_head_coach), valor, g.usuario.id)
+        alumno.tarifa_head_coach = valor
+        db.session.commit()
+    return jsonify({"ok": True, "tarifa_head_coach": alumno.tarifa_head_coach})
 
 
 @alumnos_bp.post("/api/alumnos/<int:alumno_id>/nivel")
