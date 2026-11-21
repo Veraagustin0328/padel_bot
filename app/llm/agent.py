@@ -1355,10 +1355,33 @@ def _agendar_clase_suelta(telefono: str, args: dict) -> dict:
 
     _notificar(
         f"Nueva clase particular agendada: {telefono}, {args['dia']} {args['horario']}"
-        + (f" con {args.get('profesor')}" if args.get("profesor") else ""),
+        + (f" con {args.get('profesor')}" if args.get("profesor") else "")
+        + _aviso_tarifa_head_coach(telefono, args),
         tipo="clase_agendada",
     )
     return {"status": "agendada", "clase_id": clase.id}
+
+
+def _aviso_tarifa_head_coach(telefono: str, args: dict) -> str:
+    """Número nuevo que pide particular de mañana con el head coach: el encargado, al anotarlo en Clases,
+    tilda Tarifa Head Coach (regla de Gabi: solo los nuevos). El agente no prende nada solo.
+    Vacío si no aplica. Es un aviso: si el nombre del profe es ambiguo, lo decide el encargado."""
+    if _alumnos_con_telefono(telefono):
+        return ""  # ya es de la academia: paga la particular normal
+    pedido = planilla._norm(args.get("profesor"))
+    if not pedido:
+        return ""
+    dia = _DIAS.get(planilla._norm(args.get("dia")))
+    if dia is not None and dia >= 5:
+        return ""  # sábado o domingo: no es la franja de mañana de semana
+    if _fuera_de_head_coach({"hora": args.get("horario")}):
+        return ""
+    for profe in Profesor.query.filter(Profesor.es_head_coach.is_(True), Profesor.activo.is_(True)):
+        nombres = [p for p in planilla._norm(profe.nombre).split() if len(p) >= 3]
+        if "head coach" in pedido or any(re.search(rf"\b{re.escape(p)}\b", pedido) for p in nombres):
+            return (f". Es un número nuevo: si la clase es con {profe.nombre} (Head Coach), al anotarlo en "
+                    "Clases tildá \"Tarifa Head Coach\"")
+    return ""
 
 
 def _cancelar_clase_suelta(telefono: str, args: dict) -> dict:
