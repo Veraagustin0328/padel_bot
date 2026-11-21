@@ -15,7 +15,7 @@ from sqlalchemy import or_
 
 from app import planilla
 from app import recuperaciones as rec
-from app.cuotas import FRANJA_POR_AMBITO, cargar_tarifas, clases_del_mes, cuota_de
+from app.cuotas import FRANJA_POR_AMBITO, cargar_tarifas, clases_del_mes, con_tarifa_head_coach, cuota_de
 from app.extensions import db
 from app.models import Alumno, CambioPendiente
 from app.models_academia import Auditoria, Clase, ConfigAcademia, Inscripcion, clase_vigente_en
@@ -239,15 +239,17 @@ def armar(alumno_id: int, fecha: date, dias_nuevos: list[int], hora=None,
 
 
 # ---------------------------------------------------------------- precio
-def precio_de(clases: list[Clase], fecha: date | None = None, tarifas=None) -> tuple[int | None, str]:
+def precio_de(clases: list[Clase], fecha: date | None = None, tarifas=None,
+              tarifa_head_coach: bool = False) -> tuple[int | None, str]:
     """(cuota mensual, detalle). None si no hay una tarifa exacta: nunca se inventa.
     fecha: desde cuándo rige el cambio; se cotiza con las tarifas de ese mes (vacío = las de hoy).
-    tarifas: las ya cargadas para esa fecha, para no leerlas de nuevo en una lista."""
+    tarifas: las ya cargadas para esa fecha, para no leerlas de nuevo en una lista.
+    tarifa_head_coach: la casilla del alumno (apagada = sin precio Head Coach)."""
     if not clases:
         return None, "sin clases"
     if tarifas is None:
         tarifas = cargar_tarifas(fecha.replace(day=1) if fecha else None)
-    r = cuota_de(clases, tarifas)
+    r = cuota_de(clases, tarifas, tarifa_head_coach)
     if r["total"] <= 0 or r["avisos"]:
         return None, "; ".join(r["avisos"]) or "sin tarifa"
     return int(r["total"]), "; ".join(r["lineas"])
@@ -396,7 +398,8 @@ def recalcular_cuota(alumno_id: int, mes: date) -> dict:
         return {"cuota": "con_pagos", "aviso": f"La cuota de {nombre_mes} ya tiene pagos: no la toqué, revisala a mano."}
     if cuota.monto_calculado is not None and cuota.monto != cuota.monto_calculado:
         return {"cuota": "ajustada", "aviso": f"La cuota de {nombre_mes} estaba ajustada a mano: no la toqué, revisala."}
-    r = cuota_de(clases_del_mes(mes, alumno_id).get(alumno_id, []), cargar_tarifas(mes))
+    r = cuota_de(clases_del_mes(mes, alumno_id).get(alumno_id, []), cargar_tarifas(mes),
+                 alumno_id in con_tarifa_head_coach([alumno_id]))
     if r["total"] <= 0 or r["sin_tarifa"]:
         # si alguna clase no tiene precio no la recalculo: bajaría la cuota sin que nadie lo vea
         return {"cuota": "sin_tarifa", "aviso": f"No pude calcular la cuota de {nombre_mes}: revisala a mano."}

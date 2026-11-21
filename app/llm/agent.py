@@ -1583,7 +1583,7 @@ def _crear_cambio_pendiente(args: dict, es_jefe: bool) -> dict:
     armado, error = _armar_cambio(alumno, args, fecha)
     if error:
         return {**error, "mensaje": "NO se creó la propuesta. Contale esto al encargado con tus palabras."}
-    precio, _ = cd.precio_de(armado["quedan"], fecha)
+    precio, _ = cd.precio_de(armado["quedan"], fecha, tarifa_head_coach=alumno.tarifa_head_coach)
     cambio = cd.crear(alumno, armado["deja"], armado["nuevas"], fecha, origen="encargado",
                       espera="alumno", pedido_por="encargado", precio=precio)
     resultado = {"status": "propuesta creada", "cambio_id": cambio.id, "alumno": alumno.nombre,
@@ -1752,7 +1752,7 @@ def _pedir_cambio_dias(telefono: str, args: dict) -> dict:
 
     resumen = _resumen_cambio(armado, fecha)
     quedan = cd.texto_clases(armado["quedan"])
-    precio, _ = cd.precio_de(armado["quedan"], fecha)
+    precio, _ = cd.precio_de(armado["quedan"], fecha, tarifa_head_coach=alumno.tarifa_head_coach)
     if precio is None:
         # nunca inventar precios: sin tarifa exacta lo ve el encargado
         _notificar(f"Quiere cambiar de días ({resumen}), pero no hay tarifa exacta para quedar con "

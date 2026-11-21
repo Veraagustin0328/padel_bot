@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import cambios_dias as cd
 from app import recuperaciones
-from app.cuotas import cargar_tarifas
+from app.cuotas import cargar_tarifas, con_tarifa_head_coach
 from app.extensions import db
 from app.models import Alumno, CambioPendiente, Conversacion
 from app.privacidad import es_dueno
@@ -45,7 +45,9 @@ def _item(c: CambioPendiente, nombres: dict, lote: dict) -> dict:
     if es_dueno():  # la cuota (actual y estimada) es plata: solo el dueño
         if actuales and "tarifas" not in lote:
             lote["tarifas"] = cargar_tarifas()  # una vez para toda la lista (las de hoy, como antes)
-        item["cuota_actual"], _ = cd.precio_de(actuales, tarifas=lote.get("tarifas"))
+            lote["con_hc"] = con_tarifa_head_coach(lote["actuales"])  # casilla Tarifa Head Coach
+        item["cuota_actual"], _ = cd.precio_de(actuales, tarifas=lote.get("tarifas"),
+                                               tarifa_head_coach=c.alumno_id in lote.get("con_hc", set()))
         item["cuota_nueva"] = c.precio_estimado
     return item
 

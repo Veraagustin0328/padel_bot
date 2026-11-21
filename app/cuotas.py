@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import or_
 
+from app.models import Alumno
 from app.models_academia import Clase, Inscripcion
 from app.models_plataforma import Profesor
 from app.models_tarifas import FRANJA_HEAD_COACH, Tarifa
@@ -36,6 +37,7 @@ def _es_promo(clase):
 
 # Head Coach: las particulares de mañana (7 a 12) del profe titular marcado es_head_coach tienen tarifa propia.
 # Las grupales con él siguen como Modo Academia. Se mira el titular de la clase, no quién la dio ese día.
+# Y solo si el alumno tiene Alumno.tarifa_head_coach (los nuevos que pidieron con él): el resto paga normal.
 HORA_HEAD_COACH_DESDE = 7
 HORA_HEAD_COACH_HASTA = 12
 # PROVISORIO, falta confirmar con la dueña: particular de 2 con el head coach en horario de promo.
@@ -165,11 +167,21 @@ def precio_bucket(tarifas, franja, tipo, personas, veces):
 SIN_TARIFA = "SIN TARIFA"  # marca en el detalle de la cuota, el panel la resalta
 
 
-def cuota_de(clases, tarifas):
+def con_tarifa_head_coach(alumno_ids) -> set:
+    """De esos alumnos, los que tienen la casilla Tarifa Head Coach prendida (una sola consulta)."""
+    ids = [a for a in alumno_ids if a is not None]
+    if not ids:
+        return set()
+    return {aid for (aid,) in Alumno.query.with_entities(Alumno.id).filter(
+        Alumno.id.in_(ids), Alumno.tarifa_head_coach.is_(True))}
+
+
+def cuota_de(clases, tarifas, tarifa_head_coach=False):
     """Cuota mensual de un alumno anotado en esas clases. Devuelve {total, lineas, avisos, sin_tarifa}.
-    sin_tarifa = True si alguna clase no tiene precio: esa parte no se cobra y lo tiene que ver el encargado."""
+    sin_tarifa = True si alguna clase no tiene precio: esa parte no se cobra y lo tiene que ver el encargado.
+    tarifa_head_coach: la casilla del alumno. Apagada = se cobra sin Head Coach (particular normal o 2x1)."""
     grupos, avisos, sin_tarifa = {}, [], False
-    head_coach = getattr(tarifas, "head_coach", frozenset())
+    head_coach = getattr(tarifas, "head_coach", frozenset()) if tarifa_head_coach else frozenset()
     for c in clases:
         if c.tipo in TIPOS_SIN_CUOTA:
             continue

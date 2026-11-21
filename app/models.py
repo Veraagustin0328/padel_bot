@@ -14,6 +14,9 @@ class Alumno(db.Model):
     estado = db.Column(db.String(20), default="activo")  # activo / baja
     fecha_inscripcion = db.Column(db.DateTime, default=datetime.utcnow)
     motivo_baja = db.Column(db.String(20), nullable=True)
+    # precio Head Coach en sus particulares: solo para los que llegaron nuevos pidiendo con el head coach.
+    # Los que ya eran de la academia pagan la particular normal (regla de Gabi, 21/11/2026)
+    tarifa_head_coach = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
 
 PARENTESCOS = ("propio", "padre", "madre", "tutor")

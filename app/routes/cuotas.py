@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from app import recuperaciones as rec
-from app.cuotas import SIN_TARIFA, cargar_tarifas, clases_del_mes, cuota_de
+from app.cuotas import SIN_TARIFA, cargar_tarifas, clases_del_mes, con_tarifa_head_coach, cuota_de
 from app.extensions import db
 from app.models import Alumno
 from app.models_cuotas import CONCEPTOS, MEDIOS_PAGO, CuotaMes, PagoCuota
@@ -86,12 +86,13 @@ def generar_mes(inicio):
 
     ya = {c.alumno_id for c in CuotaMes.query.filter_by(mes=inicio, concepto="cuota")}
     tarifas = cargar_tarifas(inicio)  # las que rigen ese mes
+    con_hc = con_tarifa_head_coach(por_alumno)  # los que pagan Head Coach (casilla del alumno)
     creadas, existian, sin_precio, incompletas = 0, 0, [], []
     for alumno_id, cs in por_alumno.items():
         if alumno_id in ya:
             existian += 1
             continue
-        r = cuota_de(cs, tarifas)
+        r = cuota_de(cs, tarifas, alumno_id in con_hc)
         if r["total"] <= 0:
             sin_precio.append((alumno_id, r["avisos"]))
             continue
