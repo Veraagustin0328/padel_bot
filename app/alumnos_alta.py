@@ -113,8 +113,10 @@ def parecidos(nombre, telefonos=(), excluir_id=None) -> list[dict]:
     return sorted(salida.values(), key=lambda x: (-len(x["motivos"]), x["nombre"].lower()))
 
 
-def _leer_contactos(planilla_txt, telefono, contactos) -> list[tuple[str, str, str | None]]:
-    """[(telefono 549..., parentesco, nombre)] validados, el propio primero."""
+def _leer_contactos(planilla_txt, telefono, contactos,
+                    tutores_en_adultos=False) -> list[tuple[str, str, str | None]]:
+    """[(telefono 549..., parentesco, nombre)] validados, el propio primero.
+    tutores_en_adultos: al editar se dejan los que ya tenía un adulto (cargados antes del alta del panel)."""
     salida = []
     if telefono not in (None, ""):
         t = normalizar_telefono(telefono)
@@ -125,7 +127,7 @@ def _leer_contactos(planilla_txt, telefono, contactos) -> list[tuple[str, str, s
     if not isinstance(lista, list):
         raise ErrorAlta("Los contactos vinieron mal")
     lista = [c for c in lista if isinstance(c, dict) and any(str(c.get(k) or "").strip() for k in ("telefono", "nombre"))]
-    if lista and not es_menor(planilla_txt):
+    if lista and not es_menor(planilla_txt) and not tutores_en_adultos:
         raise ErrorAlta("Los contactos de padre, madre o tutor son solo para Kids")
     tope = max_tutores()
     if len(lista) > tope:

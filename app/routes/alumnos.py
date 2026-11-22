@@ -7,7 +7,7 @@ import re
 
 from flask import Blueprint, g, jsonify, request
 
-from app import alumnos_alta, cambios_dias, cuotas, niveles, planilla
+from app import alumnos_alta, alumnos_gestion, cambios_dias, cuotas, niveles, planilla
 from app import recuperaciones as rec
 from app.contactos import alumnos_de_telefono, tel10
 from app.extensions import db
@@ -344,7 +344,14 @@ def chequear_alta():
     d = request.get_json(silent=True) or {}
     tels = _telefonos_del_cuerpo(d)
     invalidos = [t for t in tels if not alumnos_alta.normalizar_telefono(t)]
-    return jsonify({"parecidos": alumnos_alta.parecidos(d.get("nombre"), tels), "invalidos": invalidos})
+    # editando: solo avisa por lo nuevo (no por sus propios teléfonos ni su nombre de siempre)
+    alumno = db.session.get(Alumno, d["alumno_id"]) if isinstance(d.get("alumno_id"), int) else None
+    if alumno:
+        lista = alumnos_gestion.parecidos_edicion(alumno, d.get("nombre"),
+                                                  [alumnos_alta.normalizar_telefono(t) for t in tels])
+    else:
+        lista = alumnos_alta.parecidos(d.get("nombre"), tels)
+    return jsonify({"parecidos": lista, "invalidos": invalidos})
 
 
 @alumnos_bp.post("/api/alumnos")
@@ -401,3 +408,97 @@ def cotizar(alumno_id):
                     "detalle": detalle if precio is not None else "",
                     "sin_tarifa": bool(todas) and precio is None,
                     "clases": len(todas)})
+
+
+# ---------- editar, dar de baja, reactivar y borrar (dueño y encargado; el profe no) ----------
+
+def _alumno_o_404(alumno_id):
+    alumno = db.session.get(Alumno, alumno_id)
+    return alumno, (None if alumno else (jsonify({"error": "No encontré el alumno"}), 404))
+
+
+def _error_gestion(e):
+    db.session.rollback()
+    parecidos = getattr(e, "parecidos", None)
+    if parecidos:
+        return jsonify({"error": str(e), "parecidos": parecidos, "confirmar": True}), 409
+    return jsonify({"error": str(e)}), 400
+
+
+@alumnos_bp.get("/api/alumnos/<int:alumno_id>/gestion")
+@requiere_login("encargado")
+def gestion(alumno_id):
+    """Para el modal de la ficha: qué cierra la baja y por qué no se puede borrar (si no se puede)."""
+    alumno, error = _alumno_o_404(alumno_id)
+    if error:
+        return error
+    no_borrar = alumnos_gestion.motivos_para_no_borrar(alumno)
+    return jsonify({
+        "id": alumno.id, "nombre": alumno.nombre, "estado": alumno.estado or "activo",
+        "motivo_baja": alumno.motivo_baja, "motivos_baja": list(alumnos_gestion.MOTIVOS_BAJA),
+        "baja": alumnos_gestion.resumen_baja(alumno),
+        "puede_borrar": not no_borrar, "no_borrar": no_borrar,
+    })
+
+
+@alumnos_bp.patch("/api/alumnos/<int:alumno_id>")
+@requiere_login("encargado")
+def editar_alumno(alumno_id):
+    alumno, error = _alumno_o_404(alumno_id)
+    if error:
+        return error
+    d = request.get_json(silent=True) or {}
+    try:
+        cambios, confirmados = alumnos_gestion.editar_alumno(
+            alumno, d.get("nombre"), d.get("planilla"), d.get("nivel") or None, d.get("telefono") or None,
+            d.get("contactos") or [], g.usuario.id, confirmar_parecidos=d.get("confirmar") is True)
+    except alumnos_alta.ErrorAlta as e:
+        return _error_gestion(e)
+    db.session.commit()
+    return jsonify({"ok": True, "cambios": sorted(cambios), "parecidos_confirmados": [p["id"] for p in confirmados]})
+
+
+@alumnos_bp.post("/api/alumnos/<int:alumno_id>/baja")
+@requiere_login("encargado")
+def dar_de_baja(alumno_id):
+    alumno, error = _alumno_o_404(alumno_id)
+    if error:
+        return error
+    try:
+        r = alumnos_gestion.dar_de_baja(alumno, g.usuario.id, (request.get_json(silent=True) or {}).get("motivo"))
+    except alumnos_alta.ErrorAlta as e:
+        return _error_gestion(e)
+    db.session.commit()
+    return jsonify({"ok": True, "estado": "baja", **r})
+
+
+@alumnos_bp.post("/api/alumnos/<int:alumno_id>/reactivar")
+@requiere_login("encargado")
+def reactivar(alumno_id):
+    alumno, error = _alumno_o_404(alumno_id)
+    if error:
+        return error
+    try:
+        alumnos_gestion.reactivar(alumno, g.usuario.id)
+    except alumnos_alta.ErrorAlta as e:
+        return _error_gestion(e)
+    db.session.commit()
+    return jsonify({"ok": True, "estado": "activo"})
+
+
+@alumnos_bp.delete("/api/alumnos/<int:alumno_id>")
+@requiere_login("encargado")
+def borrar(alumno_id):
+    """Solo sin historia. Pide el nombre escrito o la casilla "entiendo que no se puede deshacer"."""
+    alumno, error = _alumno_o_404(alumno_id)
+    if error:
+        return error
+    d = request.get_json(silent=True) or {}
+    confirmacion = True if d.get("entiendo") is True else d.get("nombre")
+    nombre = alumno.nombre
+    try:
+        alumnos_gestion.borrar_alumno(alumno, g.usuario.id, confirmacion)
+    except alumnos_alta.ErrorAlta as e:
+        return _error_gestion(e)
+    db.session.commit()
+    return jsonify({"ok": True, "id": alumno_id, "nombre": nombre})
