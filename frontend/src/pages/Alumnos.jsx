@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import AlumnosFichas from "./AlumnosFichas.jsx";
+import AltaAlumno from "./AltaAlumno.jsx";
 import ScrollLateral from "../ScrollLateral.jsx";
 import "./alumnos.css";
 
@@ -151,9 +152,24 @@ const SOLAPAS = [
 
 export default function Alumnos() {
   const [solapa, setSolapa] = useState("planilla");
+  const [alta, setAlta] = useState(false);
+  const [vuelta, setVuelta] = useState(0); // para recargar las fichas después de un alta
+
+  function cerrarAlta(huboCambios) {
+    setAlta(false);
+    if (huboCambios) {
+      // el nuevo está en Fichas (la planilla de Google no se toca)
+      setSolapa("fichas");
+      setVuelta((v) => v + 1);
+    }
+  }
+
   return (
     <div>
-      <h1>Alumnos</h1>
+      <div className="alu-cabecera">
+        <h1>Alumnos</h1>
+        <button className="boton" onClick={() => setAlta(true)}>+ Nuevo alumno</button>
+      </div>
       <div className="alu-solapas" role="tablist" aria-label="Alumnos">
         {SOLAPAS.map((s) => (
           <button key={s.clave} role="tab" aria-selected={solapa === s.clave}
@@ -162,7 +178,8 @@ export default function Alumnos() {
           </button>
         ))}
       </div>
-      {solapa === "planilla" ? <ListadoPlanilla /> : <AlumnosFichas />}
+      {solapa === "planilla" ? <ListadoPlanilla /> : <AlumnosFichas key={vuelta} />}
+      {alta && <AltaAlumno alCerrar={cerrarAlta} />}
     </div>
   );
 }

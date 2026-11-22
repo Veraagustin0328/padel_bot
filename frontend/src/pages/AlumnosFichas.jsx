@@ -296,7 +296,7 @@ export default function AlumnosFichas() {
       )}
 
       {alumno && (
-        <ModalContactos alumno={alumno} max={datos.max_contactos} parentescos={datos.parentescos}
+        <ModalContactos alumno={alumno} max={alumno.max_contactos || datos.max_contactos} parentescos={datos.parentescos}
                         onCerrar={() => setAbierto(null)} onGuardado={guardado} />
       )}
     </div>
