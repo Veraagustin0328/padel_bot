@@ -1,138 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import { NivelAlumno, etiquetaNivel } from "../niveles.jsx";
 import ScrollLateral from "../ScrollLateral.jsx";
+import EditarAlumno from "./EditarAlumno.jsx";
 
-// fichas de los alumnos de Neon (no la planilla). Por ahora: contactos.
-// la columna de acciones queda para sumar después "Cambiar días".
+// fichas de los alumnos de Neon (no la planilla): nivel, contactos y Tarifa Head Coach.
+// "Editar" abre la ficha completa: datos, contactos, baja, reactivar y borrar.
 
 const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const NOMBRE_PARENTESCO = { propio: "Propio (el alumno)", padre: "Padre", madre: "Madre", tutor: "Tutor/a" };
 const corto = (p) => (p === "propio" ? "propio" : (NOMBRE_PARENTESCO[p] || p).toLowerCase());
-const digitos = (s) => String(s || "").replace(/\D/g, "");
 
-function FilaContacto({ c, i, alumnoId, parentescos, onCambio, onSacar }) {
-  const [otros, setOtros] = useState([]);
-  const ultimo = useRef("");
-
-  // aviso si el número ya es de otro alumno (esperamos a que deje de tipear)
-  useEffect(() => {
-    const d = digitos(c.telefono);
-    if (d.length < 10) { setOtros([]); return; }
-    const t = setTimeout(async () => {
-      ultimo.current = d;
-      try {
-        const r = await api(`/api/alumnos/contactos/chequear?telefono=${d}&alumno_id=${alumnoId}`);
-        if (ultimo.current === d) setOtros(r.otros || []);
-      } catch {
-        setOtros([]);
-      }
-    }, 400);
-    return () => clearTimeout(t);
-  }, [c.telefono, alumnoId]);
-
-  return (
-    <div className="fic-contacto">
-      <div className="fic-campos">
-        <label>
-          Teléfono {i + 1}
-          <input inputMode="tel" placeholder="Ej. 3415551234" value={c.telefono}
-                 onChange={(e) => onCambio({ ...c, telefono: e.target.value })} />
-        </label>
-        <label>
-          Parentesco
-          <select value={c.parentesco} onChange={(e) => onCambio({ ...c, parentesco: e.target.value })}>
-            <option value="">Elegí…</option>
-            {parentescos.map((p) => <option key={p} value={p}>{NOMBRE_PARENTESCO[p] || p}</option>)}
-          </select>
-        </label>
-        <label>
-          Nombre
-          <input placeholder={c.parentesco === "propio" ? "Opcional" : "Ej. Laura"} value={c.nombre}
-                 onChange={(e) => onCambio({ ...c, nombre: e.target.value })} />
-        </label>
-        <button type="button" className="boton chico claro fic-sacar" onClick={onSacar} aria-label={`Sacar teléfono ${i + 1}`}>
-          Sacar
-        </button>
-      </div>
-      {otros.length > 0 && (
-        <div className="fic-aviso">
-          Este número ya está cargado en {otros.map((o) => o.nombre).join(", ")}. Si son hermanos está bien, lo podés guardar igual.
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ModalContactos({ alumno, max, parentescos, onCerrar, onGuardado }) {
-  const [lista, setLista] = useState(() =>
-    alumno.contactos.length
-      ? alumno.contactos.map((c) => ({ telefono: c.telefono, parentesco: c.parentesco, nombre: c.nombre }))
-      : [{ telefono: "", parentesco: "", nombre: "" }]
-  );
-  const [error, setError] = useState("");
-  const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => {
-    const tecla = (e) => e.key === "Escape" && !guardando && onCerrar();
-    window.addEventListener("keydown", tecla);
-    return () => window.removeEventListener("keydown", tecla);
-  }, [guardando, onCerrar]);
-
-  const cambiar = (i, c) => setLista((l) => l.map((x, j) => (j === i ? c : x)));
-  const sacar = (i) => setLista((l) => l.filter((_, j) => j !== i));
-  const sumar = () => setLista((l) => [...l, { telefono: "", parentesco: "", nombre: "" }]);
-
-  async function guardar(e) {
-    e.preventDefault();
-    setError("");
-    // las filas vacías del todo no cuentan
-    const cargados = lista.filter((c) => c.telefono.trim() || c.nombre.trim() || c.parentesco);
-    setGuardando(true);
-    try {
-      const r = await api(`/api/alumnos/${alumno.id}/contactos`, { metodo: "PUT", cuerpo: { contactos: cargados } });
-      onGuardado(alumno.id, r.contactos);
-    } catch (err) {
-      setError(err.message);
-      setGuardando(false);
-    }
-  }
-
-  return (
-    <div className="fic-velo" onMouseDown={(e) => e.target === e.currentTarget && !guardando && onCerrar()}>
-      <form className="fic-modal" role="dialog" aria-modal="true" aria-labelledby="fic-titulo" onSubmit={guardar}>
-        <h2 id="fic-titulo">Contactos de {alumno.nombre}</h2>
-        <p className="fic-ayuda">
-          Desde estos números el agente lo reconoce. Hasta {max} teléfono{max === 1 ? "" : "s"}.
-        </p>
-
-        {lista.map((c, i) => (
-          <FilaContacto key={i} c={c} i={i} alumnoId={alumno.id} parentescos={parentescos}
-                        onCambio={(nuevo) => cambiar(i, nuevo)} onSacar={() => sacar(i)} />
-        ))}
-        {lista.length === 0 && <div className="fic-ayuda">Sin teléfonos cargados.</div>}
-
-        {lista.length < max && (
-          <button type="button" className="boton chico claro" onClick={sumar}>+ Agregar teléfono</button>
-        )}
-
-        {error && <div className="alu-msg fic-error">{error}</div>}
-
-        <div className="botones">
-          <button className="boton" disabled={guardando}>{guardando ? "Guardando…" : "Guardar"}</button>
-          <button type="button" className="boton claro" onClick={onCerrar} disabled={guardando}>Cancelar</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-export default function AlumnosFichas() {
+// accion: el botón "Nuevo alumno", que va en la misma fila que los filtros
+export default function AlumnosFichas({ accion = null }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [buscar, setBuscar] = useState("");
   const [estado, setEstado] = useState("activo"); // activo | baja | todos
-  const [abierto, setAbierto] = useState(null); // id del alumno con el modal abierto
+  const [abierto, setAbierto] = useState(null); // id del alumno que se está editando
   const [ok, setOk] = useState("");
   const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
   const [guardandoHC, setGuardandoHC] = useState(null); // id del alumno que se está guardando
@@ -205,11 +90,16 @@ export default function AlumnosFichas() {
     }
   }
 
-  function guardado(id, contactos) {
-    setDatos((d) => ({ ...d, alumnos: d.alumnos.map((a) => (a.id === id ? { ...a, contactos } : a)) }));
-    const a = datos.alumnos.find((x) => x.id === id);
-    setOk(`Listo, guardé los contactos de ${a?.nombre || "el alumno"}.`);
+  // al cerrar la edición: si cambió algo, aviso y vuelvo a traer la lista
+  function cerrarEdicion(mensaje, { borrado = false } = {}) {
+    const id = abierto;
     setAbierto(null);
+    // el borrado sale de la lista al toque, sin esperar la recarga
+    if (borrado) setDatos((d) => ({ ...d, alumnos: d.alumnos.filter((a) => a.id !== id) }));
+    if (mensaje) {
+      setOk(mensaje);
+      cargar();
+    }
   }
 
   return (
@@ -235,6 +125,7 @@ export default function AlumnosFichas() {
           A clasificar <span className="fic-contador">{aClasificar}</span>
         </button>
         <button className="boton chico claro" onClick={cargar}>Actualizar</button>
+        {accion}
       </div>
 
       {datos === null ? (
@@ -259,7 +150,10 @@ export default function AlumnosFichas() {
             <tbody>
               {lista.map((a) => (
                 <tr key={a.id} className={norm(a.estado) === "baja" ? "baja" : ""}>
-                  <td className="nombre">{a.nombre}</td>
+                  <td className="nombre">
+                    {a.nombre}
+                    {norm(a.estado) === "baja" && <span className="fic-baja">de baja</span>}
+                  </td>
                   <td className="fic-nivel">
                     <NivelAlumno alumno={{ ...a, nivel: a.categoria || "" }} niveles={datos.niveles}
                                  colores={datos.colores} onElegir={(n) => elegirNivel(a, n)} />
@@ -286,7 +180,7 @@ export default function AlumnosFichas() {
                     </td>
                   )}
                   <td className="fic-acciones">
-                    <button className="boton chico claro" onClick={() => { setOk(""); setAbierto(a.id); }}>Contactos</button>
+                    <button className="boton chico claro" onClick={() => { setOk(""); setAbierto(a.id); }}>Editar</button>
                   </td>
                 </tr>
               ))}
@@ -295,10 +189,7 @@ export default function AlumnosFichas() {
         </ScrollLateral>
       )}
 
-      {alumno && (
-        <ModalContactos alumno={alumno} max={alumno.max_contactos || datos.max_contactos} parentescos={datos.parentescos}
-                        onCerrar={() => setAbierto(null)} onGuardado={guardado} />
-      )}
+      {alumno && <EditarAlumno alumno={alumno} alCerrar={cerrarEdicion} />}
     </div>
   );
 }

@@ -97,9 +97,32 @@ body.con-cartel .alta-velo { top: var(--alto-cartel); }
   .alta-cuota { flex: 1; justify-content: flex-start; }
 }
 
-/* botón Nuevo alumno en la cabecera de Alumnos */
-.alu-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+/* título de Alumnos solo en su fila (el botón Nuevo alumno pasó a los filtros) */
+.alu-titulo { margin-bottom: 12px; }
+
+/* botón Nuevo alumno: a la derecha en la fila de filtros */
+.alu-filtros .alu-nuevo { margin-left: auto; white-space: nowrap; }
 @media (max-width: 820px) {
-  .alu-cabecera { flex-direction: column; align-items: stretch; }
-  .alu-cabecera .boton { min-height: 44px; width: 100%; }
+  .alu-filtros .alu-nuevo { margin-left: 0; }
 }
+
+/* editar: baja y borrado */
+.edi-aviso-baja { background: var(--mal-fondo); color: var(--mal); border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+.edi-cuidado { border-top: 1px solid var(--linea); padding-top: 14px; margin-top: 6px; display: flex; flex-direction: column; gap: 10px; }
+.edi-cuidado h3 { margin: 0; font-size: 14px; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; }
+.edi-accion { border: 1px solid var(--linea); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.edi-accion-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.edi-accion-cab > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.edi-accion-cab .boton { flex: none; min-height: 44px; }
+.edi-confirmar { background: var(--fondo); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.edi-confirmar p { margin: 0; }
+.edi-confirmar ul { margin: 0; padding-left: 20px; }
+.edi-campo { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--suave); font-weight: 600; }
+.edi-campo input, .edi-campo select {
+  min-height: 44px; border: 1px solid #c4c8b8; border-radius: 8px; padding: 8px 12px; width: 100%;
+  font: 500 15px "Plus Jakarta Sans", system-ui, sans-serif; background: #fff; color: var(--tinta);
+}
+.edi-borrar:disabled { cursor: not-allowed; }
+.boton.peligro { background: var(--mal); color: #fff; border: 0; }
+.boton.peligro:disabled { background: #e8eae1; color: var(--suave); opacity: 1; }
+.fic-baja { margin-left: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: var(--mal-fondo); color: var(--mal); border-radius: 999px; padding: 2px 8px; }

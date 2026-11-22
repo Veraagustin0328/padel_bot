@@ -66,8 +66,20 @@ function Parecidos({ lista, alConfirmar, guardando }) {
   );
 }
 
-function Formulario({ opciones, alGuardar, alCerrar }) {
-  const [f, setF] = useState(VACIO);
+// los datos de un alumno guardado, en el formato del formulario (para editar)
+function desdeAlumno(a) {
+  const propio = a.contactos.find((c) => c.parentesco === "propio");
+  return {
+    ...VACIO, nombre: a.nombre, planilla: a.planilla, nivel: a.categoria || "",
+    telefono: propio ? propio.telefono : "",
+    contactos: a.contactos.filter((c) => c !== propio).map((c) => ({ nombre: c.nombre || "", parentesco: c.parentesco, telefono: c.telefono })),
+  };
+}
+
+// alumno: si viene, edita ese alumno (sin Tarifa Head Coach ni inscripción, que se manejan aparte)
+export function Formulario({ opciones, alGuardar, alCerrar, alumno = null }) {
+  const editando = !!alumno;
+  const [f, setF] = useState(() => (alumno ? desdeAlumno(alumno) : VACIO));
   const [parecidos, setParecidos] = useState([]);
   const [pedirConfirmar, setPedirConfirmar] = useState(false);
   const [error, setError] = useState("");
@@ -87,7 +99,7 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
       ultimo.current = clave;
       try {
         const r = await api("/api/alumnos/alta/chequear", {
-          metodo: "POST", cuerpo: { nombre: f.nombre, telefono: f.telefono, contactos: f.contactos },
+          metodo: "POST", cuerpo: { nombre: f.nombre, telefono: f.telefono, contactos: f.contactos, alumno_id: alumno?.id },
         });
         if (ultimo.current === clave) setParecidos(r.parecidos || []);
       } catch {
@@ -98,7 +110,9 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
   }, [clave]);
 
   function cambiarPlanilla(p) {
-    setF((x) => ({ ...x, planilla: p, contactos: (opciones.planillas_menores || []).includes(p) ? (x.contactos.length ? x.contactos : [{ ...CONTACTO }]) : [] }));
+    const kids = (opciones.planillas_menores || []).includes(p);
+    // editando no se borran los tutores que ya tenía un adulto (cargados antes)
+    setF((x) => ({ ...x, planilla: p, contactos: kids ? (x.contactos.length ? x.contactos : [{ ...CONTACTO }]) : (editando ? x.contactos : []) }));
     setPedirConfirmar(false);
   }
   const cambiarContacto = (i, c) => poner("contactos", f.contactos.map((x, j) => (j === i ? c : x)));
@@ -109,13 +123,19 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
     setGuardando(true);
     try {
       const contactos = f.contactos.filter((c) => c.telefono.trim() || c.nombre.trim());
-      const r = await api("/api/alumnos", { metodo: "POST", cuerpo: { ...f, contactos, confirmar } });
-      alGuardar(r.alumno);
+      if (editando) {
+        const { nombre, planilla, nivel, telefono } = f;
+        const r = await api(`/api/alumnos/${alumno.id}`, { metodo: "PATCH", cuerpo: { nombre, planilla, nivel, telefono, contactos, confirmar } });
+        alGuardar(r);
+      } else {
+        const r = await api("/api/alumnos", { metodo: "POST", cuerpo: { ...f, contactos, confirmar } });
+        alGuardar(r.alumno);
+      }
     } catch (err) {
       if (err.status === 409) {
         // el back volvió a encontrar parecidos: los muestro con el botón para confirmar
         try {
-          const r = await api("/api/alumnos/alta/chequear", { metodo: "POST", cuerpo: { nombre: f.nombre, telefono: f.telefono, contactos: f.contactos } });
+          const r = await api("/api/alumnos/alta/chequear", { metodo: "POST", cuerpo: { nombre: f.nombre, telefono: f.telefono, contactos: f.contactos, alumno_id: alumno?.id } });
           setParecidos(r.parecidos || []);
         } catch { /* quedan los que había */ }
         setPedirConfirmar(true);
@@ -127,6 +147,10 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
   }
 
   const insc = opciones.inscripcion || {};
+  // la planilla que ya tenía (ej. kids_pro) se puede dejar; un nivel viejo también
+  const planillas = editando && !opciones.planillas.includes(alumno.planilla) ? [...opciones.planillas, alumno.planilla] : opciones.planillas;
+  const nivelesOpc = f.nivel && !opciones.niveles.includes(f.nivel) ? [f.nivel, ...opciones.niveles] : opciones.niveles;
+  const conTutores = esKids || (editando && f.contactos.length > 0);
   return (
     <form className="alta-form" onSubmit={guardar} noValidate>
       <div className="campo">
@@ -138,10 +162,10 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
       <div className="campo">
         <span className="alta-etiqueta">Planilla</span>
         <div className="alta-segmentos" role="radiogroup" aria-label="Planilla">
-          {opciones.planillas.map((p) => (
+          {planillas.map((p) => (
             <button key={p} type="button" role="radio" aria-checked={f.planilla === p}
                     className={"alta-segmento" + (f.planilla === p ? " activo" : "")} onClick={() => cambiarPlanilla(p)}>
-              {PLANILLA[p] || p}
+              {nombrePlanilla(p)}
             </button>
           ))}
         </div>
@@ -151,9 +175,10 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
         <label htmlFor="alta-nivel">Categoría / nivel{esKids ? " (opcional)" : ""}</label>
         <select id="alta-nivel" value={f.nivel} onChange={(e) => poner("nivel", e.target.value)}>
           <option value="">{esKids ? "Sin nivel" : "Elegí…"}</option>
-          {opciones.niveles.map((n) => <option key={n} value={n}>{etiquetaNivel(n)}</option>)}
+          {nivelesOpc.map((n) => <option key={n} value={n}>{etiquetaNivel(n)}</option>)}
         </select>
-        {f.nivel && <span className="nota">Queda “a clasificar” hasta que su profe lo confirme en Mis clases.</span>}
+        {f.nivel && !editando && <span className="nota">Queda “a clasificar” hasta que su profe lo confirme en Mis clases.</span>}
+        {editando && f.nivel !== (alumno.categoria || "") && f.nivel && <span className="nota">Si lo cambiás acá, queda confirmado.</span>}
       </div>
 
       <div className="campo">
@@ -163,7 +188,7 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
         <AyudaTel valor={f.telefono} />
       </div>
 
-      {esKids && (
+      {conTutores && (
         <fieldset className="alta-contactos">
           <legend>Padre, madre o tutor</legend>
           <p className="nota">Desde estos números el agente reconoce al chico. Hasta {opciones.max_tutores}.</p>
@@ -202,7 +227,7 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
         </fieldset>
       )}
 
-      {opciones.hay_head_coach && (
+      {opciones.hay_head_coach && !editando && (
         <label className="alta-check">
           <input type="checkbox" checked={f.tarifa_head_coach} onChange={(e) => poner("tarifa_head_coach", e.target.checked)} />
           <span>
@@ -212,7 +237,7 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
         </label>
       )}
 
-      <div className="campo">
+      {!editando && <div className="campo">
         <span className="alta-etiqueta">Inscripción (pago único)</span>
         <label className="alta-radio">
           <input type="radio" name="alta-insc" checked={f.inscripcion === "cobrar"} onChange={() => poner("inscripcion", "cobrar")} />
@@ -225,13 +250,13 @@ function Formulario({ opciones, alGuardar, alCerrar }) {
           <input type="radio" name="alta-insc" checked={f.inscripcion === "ya_estaba"} onChange={() => poner("inscripcion", "ya_estaba")} />
           <span>Ya estaba inscripto (no se cobra)</span>
         </label>
-      </div>
+      </div>}
 
       <Parecidos lista={parecidos} guardando={guardando} alConfirmar={pedirConfirmar ? () => guardar(null, true) : null} />
       {error && <div className="msg-error" role="alert">{error}</div>}
 
       <div className="alta-pie">
-        <button className="boton principal" disabled={guardando || pedirConfirmar}>{guardando ? "Guardando…" : "Guardar alumno"}</button>
+        <button className="boton principal" disabled={guardando || pedirConfirmar}>{guardando ? "Guardando…" : editando ? "Guardar cambios" : "Guardar alumno"}</button>
         <button type="button" className="boton claro" onClick={alCerrar} disabled={guardando}>Cancelar</button>
       </div>
     </form>
