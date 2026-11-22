@@ -328,7 +328,9 @@ class Novedad(db.Model):
 
 
 class Nota(db.Model):
-    """Notas internas de dueño y encargado. Pueden ir atadas a un alumno o sueltas."""
+    """Notas internas de dueño y encargado. Pueden ir atadas a un alumno o sueltas.
+    visible_profes: la ven (solo lectura) los profes del alumno en Mis clases. Por defecto no.
+    Nunca le llegan al alumno ni al padre."""
     __tablename__ = "notas"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -337,5 +339,7 @@ class Nota(db.Model):
     alumno_id = db.Column(db.Integer, db.ForeignKey("alumnos.id"), nullable=True, index=True)
     creada_por = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     fijada = db.Column(db.Boolean, nullable=False, default=False)
+    # la marca solo dueño o encargado (también en menores); la columna la agrega migrar_notas_visibles.py
+    visible_profes = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     creada_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     actualizada_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

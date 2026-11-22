@@ -67,6 +67,7 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState({});
   const [notaAbierta, setNotaAbierta] = useState({});
+  const [verNotas, setVerNotas] = useState({}); // notas del equipo abiertas, por alumno
   const [laDio, setLaDio] = useState({ guardando: false, ok: "" }); // guardando el "la dio"
   // reemplazo para la cabecera con la clase cerrada: el de la lista, o el último elegido acá
   const [reemplazoCab, setReemplazoCab] = useState(clase.la_dio || "");
@@ -271,8 +272,29 @@ function Clase({ clase, fecha, futuro, soloLectura }) {
               <div className="mc-nombre">
                 <span>{a.nombre}</span>
                 {a.etiqueta && <span className={"mc-tag" + (TAGS[a.etiqueta] || "")}>{a.etiqueta}</span>}
+                {a.notas?.length > 0 && (
+                  <button type="button" className={"mc-notas-btn" + (verNotas[a.id] ? " activo" : "")}
+                          aria-expanded={!!verNotas[a.id]} aria-label={`Notas sobre ${a.nombre}`}
+                          onClick={() => setVerNotas((v) => ({ ...v, [a.id]: !v[a.id] }))}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                      <path d="M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                    </svg>
+                    {a.notas.length > 1 ? a.notas.length : "Nota"}
+                  </button>
+                )}
                 <span className="mc-guardado">{guardando[a.id]}</span>
               </div>
+              {verNotas[a.id] && a.notas?.length > 0 && (
+                <div className="mc-notas" role="note">
+                  {a.notas.map((n) => (
+                    <div key={n.id} className="mc-nota-equipo">
+                      <b>{n.titulo}</b>
+                      {n.texto && <p>{n.texto}</p>}
+                    </div>
+                  ))}
+                  <span className="mc-notas-pie">Nota del equipo, solo para leer.</span>
+                </div>
+              )}
               {soloMirar ? (
                 <NivelFijo alumno={a} colores={datos.colores} />
               ) : (

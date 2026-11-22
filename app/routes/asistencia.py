@@ -23,6 +23,7 @@ from app.extensions import db
 from app.models import Alumno
 from app.models_plataforma import Profesor
 from app.routes.auth import requiere_login
+from app.routes.notas import notas_para_profes
 
 asistencia_bp = Blueprint("asistencia", __name__)
 
@@ -257,6 +258,7 @@ def ver_asistencia(clase_id):
 
     nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(Alumno.id.in_(ids)).all()) if ids else {}
     nivel_de = niveles.datos_de(ids)
+    notas = notas_para_profes(ids)  # solo las marcadas visibles (también en "Ver como")
     alumnos = [{
         "id": aid,
         "nombre": nombres.get(aid, "?"),
@@ -267,6 +269,7 @@ def ver_asistencia(clase_id):
         "etiqueta": etiqueta(aid, tipo),
         "estado": marcas[aid].estado if aid in marcas else None,
         "nota": (marcas[aid].nota or "") if aid in marcas else "",
+        "notas": notas.get(aid, []),
     } for aid, tipo in ids.items()]
     # primero los que vienen, después los que avisaron o están de viaje
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
@@ -298,6 +301,7 @@ def _lista_futura(clase, fecha):
     nombres = dict(db.session.query(Alumno.id, Alumno.nombre).filter(
         Alumno.id.in_(ids), or_(Alumno.estado.is_(None), Alumno.estado != "baja"))) if ids else {}
     nivel_de = niveles.datos_de(list(nombres))
+    notas = notas_para_profes(list(nombres))
     alumnos = [{
         "id": aid,
         "nombre": nombres[aid],
@@ -306,6 +310,7 @@ def _lista_futura(clase, fecha):
         "recupera": tipo == "recupera",
         "viene": tipo not in ("viaje", "falta"),
         "etiqueta": _etiqueta(tipo, avisos.get(aid)),
+        "notas": notas.get(aid, []),
     } for aid, tipo in ids.items() if aid in nombres]  # las bajas quedan afuera
     alumnos.sort(key=lambda x: (not x["viene"], x["nombre"].lower()))
     titular = db.session.get(Profesor, clase.profesor_id) if clase.profesor_id else None

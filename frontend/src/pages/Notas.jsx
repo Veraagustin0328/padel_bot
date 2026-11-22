@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import "./notas.css";
 
-const VACIO = { titulo: "", texto: "", alumno_id: "", fijada: false };
+const VACIO = { titulo: "", texto: "", alumno_id: "", fijada: false, visible_profes: false };
 
 // "10/11 14:30": alcanza para saber de cuándo es
 const cuando = (iso) =>
@@ -58,7 +58,8 @@ export default function Notas() {
 
   function editar(n) {
     setEditando(n.id);
-    setForm({ titulo: n.titulo, texto: n.texto, alumno_id: n.alumno_id ? String(n.alumno_id) : "", fijada: n.fijada });
+    setForm({ titulo: n.titulo, texto: n.texto, alumno_id: n.alumno_id ? String(n.alumno_id) : "", fijada: n.fijada,
+              visible_profes: !!n.visible_profes });
     setAbierto(true);
     setError(""); setAviso("");
     // en el celu el form queda arriba: lo llevo a la vista
@@ -76,7 +77,9 @@ export default function Notas() {
     setError(""); setAviso("");
     if (!form.titulo.trim()) return setError("Poné un título");
     setOcupado(true);
-    const cuerpo = { ...form, alumno_id: form.alumno_id ? Number(form.alumno_id) : null };
+    // una nota suelta no tiene profes: nunca va visible
+    const cuerpo = { ...form, alumno_id: form.alumno_id ? Number(form.alumno_id) : null,
+                     visible_profes: !!form.alumno_id && form.visible_profes };
     try {
       if (editando) {
         await api(`/api/notas/${editando}`, { metodo: "PATCH", cuerpo });
@@ -122,7 +125,7 @@ export default function Notas() {
       <div className="cabecera">
         <div>
           <h1>Notas</h1>
-          <div className="sub">Para vos y el equipo. Los profes y alumnos no las ven.</div>
+          <div className="sub">Para vos y el equipo. Alumnos y padres nunca las ven; los profes, solo las que marques visibles.</div>
         </div>
         {!abierto && <button className="boton" onClick={nueva}>Nueva nota</button>}
       </div>
@@ -151,6 +154,16 @@ export default function Notas() {
             <input type="checkbox" checked={form.fijada} onChange={cambiar("fijada")} />
             Fijarla arriba
           </label>
+          <label className={"notas-check" + (form.alumno_id ? "" : " apagada")}>
+            <input type="checkbox" checked={!!form.alumno_id && form.visible_profes} disabled={!form.alumno_id}
+                   onChange={cambiar("visible_profes")} />
+            <span>
+              Visible para sus profes
+              <small>{form.alumno_id
+                ? "La ven en Mis clases, solo para leer. El alumno y los padres no."
+                : "Elegí un alumno para poder mostrársela a sus profes."}</small>
+            </span>
+          </label>
           <div className="botones">
             <button className="boton" disabled={ocupado}>{ocupado ? "Guardando…" : "Guardar"}</button>
             <button type="button" className="boton claro" onClick={cerrar}>Cancelar</button>
@@ -175,6 +188,7 @@ export default function Notas() {
           <li key={n.id} className={"notas-item" + (n.fijada ? " fijada" : "")}>
             <div className="notas-arriba">
               {n.fijada && <span className="notas-chip">Fijada</span>}
+              {n.visible_profes && <span className="notas-chip visible">Ven sus profes</span>}
               <strong>{n.titulo}</strong>
             </div>
             {n.alumno_nombre && <div className="notas-alumno">{n.alumno_nombre}</div>}
