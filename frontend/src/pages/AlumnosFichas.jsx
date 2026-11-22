@@ -11,7 +11,8 @@ const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toL
 const NOMBRE_PARENTESCO = { propio: "Propio (el alumno)", padre: "Padre", madre: "Madre", tutor: "Tutor/a" };
 const corto = (p) => (p === "propio" ? "propio" : (NOMBRE_PARENTESCO[p] || p).toLowerCase());
 
-export default function AlumnosFichas() {
+// accion: el botón "Nuevo alumno", que va en la misma fila que los filtros
+export default function AlumnosFichas({ accion = null }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [buscar, setBuscar] = useState("");
@@ -124,6 +125,7 @@ export default function AlumnosFichas() {
           A clasificar <span className="fic-contador">{aClasificar}</span>
         </button>
         <button className="boton chico claro" onClick={cargar}>Actualizar</button>
+        {accion}
       </div>
 
       {datos === null ? (
