@@ -97,9 +97,6 @@ body.con-cartel .alta-velo { top: var(--alto-cartel); }
   .alta-cuota { flex: 1; justify-content: flex-start; }
 }
 
-/* título de Alumnos solo en su fila (el botón Nuevo alumno pasó a los filtros) */
-.alu-titulo { margin-bottom: 12px; }
-
 /* botón Nuevo alumno: a la derecha en la fila de filtros */
 .alu-filtros .alu-nuevo { margin-left: auto; white-space: nowrap; }
 @media (max-width: 820px) {

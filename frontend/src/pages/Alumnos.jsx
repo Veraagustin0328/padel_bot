@@ -71,8 +71,6 @@ function ListadoPlanilla({ accion = null }) {
 
   return (
     <div>
-      <p style={{ color: "#5b6672" }}>Igual que tu listado de la planilla. Por ahora es solo para mirar.</p>
-
       {error && <div className="alu-msg">{error}</div>}
 
       <div className="alu-resumen">
@@ -146,9 +144,10 @@ function ListadoPlanilla({ accion = null }) {
   );
 }
 
+// sub: va abajo del título, antes de las solapas, igual que en Clases
 const SOLAPAS = [
-  { clave: "planilla", t: "Planilla" },
-  { clave: "fichas", t: "Fichas" },
+  { clave: "planilla", t: "Planilla", sub: "Igual que tu listado de la planilla. Por ahora es solo para mirar." },
+  { clave: "fichas", t: "Fichas", sub: "Los alumnos que conoce el agente. Acá cargás los teléfonos de cada uno." },
 ];
 
 export default function Alumnos() {
@@ -170,7 +169,8 @@ export default function Alumnos() {
 
   return (
     <div>
-      <h1 className="alu-titulo">Alumnos</h1>
+      <h1>Alumnos</h1>
+      <p style={{ color: "#5b6672" }}>{SOLAPAS.find((s) => s.clave === solapa).sub}</p>
       <div className="alu-solapas" role="tablist" aria-label="Alumnos">
         {SOLAPAS.map((s) => (
           <button key={s.clave} role="tab" aria-selected={solapa === s.clave}

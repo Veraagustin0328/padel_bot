@@ -104,7 +104,6 @@ export default function AlumnosFichas({ accion = null }) {
 
   return (
     <div>
-      <p style={{ color: "#5b6672" }}>Los alumnos que conoce el agente. Acá cargás los teléfonos de cada uno.</p>
 
       {error && <div className="alu-msg">{error}</div>}
       {ok && <div className="fic-ok" role="status">{ok}</div>}

@@ -28,7 +28,7 @@
 .alu-msg { padding: 10px 14px; border-radius: 10px; margin-bottom: 12px; background: var(--mal-fondo); color: var(--mal); }
 .alu-vacio { color: var(--suave); padding: 24px 0; text-align: center; }
 /* solapas Planilla / Fichas, igual que las de Pendientes */
-.alu-solapas { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; }
+.alu-solapas { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin: 16px 0 6px; } /* arriba igual que .cla-tabs */
 .alu-solapa { flex: none; min-height: 40px; padding: 8px 16px; border-radius: 20px; border: 1px solid #c4c8b8; background: #fff; color: var(--tinta); font: inherit; font-weight: 600; cursor: pointer; }
 .alu-solapa:hover { border-color: var(--verde); }
 .alu-solapa.activo { background: var(--verde); border-color: var(--verde); color: #fff; }
