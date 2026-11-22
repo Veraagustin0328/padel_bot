@@ -100,10 +100,13 @@ body.con-cartel .alta-velo { top: var(--alto-cartel); }
 /* título de Alumnos solo en su fila (el botón Nuevo alumno pasó a los filtros) */
 .alu-titulo { margin-bottom: 12px; text-align: center; }
 
-/* botón Nuevo alumno: a la derecha en la fila de filtros */
-.alu-filtros .alu-nuevo { margin-left: auto; white-space: nowrap; }
+/* botón Nuevo alumno: en la fila de las solapas, justo después de "Fichas", con su mismo alto */
+.alu-solapas-fila { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.alu-solapas-fila .alu-solapas { margin-bottom: 0; min-width: 0; }
+.boton.alu-nuevo { flex: none; min-height: 40px; padding: 8px 16px; white-space: nowrap; } /* borde de botón, no de píldora: que no parezca otra solapa */
 @media (max-width: 820px) {
-  .alu-filtros .alu-nuevo { margin-left: 0; }
+  /* llena lo que queda de la fila; si no entra, baja y ocupa todo el ancho */
+  .boton.alu-nuevo { flex: 1 0 auto; min-height: 44px; }
 }
 
 /* editar: baja y borrado */

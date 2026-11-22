@@ -22,7 +22,7 @@ function Celda({ m }) {
 }
 
 // la de siempre: el listado de la planilla, solo para mirar
-function ListadoPlanilla({ accion = null }) {
+function ListadoPlanilla() {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [buscar, setBuscar] = useState("");
@@ -99,7 +99,6 @@ function ListadoPlanilla({ accion = null }) {
           {planillas.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
         <button className="boton chico claro" onClick={() => cargar(true)}>Actualizar</button>
-        {accion}
       </div>
 
       {datos === null ? (
@@ -165,21 +164,22 @@ export default function Alumnos() {
     }
   }
 
-  // a la derecha, en la fila del buscador y "Actualizar" (en celu, una celda más de la grilla)
-  const nuevo = <button className="boton chico alu-nuevo" onClick={() => setAlta(true)}>+ Nuevo alumno</button>;
-
   return (
     <div>
       <h1 className="alu-titulo">Alumnos</h1>
-      <div className="alu-solapas" role="tablist" aria-label="Alumnos">
-        {SOLAPAS.map((s) => (
-          <button key={s.clave} role="tab" aria-selected={solapa === s.clave}
-                  className={"alu-solapa" + (solapa === s.clave ? " activo" : "")} onClick={() => setSolapa(s.clave)}>
-            {s.t}
-          </button>
-        ))}
+      {/* solapas y, pegado a "Fichas", el botón de alta (en celu, si no entra, baja a su propia fila) */}
+      <div className="alu-solapas-fila">
+        <div className="alu-solapas" role="tablist" aria-label="Alumnos">
+          {SOLAPAS.map((s) => (
+            <button key={s.clave} role="tab" aria-selected={solapa === s.clave}
+                    className={"alu-solapa" + (solapa === s.clave ? " activo" : "")} onClick={() => setSolapa(s.clave)}>
+              {s.t}
+            </button>
+          ))}
+        </div>
+        <button className="boton alu-nuevo" onClick={() => setAlta(true)}>+ Nuevo alumno</button>
       </div>
-      {solapa === "planilla" ? <ListadoPlanilla accion={nuevo} /> : <AlumnosFichas key={vuelta} accion={nuevo} />}
+      {solapa === "planilla" ? <ListadoPlanilla /> : <AlumnosFichas key={vuelta} />}
       {alta && <AltaAlumno alCerrar={cerrarAlta} />}
     </div>
   );
