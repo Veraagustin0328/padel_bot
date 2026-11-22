@@ -7,11 +7,12 @@ import re
 
 from flask import Blueprint, g, jsonify, request
 
-from app import cuotas, niveles, planilla
+from app import alumnos_alta, cambios_dias, cuotas, niveles, planilla
+from app import recuperaciones as rec
 from app.contactos import alumnos_de_telefono, tel10
 from app.extensions import db
 from app.models import PARENTESCOS, Alumno, ContactoAlumno
-from app.models_academia import Auditoria, ConfigAcademia
+from app.models_academia import Auditoria, Clase
 from app.privacidad import es_dueno
 from app.routes.auth import requiere_login
 from app.sheets_client import valores_pestana
@@ -82,12 +83,12 @@ def listar():
 
 def _max_contactos() -> int:
     """Cuántos teléfonos por alumno, sale de ConfigAcademia (tutores_por_menor). Si no está, 2."""
-    cfg = db.session.get(ConfigAcademia, "tutores_por_menor")
-    try:
-        n = int(json.loads(cfg.valor)) if cfg else 2
-    except (TypeError, ValueError):
-        n = 2
-    return max(n, 1)
+    return alumnos_alta.max_tutores()
+
+
+def _tope(alumno: Alumno) -> int:
+    """Teléfonos por alumno: los tutores de la config y, en Kids, uno más para el propio del chico."""
+    return _max_contactos() + (1 if alumnos_alta.es_menor(alumno.planilla) else 0)
 
 
 def _contacto_json(c: ContactoAlumno) -> dict:
@@ -132,6 +133,7 @@ def fichas():
                 "planilla": a.planilla,
                 "estado": a.estado or "activo",
                 "contactos": contactos.get(a.id, []),
+                "max_contactos": _tope(a),
                 "tarifa_head_coach": bool(a.tarifa_head_coach),
             }
             for a in alumnos
@@ -215,7 +217,7 @@ def _respuesta_contactos(alumno: Alumno, tels: list[tuple[str, str]], status=200
             avisos.append({"telefono": telefono, "otros": otros})
     guardados = ContactoAlumno.query.filter_by(alumno_id=alumno.id).order_by(ContactoAlumno.id).all()
     return jsonify({"ok": True, "contactos": [_contacto_json(c) for c in guardados],
-                    "max_contactos": _max_contactos(), "avisos": avisos}), status
+                    "max_contactos": _tope(alumno), "avisos": avisos}), status
 
 
 @alumnos_bp.get("/api/alumnos/<int:alumno_id>/contactos")
@@ -234,7 +236,7 @@ def sumar_contacto(alumno_id):
     alumno = db.session.get(Alumno, alumno_id)
     if not alumno:
         return jsonify({"error": "No encontré ese alumno"}), 404
-    tope = _max_contactos()
+    tope = _tope(alumno)
     actuales = ContactoAlumno.query.filter_by(alumno_id=alumno.id).all()
     if len(actuales) >= tope:
         return jsonify({"error": f"Como mucho {tope} teléfonos por alumno"}), 400
@@ -279,7 +281,7 @@ def guardar_contactos(alumno_id):
     lista = cuerpo.get("contactos")
     if not isinstance(lista, list):
         return jsonify({"error": "Faltan los contactos"}), 400
-    tope = _max_contactos()
+    tope = _tope(alumno)
     if len(lista) > tope:
         return jsonify({"error": f"Como mucho {tope} teléfonos por alumno"}), 400
 
@@ -303,3 +305,99 @@ def guardar_contactos(alumno_id):
     _sincronizar_principal(alumno)
     db.session.commit()
     return _respuesta_contactos(alumno, [(n[0], n[1]) for n in nuevos])
+
+
+# ---------- alta de alumnos (dueño y encargado; el profe no) ----------
+
+@alumnos_bp.get("/api/alumnos/alta/opciones")
+@requiere_login("encargado")
+def opciones_alta():
+    """Lo que necesita el formulario. El monto de la inscripción solo lo ve el dueño (igual que en Cuotas)."""
+    monto = rec.regla("inscripcion")
+    try:
+        monto = int(monto)
+    except (TypeError, ValueError):
+        monto = 0
+    inscripcion = {"configurada": monto > 0}
+    if es_dueno() and monto > 0:
+        inscripcion["monto"] = monto  # el encargado ni la clave: la prueba de humo lo cuenta como plata
+    return jsonify({
+        "planillas": list(alumnos_alta.PLANILLAS_ALTA),
+        "planillas_menores": list(alumnos_alta.PLANILLAS_MENORES),
+        "parentescos": list(alumnos_alta.PARENTESCOS_TUTOR),
+        "max_tutores": alumnos_alta.max_tutores(),
+        "niveles": niveles.niveles(),
+        "hay_head_coach": bool(cuotas.profes_head_coach()),
+        "inscripcion": inscripcion,
+    })
+
+
+def _telefonos_del_cuerpo(d) -> list[str]:
+    tels = [d.get("telefono")] + [c.get("telefono") for c in (d.get("contactos") or []) if isinstance(c, dict)]
+    return [t for t in tels if t]
+
+
+@alumnos_bp.post("/api/alumnos/alta/chequear")
+@requiere_login("encargado")
+def chequear_alta():
+    """Mientras se completa el formulario: parecidos por teléfono o nombre (no guarda nada)."""
+    d = request.get_json(silent=True) or {}
+    tels = _telefonos_del_cuerpo(d)
+    invalidos = [t for t in tels if not alumnos_alta.normalizar_telefono(t)]
+    return jsonify({"parecidos": alumnos_alta.parecidos(d.get("nombre"), tels), "invalidos": invalidos})
+
+
+@alumnos_bp.post("/api/alumnos")
+@requiere_login("encargado")
+def crear_alumno():
+    """Alta desde el panel. Si hay parecidos y no vino confirmar, 409 con la lista para que lo confirme."""
+    d = request.get_json(silent=True) or {}
+    try:
+        alumno, confirmados = alumnos_alta.crear_alumno(
+            d.get("nombre"), d.get("planilla"), nivel=d.get("nivel") or None,
+            telefono=d.get("telefono") or None, contactos=d.get("contactos") or [],
+            tarifa_head_coach=d.get("tarifa_head_coach", False),
+            inscripcion=d.get("inscripcion") or "cobrar",
+            usuario_id=g.usuario.id, origen="panel", confirmar_parecidos=d.get("confirmar") is True,
+        )
+    except alumnos_alta.ErrorAlta as e:
+        db.session.rollback()
+        parecidos = getattr(e, "parecidos", None)
+        if parecidos:
+            return jsonify({"error": str(e), "parecidos": parecidos, "confirmar": True}), 409
+        return jsonify({"error": str(e)}), 400
+    db.session.commit()
+    contactos = ContactoAlumno.query.filter_by(alumno_id=alumno.id).order_by(ContactoAlumno.id).all()
+    return jsonify({
+        "alumno": {"id": alumno.id, "nombre": alumno.nombre, "planilla": alumno.planilla,
+                   "categoria": alumno.categoria, "telefono": alumno.telefono,
+                   "tarifa_head_coach": bool(alumno.tarifa_head_coach),
+                   "contactos": [_contacto_json(c) for c in contactos]},
+        "parecidos_confirmados": [p["id"] for p in confirmados],
+    }), 201
+
+
+@alumnos_bp.post("/api/alumnos/<int:alumno_id>/cotizar")
+@requiere_login("encargado")
+def cotizar(alumno_id):
+    """Cuota del mes en vivo con las clases que se van eligiendo (más las que ya tiene).
+    No guarda nada. Son los precios de los planes (los del flyer), que el encargado sí ve.
+    Sin tarifa exacta, precio vacío: nunca se inventa."""
+    alumno = db.session.get(Alumno, alumno_id)
+    if not alumno:
+        return jsonify({"error": "No encontré el alumno"}), 404
+    try:
+        ids = [int(x) for x in ((request.get_json(silent=True) or {}).get("clase_ids") or [])]
+    except (TypeError, ValueError):
+        return jsonify({"error": "Las clases tienen que ser ids"}), 400
+    hoy = rec.hoy()
+    elegidas = Clase.query.filter(Clase.id.in_(ids), Clase.activa.is_(True)).all() if ids else []
+    if any(c.apoyo_de_clase_id for c in elegidas):
+        return jsonify({"error": "Una de las clases es fila de apoyo: elegí la titular"}), 400
+    ya = cambios_dias.clases_del_alumno(alumno.id, hoy)
+    todas = ya + [c for c in elegidas if c not in ya]
+    precio, detalle = cambios_dias.precio_de(todas, hoy, tarifa_head_coach=bool(alumno.tarifa_head_coach))
+    return jsonify({"mes": hoy.strftime("%Y-%m"), "precio": precio,
+                    "detalle": detalle if precio is not None else "",
+                    "sin_tarifa": bool(todas) and precio is None,
+                    "clases": len(todas)})
