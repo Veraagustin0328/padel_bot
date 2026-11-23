@@ -5,6 +5,13 @@
 .alu-dato span { color: var(--suave); font-size: .85rem; }
 .alu-dato.debe b { color: var(--mal); }
 .alu-dato.ok b { color: var(--ok); }
+/* carteles que no filtran nada (Alumnos y los "X de Y") */
+div.alu-dato { cursor: default; }
+.alu-dato b small { font-size: .9rem; font-weight: 600; color: var(--suave); }
+.alu-dato em { display: block; font-style: normal; font-size: .75rem; color: var(--suave); }
+/* compu: los carteles se reparten una sola fila en vez de dejar uno suelto abajo */
+.alu-resumen .alu-dato { flex: 1 1 0; min-width: 120px; }
+.alu-nota { color: var(--suave); font-size: .85rem; margin: -6px 0 12px; }
 .alu-filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .alu-filtros input, .alu-filtros select { padding: 8px 12px; border: 1px solid var(--linea); border-radius: 8px; font: inherit; background: var(--tarjeta); color: var(--tinta); }
 .alu-filtros input { flex: 1; min-width: 200px; }
@@ -68,7 +75,8 @@
 
 /* celu: los 3 números en una fila y los filtros a todo el ancho */
 @media (max-width: 820px) {
-  .alu-resumen { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  /* de a 2: "234 de 275" no entra en un tercio de pantalla */
+  .alu-resumen { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .alu-dato { min-width: 0; padding: 8px 12px; min-height: 44px; }
   .alu-dato b { font-size: 1.25rem; }
   .alu-filtros { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

@@ -7,7 +7,7 @@ import re
 
 from flask import Blueprint, g, jsonify, request
 
-from app import alumnos_alta, alumnos_gestion, cambios_dias, cuotas, niveles, planilla
+from app import alumnos_alta, alumnos_gestion, cambios_dias, carga_planilla, cuotas, niveles, planilla
 from app import recuperaciones as rec
 from app.contactos import alumnos_de_telefono, tel10
 from app.extensions import db
@@ -78,6 +78,19 @@ def listar():
             "meses": meses,
         })
     return jsonify(salida)
+
+
+@alumnos_bp.get("/api/alumnos/carga")
+@requiere_login("encargado")
+def carga():
+    """Carteles "X de Y" de la solapa Planilla: cuántos de la planilla ya están en la base, por grupo.
+    Solo lectura. Si la planilla no se lee, igual responde con lo de la base (sin Y)."""
+    fresco = request.args.get("fresco") == "1"
+    try:
+        filas, error = valores_pestana(planilla.TAB_ALUMNOS, cache=not fresco), None
+    except Exception as e:
+        filas, error = None, f"No pude leer la planilla: {e}"
+    return jsonify(carga_planilla.resumen(filas, error, rec.hoy()))
 
 # ---------- fichas (alumnos de Neon) y sus contactos ----------
 

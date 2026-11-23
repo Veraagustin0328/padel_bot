@@ -21,20 +21,41 @@ function Celda({ m }) {
   return <td className="num raro">{m.texto}</td>;
 }
 
+// "X de Y": X activos de la planilla que ya están en la base, Y activos de la planilla.
+// Sin Y (planilla caída o sin dato de grupo) muestra solo X, contado en la base. Nunca inventa Y.
+function Carga({ dato, nombre }) {
+  const conY = dato.planilla !== null && dato.planilla !== undefined;
+  const faltan = conY ? dato.planilla - dato.cargados : 0;
+  const clase = "alu-dato alu-carga" + (!conY ? "" : faltan > 0 ? " debe" : " ok");
+  const titulo = conY
+    ? `${dato.cargados} de los ${dato.planilla} activos de la planilla ya están cargados en la base`
+    : `${dato.cargados} activos en la base (de la planilla no hay dato)`;
+  return (
+    <div className={clase} title={titulo}>
+      <b>{dato.cargados}{conY && <small> de {dato.planilla}</small>}</b>
+      <span>{nombre}</span>
+      {!conY && <em>en la base</em>}
+    </div>
+  );
+}
+
 // la de siempre: el listado de la planilla, solo para mirar
 function ListadoPlanilla({ accion = null }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [buscar, setBuscar] = useState("");
-  const [aldia, setAldia] = useState("todos"); // todos | aldia | debe
   const [estado, setEstado] = useState("activo"); // activo | baja | todos
   const [planillaSel, setPlanillaSel] = useState("todas");
+  const [carga, setCarga] = useState(null); // carteles "X de Y": cuántos de la planilla ya están en la base
 
   // fresco: "Actualizar" lee la planilla de nuevo (si no, el back puede usar una copia de hasta 90 s)
   async function cargar(fresco = false) {
     setError("");
+    const q = fresco ? "?fresco=1" : "";
+    // los carteles van aparte: si fallan, la lista se ve igual
+    api("/api/alumnos/carga" + q).then(setCarga).catch(() => setCarga(null));
     try {
-      setDatos(await api("/api/alumnos" + (fresco ? "?fresco=1" : "")));
+      setDatos(await api("/api/alumnos" + q));
     } catch (e) {
       setError(e.message);
       setDatos([]);
@@ -47,8 +68,7 @@ function ListadoPlanilla({ accion = null }) {
     [datos]
   );
 
-  // todo menos el filtro de "al día", así los contadores no se pisan
-  const base = useMemo(() => {
+  const lista = useMemo(() => {
     const q = norm(buscar);
     return (datos || []).filter((a) => {
       const est = norm(a.estado) || "activo";
@@ -61,29 +81,25 @@ function ListadoPlanilla({ accion = null }) {
 
   const esAlDia = (a) => norm(a.al_dia) === "al dia";
   const esDebe = (a) => norm(a.al_dia) === "debe";
-  const cuentaAlDia = base.filter(esAlDia).length;
-  const cuentaDebe = base.filter(esDebe).length;
-
-  const lista = base.filter((a) => (aldia === "aldia" ? esAlDia(a) : aldia === "debe" ? esDebe(a) : true));
 
   // solo muestro los meses que tienen algo cargado
-  const meses = MESES.filter((m) => base.some((a) => a.meses[m]?.texto || a.meses[m]?.pago));
+  const meses = MESES.filter((m) => lista.some((a) => a.meses[m]?.texto || a.meses[m]?.pago));
 
   return (
     <div>
       {error && <div className="alu-msg">{error}</div>}
+      {carga?.error && <div className="alu-msg">{carga.error}. Muestro solo los cargados en la base.</div>}
 
       <div className="alu-resumen">
-        <button className={"alu-dato" + (aldia === "todos" ? " activo" : "")} onClick={() => setAldia("todos")}>
-          <b>{base.length}</b><span>Alumnos</span>
-        </button>
-        <button className={"alu-dato ok" + (aldia === "aldia" ? " activo" : "")} onClick={() => setAldia("aldia")}>
-          <b>{cuentaAlDia}</b><span>Al día</span>
-        </button>
-        <button className={"alu-dato debe" + (aldia === "debe" ? " activo" : "")} onClick={() => setAldia("debe")}>
-          <b>{cuentaDebe}</b><span>Deben</span>
-        </button>
+        <div className="alu-dato">
+          <b>{datos === null ? "…" : lista.length}</b><span>Alumnos</span>
+        </div>
+        {carga && <Carga dato={carga.total} nombre="Total" />}
+        {carga?.grupos.map((g) => <Carga key={g.id} dato={g} nombre={g.nombre} />)}
       </div>
+      {carga?.sin_grupo > 0 && (
+        <p className="alu-nota">{carga.sin_grupo === 1 ? "1 activo de la planilla no tiene" : `${carga.sin_grupo} activos de la planilla no tienen`} grupo en PLANILLA: entran solo en el total.</p>
+      )}
 
       <div className="alu-filtros">
         <input placeholder="Buscar por nombre…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
