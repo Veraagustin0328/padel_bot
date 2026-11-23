@@ -23,10 +23,10 @@ function Celda({ m }) {
 
 // "X de Y": X activos de la planilla que ya están en la base, Y activos de la planilla.
 // Sin Y (planilla caída o sin dato de grupo) muestra solo X, contado en la base. Nunca inventa Y.
-function Carga({ dato, nombre }) {
+function Carga({ dato, nombre, extra = "" }) {
   const conY = dato.planilla !== null && dato.planilla !== undefined;
   const faltan = conY ? dato.planilla - dato.cargados : 0;
-  const clase = "alu-dato alu-carga" + (!conY ? "" : faltan > 0 ? " debe" : " ok");
+  const clase = "alu-dato alu-carga" + extra + (!conY ? "" : faltan > 0 ? " debe" : " ok");
   const titulo = conY
     ? `${dato.cargados} de los ${dato.planilla} activos de la planilla ya están cargados en la base`
     : `${dato.cargados} activos en la base (de la planilla no hay dato)`;
@@ -91,10 +91,7 @@ function ListadoPlanilla({ accion = null }) {
       {carga?.error && <div className="alu-msg">{carga.error}. Muestro solo los cargados en la base.</div>}
 
       <div className="alu-resumen">
-        <div className="alu-dato">
-          <b>{datos === null ? "…" : lista.length}</b><span>Alumnos</span>
-        </div>
-        {carga && <Carga dato={carga.total} nombre="Total" />}
+        {carga && <Carga dato={carga.total} nombre="Total" extra=" alu-total" />}
         {carga?.grupos.map((g) => <Carga key={g.id} dato={g} nombre={g.nombre} />)}
       </div>
       {carga?.sin_grupo > 0 && (
@@ -115,6 +112,8 @@ function ListadoPlanilla({ accion = null }) {
         <button className="boton chico claro" onClick={() => cargar(true)}>Actualizar</button>
         {accion}
       </div>
+      {/* lo que cuenta la lista con los filtros de arriba (antes era el cartel "Alumnos") */}
+      {datos !== null && <p className="alu-mostrando">Mostrando {lista.length}</p>}
 
       {datos === null ? (
         <div className="cargando">Cargando…</div>
