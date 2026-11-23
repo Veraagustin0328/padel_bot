@@ -8,8 +8,11 @@ import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const AMBITOS = { adultos: "Adultos mañana", adultos_tarde: "Adultos tarde", sabados: "Sábados", kids: "Kids", kids_pro: "Kids Pro" };
-const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otro", fisico: "Físico" };
-const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", otro: "Otro", fisico: "F" };
+// particular_3 = "3 o 4 personas": se cobra con la tarifa particular de 3 (ej. los grupos de tarde)
+const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", particular_3: "3 o 4 personas", otro: "Otro", fisico: "Físico" };
+const TIPO_CORTO = { grupal: "G", particular: "P", particular_2: "P2", particular_3: "P3/4", otro: "Otro", fisico: "F" };
+// clases de grupo (llevan rama): igual que TIPOS_GRUPO del backend
+const DE_GRUPO = ["grupal", "particular_3"];
 
 const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const capital = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "");
@@ -151,7 +154,7 @@ export default function Clases() {
     [datos, verInactivas]
   );
   const colores = datos?.colores || { columnas: [], por_rama: {} };
-  const sinRama = clases.filter((c) => c.activa && c.tipo === "grupal" && !c.rama).length;
+  const sinRama = clases.filter((c) => c.activa && DE_GRUPO.includes(c.tipo) && !c.rama).length;
 
   const ambitos = Object.keys(AMBITOS).filter((a) => clases.some((c) => c.ambito === a));
   // si con la fecha elegida el ámbito no tiene clases, salta al primero que tenga
@@ -651,6 +654,9 @@ export default function Clases() {
                   <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
                     {Object.entries(TIPOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
+                  {form.tipo === "particular_3" && (
+                    <span className="cla-sub">Se cobra con la tarifa particular de 3 personas de su turno.</span>
+                  )}
                 </label>
                 <label>Nivel
                   <input value={form.nivel} placeholder="Ej. 6TA o 6TA/7MA" onChange={(e) => setForm({ ...form, nivel: e.target.value })} />

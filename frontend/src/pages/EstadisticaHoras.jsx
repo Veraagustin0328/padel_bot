@@ -12,7 +12,7 @@ const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
   "septiembre", "octubre", "noviembre", "diciembre"];
 const AMBITOS = { adultos: "Adultos mañana", adultos_tarde: "Adultos tarde", sabados: "Sábados", kids: "Kids", kids_pro: "Kids Pro" };
-const TIPOS = { grupal: "grupal", particular: "particular", particular_2: "particular de 2", otro: "otra", fisico: "físico" };
+const TIPOS = { grupal: "grupal", particular: "particular", particular_2: "particular de 2", particular_3: "de 3 o 4", otro: "otra", fisico: "físico" };
 
 // 1 decimal como máximo; vacío si no hubo horas (no "0")
 const h = (n) => (n === null || n === undefined ? "" : Number(n).toLocaleString("es-AR", { maximumFractionDigits: 1 }));

@@ -10,7 +10,7 @@ const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 const DIAS_CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
   "septiembre", "octubre", "noviembre", "diciembre"];
-const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otra", fisico: "Físico" };
+const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", particular_3: "3 o 4 personas", otro: "Otra", fisico: "Físico" };
 const PARENTESCO = { padre: "Padre", madre: "Madre", tutor: "Tutor/a" };
 const PLANILLA = { adultos: "Adultos", kids: "Kids" };
 // qué clases se le ofrecen según la planilla

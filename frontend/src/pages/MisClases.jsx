@@ -17,7 +17,7 @@ const ESTADOS = [
   ["presente", "Vino"],
   ["ausente", "No vino"],
 ];
-const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", otro: "Otra", fisico: "Físico" };
+const TIPOS = { grupal: "Grupal", particular: "Particular", particular_2: "Particular de 2", particular_3: "3 o 4 personas", otro: "Otra", fisico: "Físico" };
 
 const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
 // etiqueta de la lista del día -> clase de color
