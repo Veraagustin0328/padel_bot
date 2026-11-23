@@ -31,7 +31,8 @@ from app.models_plataforma import Profesor, ValorHora
 
 CENTAVOS = Decimal("0.01")
 
-TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "Particular x2", "otro": "Otro",
+TIPOS_TEXTO = {"grupal": "Grupal", "particular": "Particular", "particular_2": "Particular x2",
+               "particular_3": "Particular x3/4", "otro": "Otro",
                "fisico": "Físico"}
 
 # Fila de apoyo que marcó "di la clase":

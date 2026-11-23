@@ -59,7 +59,8 @@ def bucket_de(clase, head_coach=frozenset()):
     if franja is None or clase.tipo == "otro":
         return None
     if clase.tipo == "grupal":
-        # si la franja no tiene tarifa de academia cargada (hoy la tarde), queda "sin tarifa": nunca se cobra como otra cosa
+        # si la franja no tiene tarifa de academia cargada, queda "sin tarifa": nunca se cobra como otra cosa.
+        # Los grupos de tarde no son academia: van como particular_3 (3 o 4 personas)
         return (franja, "academia", 0)
     hc = franja == "manana" and _es_head_coach(clase, head_coach)
     if clase.tipo == "particular_2":
@@ -69,6 +70,9 @@ def bucket_de(clase, head_coach=frozenset()):
         if promo:
             return (franja, "promo_2x1", 0)
         return (franja, "particular", 2)
+    if clase.tipo == "particular_3":
+        # 3 o 4 personas: tarifa particular de 3 (la promo 2x1 es solo de a 2)
+        return (FRANJA_HEAD_COACH if hc else franja, "particular", 3)
     if clase.tipo == "particular":
         return (FRANJA_HEAD_COACH if hc else franja, "particular", 1)
     return None

@@ -18,7 +18,7 @@ from app.cuotas import (
 )
 from app.models_plataforma import Profesor
 from app.models_tarifas import FRANJA_HEAD_COACH
-from app.models_academia import (AusenciaLapso, Clase, Inscripcion, RecuperacionClase, clase_no_terminada,
+from app.models_academia import (TIPOS_GRUPO, AusenciaLapso, Clase, Inscripcion, RecuperacionClase, clase_no_terminada,
                                   clase_vigente_en)
 from app.models_cuotas import CuotaMes, PagoCuota
 from app.models import (
@@ -76,12 +76,13 @@ _nivel_canonico = niveles_mod.nivel_canonico
 
 # (modalidad, turno) -> (franja, tipo de tarifa, personas fijas o None si las pide, pide veces, descripción)
 # Igual que bucket_de en app/cuotas.py: el grupal busca la tarifa de academia de su franja.
-# Si no hay (hoy la tarde), no se da precio y se deriva al encargado; nunca se cobra como particular.
+# La tarde no tiene Modo Academia: sus grupos son clases de 3 o 4 (particular_3) y pagan
+# la tarifa particular de tarde de 3 personas. Si no hay tarifa, se deriva al encargado.
 BUCKETS_PRECIO = {
     ("academia", "manana"): ("manana", "academia", 0, True,
                              "Modo Academia, mañana (7 a 12 hs). Los profes arman los grupos según el nivel."),
-    ("academia", "tarde"): ("tarde", "academia", 0, True,
-                            "Grupo de tarde (14:30, 15:30, 16:30 y 17:30 hs)."),
+    ("academia", "tarde"): ("tarde", "particular", 3, True,
+                            "Grupo de tarde de 3 o 4 personas (14:30, 15:30, 16:30 y 17:30 hs)."),
     ("academia", "sabado"): ("sabado", "academia", 0, False,
                              "Modo Academia del sábado a la mañana (8, 9, 10 y 11 hs)."),
     ("particular", "manana"): ("manana", "particular", None, True,
@@ -956,7 +957,7 @@ def _niveles_del_alumno(alumno: Alumno) -> set[str]:
     hoy = planilla._ahora().date()
     clases = (Clase.query.join(Inscripcion, Inscripcion.clase_id == Clase.id)
               .filter(Inscripcion.alumno_id == alumno.id, cd.vigente_en(hoy), clase_vigente_en(hoy),
-                      Clase.activa.is_(True), Clase.tipo == "grupal").all())
+                      Clase.activa.is_(True), Clase.tipo.in_(TIPOS_GRUPO)).all())
     niveles = set()
     for c in clases:
         niveles |= _niveles_de_texto(c.nivel)
@@ -1043,7 +1044,7 @@ def _alternativas(dia: int, franja: str | None, niveles: set[str] | None, ya_vis
     cercanos (mismo turno antes que otro). Mismo nivel si se sabe."""
     franjas = ("kids",) if franja == "kids" else _FRANJAS_ADULTOS
     clases = Clase.query.filter(
-        Clase.activa.is_(True), Clase.tipo == "grupal", Clase.ambito.in_(_ambitos_de(franjas)),
+        Clase.activa.is_(True), Clase.tipo.in_(TIPOS_GRUPO), Clase.ambito.in_(_ambitos_de(franjas)),
         clase_vigente_en(fecha),
     ).all()
     clases = [c for c in clases if c.id not in ya_vistas and _coincide(c.nivel, niveles)]
@@ -1077,7 +1078,7 @@ def _consultar_cupos(args: dict) -> dict:
     fecha = {"desde": cd.fecha_corta(hoy)} if desde and desde == hoy else {}
 
     clases = Clase.query.filter(
-        Clase.activa.is_(True), Clase.tipo == "grupal",
+        Clase.activa.is_(True), Clase.tipo.in_(TIPOS_GRUPO),
         Clase.dia_semana == dia, Clase.ambito.in_(_ambitos_de(franjas)),
         clase_vigente_en(hoy),  # hoy = la fecha que pregunta (puede ser más adelante)
     ).order_by(Clase.hora_inicio).all()
@@ -1202,9 +1203,9 @@ def _datos_clase(c: Clase) -> dict:
 
 
 def _buscar_clase(args: dict, nivel: str, fecha: date | None = None) -> tuple[Clase | None, dict | None]:
-    """Devuelve (clase, None) o (None, error para el modelo). Solo grupales activas.
+    """Devuelve (clase, None) o (None, error para el modelo). Solo grupales (y de 3 o 4) activas.
     Con fecha: las que se dan ese día. Sin fecha: las que no terminaron su temporada."""
-    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal",
+    base = Clase.query.filter(Clase.activa.is_(True), Clase.tipo.in_(TIPOS_GRUPO),
                               clase_vigente_en(fecha) if fecha else clase_no_terminada(planilla._ahora().date()))
     clase_id = _entero(args.get("clase_id"))
     if clase_id:
@@ -2136,7 +2137,7 @@ def _motivos_para_alumno(fuera_de_regla: str | None) -> str:
 
 
 def _otras_con_lugar(clase: Clase, fecha: date) -> list[str]:
-    otras = Clase.query.filter(Clase.activa.is_(True), Clase.tipo == "grupal", clase_vigente_en(fecha),
+    otras = Clase.query.filter(Clase.activa.is_(True), Clase.tipo.in_(TIPOS_GRUPO), clase_vigente_en(fecha),
                                Clase.dia_semana == fecha.weekday(), Clase.id != clase.id).all()
     return [f"{_hora_txt(c)} ({c.nivel or 'sin nivel'})" for c in sorted(otras, key=lambda c: c.hora_inicio)
             if rec.inicio_clase(c, fecha) > rec.ahora() and rec.lugares_libres(c, fecha) > 0]

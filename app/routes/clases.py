@@ -22,7 +22,7 @@ from app.routes.auth import requiere_login
 clases_bp = Blueprint("clases_panel", __name__)
 
 # cupo habitual de cada tipo; si cambia el tipo y no se manda cupo, se ajusta solo
-CUPO_POR_TIPO = {"particular": 1, "particular_2": 2, "grupal": 4}
+CUPO_POR_TIPO = {"particular": 1, "particular_2": 2, "particular_3": 4, "grupal": 4}
 
 
 def _auditar(clase_id, accion, antes=None, despues=None):
