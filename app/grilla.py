@@ -50,14 +50,17 @@ def _es_ruido(txt):
     n = _n(txt)
     if re.fullmatch(r"[\d/\.\-: ]+", n):
         return True
-    return n.startswith(("recuper", "no viene", "reunion", "arranc", "falta"))
+    return n.startswith(("recuper", "recu ", "voucher", "no viene", "reunion", "arranc", "falta"))
 
 
 FECHA = r"\d{1,2}/\d{1,2}(?:/\d{2,4})?|\d{4}-\d{2}-\d{2}"
+# palabras que convierten la celda en una excepción de una semana: "recu", "voucher nov", "sabado"
+MARCAS = r"\b(?:recu(?:pera(?:cion|ción|n)?)?|voucher(?:\s+\w+)?|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado)\b"
 
 
 def _analizar(txt):
-    """'Jose Pellicer no viene 02/11' -> ('Jose Pellicer', '02/11', True).
+    """'Jose Pellicer no viene 02/11' -> ('Jose Pellicer', '02/11', True, '').
+    'Judith Amelio sabado' -> ('Judith Amelio', '', False, 'sabado'): la marca dice que no es fija.
     Si en la celda solo hay una nota ('asiste', '27/10 no') el nombre vuelve vacío."""
     t = str(txt).strip()
     m = re.search(FECHA, t)
@@ -65,11 +68,12 @@ def _analizar(txt):
     t = re.sub(FECHA, " ", t)
     no_viene = bool(re.search(r"\bno\s+viene\b", t, re.I))
     t = re.sub(r"\bno\s+viene\b", " ", t, flags=re.I)
+    marcas = [x.group(0) for x in re.finditer(MARCAS, t, re.I)]
+    t = re.sub(MARCAS, " ", t, flags=re.I)
     t = re.sub(r"\s+", " ", t).strip()
-    t = re.sub(r"\s+s[aá]bado$", "", t, flags=re.I).strip()
     if _n(t) in ("", "no", "asiste", "asisten", "viene"):
-        return "", fecha, no_viene
-    return t, fecha, no_viene
+        return "", fecha, no_viene, " ".join(marcas)
+    return t, fecha, no_viene, " ".join(marcas)
 
 
 def _armar(tab, dia, hora, profe, celdas):
@@ -78,6 +82,8 @@ def _armar(tab, dia, hora, profe, celdas):
     Lo que Gabi anota en la grilla para una semana puntual no es horario fijo:
     - 'Nombre no viene 02/11'  -> sigue anotado en la clase y queda una falta con fecha.
     - 'Nombre 03/11' (con fecha) -> recuperación de ese día, no cuenta como clase fija.
+    - 'Nombre recu', 'Nombre voucher nov', 'Nombre sabado' -> excepción (anotación), tampoco es fija.
+    Cada excepción lleva el texto tal cual ("texto") para revisarlo a mano.
     """
     tipo, nivel, notas, alumnos, exc = "", "", [], [], []
     for t in celdas:
@@ -92,17 +98,20 @@ def _armar(tab, dia, hora, profe, celdas):
         if _es_ruido(t):
             notas.append(t)
             continue
-        nombre, fecha, no_viene = _analizar(t)
+        nombre, fecha, no_viene, marca = _analizar(t)
         if not nombre:
             notas.append(t)
         elif no_viene:
             alumnos.append(nombre)
-            exc.append({"alumno": nombre, "fecha": fecha, "tipo": "falta"})
+            exc.append({"alumno": nombre, "fecha": fecha, "tipo": "falta", "texto": t})
         elif fecha:
-            exc.append({"alumno": nombre, "fecha": fecha, "tipo": "recuperacion"})
+            exc.append({"alumno": nombre, "fecha": fecha, "tipo": "recuperacion", "texto": t})
+        elif marca:
+            exc.append({"alumno": nombre, "fecha": "", "tipo": "anotacion", "texto": t})
         else:
             alumnos.append(nombre)
-    if not alumnos and not tipo:
+    # una columna con solo anotaciones igual vuelve, para que no se pierdan (sin alumnos fijos)
+    if not alumnos and not tipo and not exc and not notas:
         return None
     return {
         "pestana": tab, "dia": dia.upper(), "hora": hora, "profe": profe,
@@ -214,3 +223,83 @@ def plan_por_alumno(clases):
                 d["grupales"] += 1
             d["clases"].append(f"{c['dia'][:3]} {c['hora']} {c['profe']}".strip() + (" (?)" if dudosa else ""))
     return sorted(por.values(), key=lambda d: _n(d["nombre"]))
+
+# ---------------------------------------------------------------- Kids y Kids Pro
+# Estas pestañas no tienen hora ni profe por clase: son puestos numerados por día.
+# Devuelven el mismo formato que las otras, con "grupo" (INICIACION, PRE COMPETENCIA, KIDS PRO)
+# y hora/profe vacíos: quien las use ubica la clase por ámbito + grupo + día.
+
+def _fila_dias(filas, desde=0):
+    """(índice de la fila, {columna: día}) de la primera fila con al menos 2 días, o (None, {})."""
+    for i in range(desde, len(filas)):
+        cols = {j: _n(c) for j, c in enumerate(filas[i]) if _n(c) in DIAS}
+        if len(cols) >= 2:
+            return i, cols
+    return None, {}
+
+
+def _nombres_columna(filas, col, desde, hasta):
+    """Textos de una columna sin los números de puesto."""
+    return [t for t in (_celda(filas[r], col) for r in range(desde, hasta)) if t and not re.fullmatch(r"\d+", t)]
+
+
+def leer_kids(filas):
+    """Pestaña "kids": una columna de Iniciación (el título dice INICIACION y el día está arriba)
+    y una columna por día con los puestos de Pre competencia (puede haber varios bloques de puestos).
+    Fin de cada columna: la próxima fila de días o el final."""
+    hdr, cols = _fila_dias(filas)
+    clases = []
+    # Iniciación: la celda que dice INICIACION; el día es el último día escrito arriba y a la izquierda
+    for i, f in enumerate(filas):
+        for j, c in enumerate(f):
+            if "iniciacion" not in _n(c):
+                continue
+            dia = next((_n(filas[r][k]) for r in range(i, -1, -1) for k in range(min(j, len(filas[r]) - 1), -1, -1)
+                        if _n(_celda(filas[r], k)) in DIAS), "")
+            fin = next((r for r in range(i + 1, len(filas)) if not _celda(filas[r], j)), len(filas))
+            c_ = _armar("kids", dia, "", "", _nombres_columna(filas, j, i + 1, fin))
+            if c_ and dia:
+                c_.update(grupo="INICIACION", fila=i + 1, columna=j)
+                clases.append(c_)
+    if hdr is None:
+        return clases
+    for j, dia in cols.items():
+        c_ = _armar("kids", dia, "", "", _nombres_columna(filas, j, hdr + 1, len(filas)))
+        if c_:
+            c_.update(grupo="PRE COMPETENCIA", fila=hdr + 1, columna=j)
+            clases.append(c_)
+    return clases
+
+
+def leer_kids_pro(filas):
+    """Pestaña "kids pro": una columna por día con bloques de puestos, hasta la fila PROFESORES.
+    Debajo de PROFESORES van los profes de cada día (se devuelven aparte, solo para mirar)."""
+    hdr, cols = _fila_dias(filas)
+    if hdr is None:
+        return [], {}
+    fin = next((r for r in range(hdr + 1, len(filas)) if any(_n(c) == "profesores" for c in filas[r])), len(filas))
+    clases = []
+    for j, dia in cols.items():
+        c_ = _armar("kids pro", dia, "", "", _nombres_columna(filas, j, hdr + 1, fin))
+        if c_:
+            c_.update(grupo="KIDS PRO", fila=hdr + 1, columna=j)
+            clases.append(c_)
+    profes = {dia: _nombres_columna(filas, j, fin + 1, len(filas)) for j, dia in cols.items()}
+    return clases, profes
+
+
+def leer_resumen_tarde(filas):
+    """Pestaña "resumen profes tarde", primer bloque: {(día, 'HH:MM'): profe} de la tarde de adultos.
+    Solo el bloque de arriba (hasta la primera fila vacía después de las horas)."""
+    hdr, cols = _fila_dias(filas)
+    salida = {}
+    if hdr is None:
+        return salida
+    for f in filas[hdr + 1:]:
+        h = _celda(f, 0)
+        if not re.fullmatch(r"\d{1,2}:\d{2}", h):
+            break
+        for j, dia in cols.items():
+            if _celda(f, j):
+                salida[(dia, h.zfill(5))] = _celda(f, j)
+    return salida
