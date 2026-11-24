@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import { NivelAlumno, etiquetaNivel } from "../niveles.jsx";
 import ScrollLateral from "../ScrollLateral.jsx";
+import { ThNombre, ordenarPorNombre } from "../orden.jsx";
 import EditarAlumno from "./EditarAlumno.jsx";
 
 // fichas de los alumnos de Neon (no la planilla): nivel, contactos y Tarifa Head Coach.
@@ -21,6 +22,7 @@ export default function AlumnosFichas({ accion = null }) {
   const [ok, setOk] = useState("");
   const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
   const [guardandoHC, setGuardandoHC] = useState(null); // id del alumno que se está guardando
+  const [sentido, setSentido] = useState(1); // 1 = A–Z, -1 = Z–A (clic en "Nombre")
 
   async function cargar() {
     setError("");
@@ -35,13 +37,14 @@ export default function AlumnosFichas({ accion = null }) {
 
   const lista = useMemo(() => {
     const q = norm(buscar);
-    return (datos?.alumnos || []).filter((a) => {
+    const filtrados = (datos?.alumnos || []).filter((a) => {
       if (soloNuevos && !a.clasificar) return false;
       if (estado !== "todos" && norm(a.estado) !== estado) return false;
       if (q && !norm(a.nombre).includes(q)) return false;
       return true;
     });
-  }, [datos, buscar, estado, soloNuevos]);
+    return ordenarPorNombre(filtrados, sentido);
+  }, [datos, buscar, estado, soloNuevos, sentido]);
 
   const alumno = datos?.alumnos.find((a) => a.id === abierto);
   const aClasificar = (datos?.alumnos || []).filter((a) => a.clasificar).length;
@@ -138,7 +141,7 @@ export default function AlumnosFichas({ accion = null }) {
           <table className="alu-tabla fic-tabla">
             <thead>
               <tr>
-                <th className="nombre">Nombre</th>
+                <ThNombre sentido={sentido} alCambiar={setSentido} />
                 <th>Cat</th>
                 <th>Planilla</th>
                 <th>Contactos</th>

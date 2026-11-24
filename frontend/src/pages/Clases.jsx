@@ -4,6 +4,7 @@ import { NivelAlumno, Punto, RAMAS, etiquetaNivel, rangoNivel } from "../niveles
 import { MARCA } from "../marca.js";
 import { diaSemana, hoyEn, sumarDias } from "../fechas.js";
 import { useEsCelu } from "../useEsCelu.js";
+import { ordenarPorNombre } from "../orden.jsx";
 import "./clases.css";
 
 const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -689,7 +690,7 @@ export default function Clases() {
                 <p className="cla-sub">Nadie anotado todavía.</p>
               ) : (
                 <ol className="cla-lista">
-                  {sel.alumnos.map((a) => (
+                  {ordenarPorNombre(sel.alumnos).map((a) => (
                     <li key={a.id}>
                       <div className="cla-alumno">
                         <span>{a.nombre}</span>

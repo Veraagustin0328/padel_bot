@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import AlumnosFichas from "./AlumnosFichas.jsx";
 import AltaAlumno from "./AltaAlumno.jsx";
 import ScrollLateral from "../ScrollLateral.jsx";
+import { ThNombre, ordenarPorNombre } from "../orden.jsx";
 import "./alumnos.css";
 
 const MESES = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
@@ -47,6 +48,7 @@ function ListadoPlanilla({ accion = null }) {
   const [estado, setEstado] = useState("activo"); // activo | baja | todos
   const [planillaSel, setPlanillaSel] = useState("todas");
   const [carga, setCarga] = useState(null); // carteles "X de Y": cuántos de la planilla ya están en la base
+  const [sentido, setSentido] = useState(1); // 1 = A–Z, -1 = Z–A (clic en "Nombre")
 
   // fresco: "Actualizar" lee la planilla de nuevo (si no, el back puede usar una copia de hasta 90 s)
   async function cargar(fresco = false) {
@@ -70,14 +72,15 @@ function ListadoPlanilla({ accion = null }) {
 
   const lista = useMemo(() => {
     const q = norm(buscar);
-    return (datos || []).filter((a) => {
+    const filtrados = (datos || []).filter((a) => {
       const est = norm(a.estado) || "activo";
       if (estado !== "todos" && est !== estado) return false;
       if (planillaSel !== "todas" && a.planilla !== planillaSel) return false;
       if (q && !norm(a.nombre).includes(q)) return false;
       return true;
     });
-  }, [datos, buscar, estado, planillaSel]);
+    return ordenarPorNombre(filtrados, sentido);
+  }, [datos, buscar, estado, planillaSel, sentido]);
 
   const esAlDia = (a) => norm(a.al_dia) === "al dia";
   const esDebe = (a) => norm(a.al_dia) === "debe";
@@ -125,7 +128,7 @@ function ListadoPlanilla({ accion = null }) {
             <thead>
               <tr>
                 <th>N°</th>
-                <th className="nombre">Nombre</th>
+                <ThNombre sentido={sentido} alCambiar={setSentido} />
                 <th>Cat</th>
                 <th>Planilla</th>
                 <th>Estado</th>
