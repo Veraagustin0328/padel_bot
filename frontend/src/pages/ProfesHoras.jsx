@@ -3,6 +3,7 @@ import { ahora } from "../fechas.js";
 import { api, descargar } from "../api.js";
 import "./cuotas.css";
 import "./profeshoras.css";
+import { EditarTarifa, NuevoProfe } from "./ProfesTarifas.jsx";
 
 // Profes y horas: cuánto se le paga a cada profe en el mes. Solo el dueño (el back frena al resto).
 
@@ -46,7 +47,9 @@ function Tabla({ titulo, filas, conPlata, conMotivo, nota }) {
   );
 }
 
-function Profe({ p, abierto, alAbrir, alMarcarHC }) {
+const fechaDM = (iso) => iso.split("-").reverse().slice(0, 2).join("/");
+
+function Profe({ p, abierto, alAbrir, alMarcarHC, alEditarTarifa }) {
   const pendientes = p.pendientes.length;
   const [guardando, setGuardando] = useState(false);
   const [errorHC, setErrorHC] = useState("");
@@ -70,7 +73,9 @@ function Profe({ p, abierto, alAbrir, alMarcarHC }) {
         <div className="nom">
           {p.nombre}
           {p.head_coach && <span className="cu-tag a_favor ph-tag">Head Coach</span>}
-          {p.sin_tarifa && <span className="cu-tag debe ph-tag">sin tarifa</span>}
+          {/* sin tarifa al cierre del mes, o con horas que no se pudieron valorizar */}
+          {p.profesor_id != null && (p.tarifa === null || p.sin_tarifa) && <span className="cu-tag debe ph-tag">Sin tarifa</span>}
+          {p.proxima_tarifa && <span className="cu-tag ph-tag ph-prox">Nueva desde {fechaDM(p.proxima_tarifa.desde)}</span>}
         </div>
         <div className="der">{horas(p.horas)}</div>
         <div className="der oculto">{p.tarifa === null ? "—" : plata(p.tarifa)}</div>
@@ -80,6 +85,18 @@ function Profe({ p, abierto, alAbrir, alMarcarHC }) {
       </button>
       {abierto && (
         <div className="cu-detalle">
+          {p.profesor_id != null && (
+            <div className="ph-tarifa-cab">
+              <div>
+                <small>Tarifa por hora al cierre del mes</small>
+                <b>{p.tarifa === null ? "Sin tarifa" : plata(p.tarifa)}</b>
+                {p.proxima_tarifa && (
+                  <span className="cu-chico">Desde el {fechaDM(p.proxima_tarifa.desde)}: {plata(p.proxima_tarifa.monto)}</span>
+                )}
+              </div>
+              <button type="button" className="boton chico" onClick={alEditarTarifa}>Editar tarifa</button>
+            </div>
+          )}
           {p.profesor_id != null && (
             <label className="ph-hc">
               <input type="checkbox" checked={!!p.head_coach} onChange={cambiarHC} disabled={guardando} />
@@ -115,19 +132,23 @@ export default function ProfesHoras() {
   const [error, setError] = useState("");
   const [abierto, setAbierto] = useState(null);
   const [bajando, setBajando] = useState(false);
+  const [editar, setEditar] = useState(null); // profe al que se le edita la tarifa
+  const [nuevo, setNuevo] = useState(false);
+  const [vuelta, setVuelta] = useState(0); // para volver a traer el mes después de guardar
+  const [ok, setOk] = useState("");
 
   useEffect(() => {
     let vigente = true;
     setDatos(null);
     setError("");
-    setAbierto(null);
     api(`/api/profes-horas?mes=${mes}`)
       .then((d) => vigente && setDatos(d))
       .catch((e) => vigente && setError(e.message));
     return () => {
       vigente = false;
     };
-  }, [mes]);
+  }, [mes, vuelta]);
+  useEffect(() => setAbierto(null), [mes]);
 
   async function bajarCsv() {
     setBajando(true);
@@ -142,6 +163,8 @@ export default function ProfesHoras() {
   }
 
   const sinTarifa = datos ? datos.profes.filter((p) => p.sin_tarifa).length : 0;
+  // la lista trae a todos los activos: el cartel cuenta solo a los que dieron clases pagas
+  const conHoras = datos ? datos.profes.filter((p) => Number(p.horas) > 0).length : 0;
 
   return (
     <>
@@ -150,22 +173,36 @@ export default function ProfesHoras() {
           <h1>Profes y horas</h1>
           <div className="sub">Cuánto se le paga a cada profe por las clases que dio en el mes</div>
         </div>
-        <div className="cu-barra">
+        <div className="cu-barra ph-barra">
           <input type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} aria-label="Mes" />
           <button className="boton claro" onClick={bajarCsv} disabled={bajando || !datos}>
             {bajando ? "Bajando…" : "Bajar CSV"}
           </button>
+          <button className="boton" onClick={() => { setOk(""); setNuevo(true); }}>+ Nuevo profe</button>
         </div>
       </div>
 
       {error && <div className="msg-error" role="alert">{error}</div>}
+      {ok && <div className="msg-ok" role="status">{ok}</div>}
+      {editar && (
+        <EditarTarifa profe={editar} alCerrar={(cambio) => {
+          setEditar(null);
+          if (cambio) { setOk(`Listo, se guardó la tarifa de ${editar.nombre}.`); setVuelta((v) => v + 1); }
+        }} />
+      )}
+      {nuevo && (
+        <NuevoProfe alCerrar={(r) => {
+          setNuevo(false);
+          if (r) { setOk(`Listo, ${r.nombre} quedó cargado.`); setAbierto(r.profesor_id); setVuelta((v) => v + 1); }
+        }} />
+      )}
       {!datos && !error && <div className="cargando">Cargando…</div>}
 
       {datos && (
         <>
           <div className="cu-kpis">
             <div className="cu-kpi"><small>A pagar</small><b>{plata(datos.total_monto)}</b><span>clases con al menos un presente</span></div>
-            <div className="cu-kpi"><small>Horas pagas</small><b>{horas(datos.total_horas)}</b><span>{datos.profes.length} profes</span></div>
+            <div className="cu-kpi"><small>Horas pagas</small><b>{horas(datos.total_horas)}</b><span>{conHoras === 1 ? "1 profe" : `${conHoras} profes`} con clases</span></div>
             <div className={"cu-kpi" + (datos.total_pendientes ? " ph-ojo" : "")}>
               <small>Pendientes</small><b>{datos.total_pendientes}</b><span>clases sin confirmar</span>
             </div>
@@ -178,7 +215,7 @@ export default function ProfesHoras() {
           )}
 
           {datos.profes.length === 0 ? (
-            <div className="tarjeta">No hay clases dadas ni pendientes en este mes.</div>
+            <div className="tarjeta">No hay profes activos. Cargá uno con "+ Nuevo profe".</div>
           ) : (
             <div className="cu-lista">
               <div className="cu-fila ph-fila titulos">
@@ -194,6 +231,7 @@ export default function ProfesHoras() {
                 return (
                   <Profe key={clave} p={p} abierto={abierto === clave}
                          alAbrir={() => setAbierto(abierto === clave ? null : clave)}
+                         alEditarTarifa={() => { setOk(""); setEditar(p); }}
                          alMarcarHC={(hc) => setDatos({
                            ...datos,
                            profes: datos.profes.map((x) => (x.profesor_id === p.profesor_id ? { ...x, head_coach: hc } : x)),

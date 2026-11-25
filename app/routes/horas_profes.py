@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from app import horas_profes
+from app import horas_profes, tarifas_profes
 from app.extensions import db
 from app.models_plataforma import Profesor
 from app.routes.auth import requiere_login
@@ -43,11 +43,77 @@ def resumen():
     if error:
         return error
     datos = horas_profes.resumen_mes(*rango)
+    # el cálculo solo trae a los que tuvieron clases o pendientes en el mes: sumo a los activos
+    # que faltan (sin horas), así se les puede cargar la tarifa aunque todavía no hayan dado clases
+    ya = {p["profesor_id"] for p in datos["profes"]}
+    faltan = [p for p in Profesor.query.filter(Profesor.activo.is_(True)) if p.id not in ya]
+    tarifas = horas_profes._tarifas([p.id for p in faltan])
+    for p in faltan:
+        datos["profes"].append({"profesor_id": p.id, "nombre": p.nombre, "clases": [], "sin_alumnos": [],
+                                "pendientes": [], "horas": 0, "monto": 0, "sin_tarifa": False,
+                                "tarifa": horas_profes.tarifa_en(tarifas[p.id], rango[1]), "horas_pendientes": 0})
+    datos["profes"].sort(key=lambda x: (x["profesor_id"] is None, x["nombre"].lower()))
     # la marca de head coach (sus particulares de mañana tienen tarifa propia en Planes y precios)
+    # y la próxima tarifa que ya está cargada para más adelante (si hay)
     head_coach = {pid for (pid,) in db.session.query(Profesor.id).filter(Profesor.es_head_coach.is_(True))}
+    todas = horas_profes._tarifas([p["profesor_id"] for p in datos["profes"] if p["profesor_id"] is not None])
     for p in datos["profes"]:
         p["head_coach"] = p["profesor_id"] in head_coach
+        futuras = [v for v in todas.get(p["profesor_id"], []) if v.vigente_desde > rango[1]]
+        prox = min(futuras, key=lambda v: v.vigente_desde) if futuras else None
+        p["proxima_tarifa"] = {"monto": prox.monto, "desde": prox.vigente_desde.isoformat()} if prox else None
     return jsonify(_json(datos))
+
+
+def _error_tarifa(e):
+    db.session.rollback()
+    cuerpo = {"error": str(e)}
+    if e.pedir_confirmacion:
+        cuerpo["confirmar"] = True
+        return jsonify(cuerpo), 409
+    return jsonify(cuerpo), 400
+
+
+@horas_profes_bp.get("/api/profes/<int:profesor_id>/tarifas")
+@requiere_login("dueno")
+def ver_tarifas(profesor_id):
+    profe = db.session.get(Profesor, profesor_id)
+    if not profe:
+        return jsonify({"error": "No existe ese profe"}), 404
+    return jsonify({"profesor_id": profe.id, "nombre": profe.nombre,
+                    "tarifas": tarifas_profes.historial(profe.id)})
+
+
+@horas_profes_bp.post("/api/profes/<int:profesor_id>/tarifas")
+@requiere_login("dueno")
+def nueva_tarifa(profesor_id):
+    """Tarifa nueva con su vigencia. No pisa las anteriores. Un mes pasado pide confirmar (409)."""
+    profe = db.session.get(Profesor, profesor_id)
+    if not profe:
+        return jsonify({"error": "No existe ese profe"}), 404
+    d = request.get_json(silent=True) or {}
+    try:
+        tarifas_profes.agregar_tarifa(profe, d.get("monto"), d.get("desde"), g.usuario.id,
+                                      confirmar_pasado=d.get("confirmar") is True)
+    except tarifas_profes.ErrorTarifa as e:
+        return _error_tarifa(e)
+    db.session.commit()
+    return jsonify({"profesor_id": profe.id, "tarifas": tarifas_profes.historial(profe.id)}), 201
+
+
+@horas_profes_bp.post("/api/profes")
+@requiere_login("dueno")
+def nuevo_profe():
+    """Alta de profe: nombre, Head Coach y (opcional) la primera tarifa con su vigencia."""
+    d = request.get_json(silent=True) or {}
+    try:
+        profe = tarifas_profes.crear_profe(d.get("nombre"), d.get("head_coach", False), d.get("monto"),
+                                           d.get("desde"), g.usuario.id, confirmar_pasado=d.get("confirmar") is True)
+    except tarifas_profes.ErrorTarifa as e:
+        return _error_tarifa(e)
+    db.session.commit()
+    return jsonify({"profesor_id": profe.id, "nombre": profe.nombre, "head_coach": profe.es_head_coach,
+                    "tarifas": tarifas_profes.historial(profe.id)}), 201
 
 
 @horas_profes_bp.post("/api/profes/<int:profesor_id>/head-coach")
@@ -60,7 +126,7 @@ def marcar_head_coach(profesor_id):
     d = request.get_json(silent=True) or {}
     if not isinstance(d.get("activo"), bool):
         return jsonify({"error": "Falta 'activo' (true o false)"}), 400
-    profe.es_head_coach = d["activo"]
+    tarifas_profes.marcar_head_coach(profe, d["activo"], g.usuario.id)  # queda en la auditoría
     db.session.commit()
     return jsonify({"profesor_id": profe.id, "head_coach": profe.es_head_coach})
 

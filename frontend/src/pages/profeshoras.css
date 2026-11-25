@@ -34,3 +34,42 @@ button.ph-fila:hover { background: var(--fondo); }
 
 /* marca de head coach en el detalle del profe */
 .ph-hc { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; }
+
+/* tarifa por hora: cabecera del detalle, historial y próxima tarifa */
+.ph-prox { background: #e7eefb; color: #2b4a8a; }
+.ph-tarifa-cab {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--linea); border-radius: 8px; background: var(--tarjeta);
+}
+.ph-tarifa-cab > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ph-tarifa-cab small { color: var(--suave); font-size: 12px; }
+.ph-tarifa-cab b { font-size: 18px; }
+.ph-tarifa-cab .boton { min-height: 44px; }
+.ph-campos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.ph-campos .campo { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ph-nota { margin: 0; }
+.ph-historial h3 { margin: 4px 0 8px; font-size: 15px; }
+.ph-hist-fila {
+  display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--linea); border-radius: 8px; margin-bottom: 8px; font-size: 14px;
+}
+.ph-hist-fila b { white-space: nowrap; }
+.ph-hist-fila small { font-weight: 500; color: var(--suave); }
+.ph-hist-fila.vencida { color: var(--suave); }
+.ph-hist-estado { font-size: 11px; font-weight: 700; text-transform: uppercase; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.ph-hist-estado.vigente { background: var(--ok-fondo); color: var(--ok); }
+.ph-hist-estado.futura { background: #e7eefb; color: #2b4a8a; }
+.ph-hist-estado.vencida { background: var(--fondo); color: var(--suave); }
+
+@media (max-width: 820px) {
+  /* celu: el mes a lo ancho (con 3 en fila se cortaba) y abajo CSV y Nuevo profe */
+  .cu-barra.ph-barra { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ph-barra input[type="month"] { grid-column: 1 / -1; min-height: 44px; }
+  .ph-barra .boton { min-height: 44px; }
+}
+@media (max-width: 520px) {
+  .ph-campos { grid-template-columns: minmax(0, 1fr); }
+  .ph-hist-fila { grid-template-columns: minmax(0, 1fr) auto; }
+  .ph-hist-fila > span:not(.ph-hist-estado) { grid-column: 1 / -1; grid-row: 2; color: var(--suave); }
+  .ph-tarifa-cab .boton { width: 100%; }
+}
