@@ -21,6 +21,7 @@ export default function AlumnosFichas({ accion = null }) {
   const [abierto, setAbierto] = useState(null); // id del alumno que se está editando
   const [ok, setOk] = useState("");
   const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
+  const [soloSinTel, setSoloSinTel] = useState(false); // filtro "Sin teléfono"
   const [guardandoHC, setGuardandoHC] = useState(null); // id del alumno que se está guardando
   const [sentido, setSentido] = useState(1); // 1 = A–Z, -1 = Z–A (clic en "Nombre")
 
@@ -39,15 +40,18 @@ export default function AlumnosFichas({ accion = null }) {
     const q = norm(buscar);
     const filtrados = (datos?.alumnos || []).filter((a) => {
       if (soloNuevos && !a.clasificar) return false;
+      if (soloSinTel && !a.sin_telefono) return false;
       if (estado !== "todos" && norm(a.estado) !== estado) return false;
       if (q && !norm(a.nombre).includes(q)) return false;
       return true;
     });
     return ordenarPorNombre(filtrados, sentido);
-  }, [datos, buscar, estado, soloNuevos, sentido]);
+  }, [datos, buscar, estado, soloNuevos, soloSinTel, sentido]);
 
   const alumno = datos?.alumnos.find((a) => a.id === abierto);
   const aClasificar = (datos?.alumnos || []).filter((a) => a.clasificar).length;
+  // los de baja no cuentan: no hace falta salir a buscarles el teléfono
+  const sinTel = (datos?.alumnos || []).filter((a) => a.sin_telefono && norm(a.estado) !== "baja").length;
 
   // clasificar o recategorizar desde la ficha
   async function elegirNivel(a, nivel) {
@@ -126,6 +130,14 @@ export default function AlumnosFichas({ accion = null }) {
         >
           A clasificar <span className="fic-contador">{aClasificar}</span>
         </button>
+        <button
+          type="button"
+          className={"fic-filtro-nuevos fic-filtro-sintel" + (soloSinTel ? " activo" : "")}
+          aria-pressed={soloSinTel}
+          onClick={() => setSoloSinTel(!soloSinTel)}
+        >
+          Sin teléfono <span className="fic-contador">{sinTel}</span>
+        </button>
         <button className="boton chico claro" onClick={cargar}>Actualizar</button>
         {accion}
       </div>
@@ -134,7 +146,8 @@ export default function AlumnosFichas({ accion = null }) {
         <div className="cargando">Cargando…</div>
       ) : lista.length === 0 ? (
         <div className="alu-vacio">
-          {soloNuevos ? "No hay alumnos nuevos para clasificar." : "No hay alumnos con esos filtros."}
+          {soloNuevos && !soloSinTel ? "No hay alumnos nuevos para clasificar."
+            : soloSinTel && !soloNuevos && !buscar ? "Todos tienen teléfono cargado 👌" : "No hay alumnos con esos filtros."}
         </div>
       ) : (
         <ScrollLateral className="alu-scroll">
@@ -155,6 +168,7 @@ export default function AlumnosFichas({ accion = null }) {
                   <td className="nombre">
                     {a.nombre}
                     {norm(a.estado) === "baja" && <span className="fic-baja">de baja</span>}
+                    {a.sin_telefono && <span className="fic-sintel" title="No se puede vincular hasta que se cargue: Editar">Sin teléfono</span>}
                   </td>
                   <td className="fic-nivel">
                     <NivelAlumno alumno={{ ...a, nivel: a.categoria || "" }} niveles={datos.niveles}
@@ -163,7 +177,7 @@ export default function AlumnosFichas({ accion = null }) {
                   <td>{a.planilla}</td>
                   <td className="fic-tels">
                     {a.contactos.length === 0 ? (
-                      <span className="fic-sin">Sin contactos</span>
+                      <span className="fic-sin">{a.sin_telefono ? "Cargalo desde Editar" : "Sin contactos"}</span>
                     ) : (
                       a.contactos.map((c) => (
                         <div key={c.id}>

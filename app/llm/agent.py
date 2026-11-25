@@ -1825,6 +1825,19 @@ def _registrar_alumno(telefono: str, args: dict) -> dict:
             return {"status": "ya_registrado", "alumno": nombrados[0].nombre}
         return {"status": "ya_registrado", "alumnos": [a.nombre for a in existentes]}
 
+    # cargado en el panel sin teléfono: no lo doy de alta de nuevo ni le pego este número solo
+    # (cualquiera podría decir un nombre); lo confirma el encargado y le carga el teléfono
+    from app.alumnos_alta import parecidos_sin_telefono
+    sin_tel = parecidos_sin_telefono(nombre)
+    if sin_tel:
+        _notificar(f"Escribió {telefono} diciendo que es {nombre}. En la base está "
+                   f"{_nombres(sin_tel)} sin teléfono: si es, cargale este número en Fichas > Editar.",
+                   tipo="consulta_derivada", telefono=telefono, tema="alumno sin teléfono")
+        return {"status": "derivado",
+                "decile": "Le paso tu número al encargado para que lo deje asociado a tu ficha "
+                          "y te confirma \U0001F60A",
+                "mensaje": "NO registraste ni vinculaste a nadie. " + _RESPUESTA_TOOL}
+
     # el nivel es el que dijo el alumno; sin eso no se registra (nunca se copia el de la clase)
     categoria = _nivel_canonico(args.get("categoria") or "")
     if not categoria:

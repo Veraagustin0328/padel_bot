@@ -109,7 +109,8 @@ export default function Solicitudes() {
                     <label htmlFor={`vin-${s.id}`}>{f.rol === "profe" ? "Profesor (obligatorio)" : "Su alumno, si juega (opcional)"}</label>
                     <select id={`vin-${s.id}`} value={f.vinculo} onChange={(e) => cambiar(s, "vinculo", e.target.value)}>
                       <option value="">{f.rol === "profe" ? "Elegí…" : "Sin vincular"}</option>
-                      {vinculos.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                      {/* sin teléfono no se vincula: sale apagado hasta que lo carguen en Fichas */}
+                      {vinculos.map((v) => <option key={v.id} value={v.id} disabled={v.sin_telefono}>{v.nombre}{v.sin_telefono ? " (sin teléfono)" : ""}</option>)}
                     </select>
                   </div>
                 )}
@@ -121,7 +122,7 @@ export default function Solicitudes() {
                         <option value="">Agregar hijo…</option>
                         {opciones.alumnos
                           .filter((a) => !f.hijos.includes(String(a.id)) && String(a.id) !== String(f.vinculo))
-                          .map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                          .map((a) => <option key={a.id} value={a.id} disabled={a.sin_telefono}>{a.nombre}{a.sin_telefono ? " (sin teléfono)" : ""}</option>)}
                       </select>
                     </div>
                     <div className="campo">

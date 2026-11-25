@@ -4,6 +4,8 @@ crear_alumno() valida, arma el alumno con sus contactos y su nivel, deja la insc
 marcada (cobrada o "ya estaba") y audita quién lo creó. El commit lo hace quien llama,
 así un importador puede cargar varios en una sola transacción.
 parecidos() busca posibles duplicados (mismo teléfono o nombre muy parecido) para avisar antes.
+Sin teléfono: solo el panel (dueño/encargado) y el script de carga pueden dar de alta así
+(sin_telefono_ok=True). Queda Alumno.telefono = "" y sin contactos: no se vincula ni le escribe nadie.
 """
 import json
 import re
@@ -113,10 +115,21 @@ def parecidos(nombre, telefonos=(), excluir_id=None) -> list[dict]:
     return sorted(salida.values(), key=lambda x: (-len(x["motivos"]), x["nombre"].lower()))
 
 
-def _leer_contactos(planilla_txt, telefono, contactos,
-                    tutores_en_adultos=False) -> list[tuple[str, str, str | None]]:
+def parecidos_sin_telefono(nombre) -> list[Alumno]:
+    """Alumnos cargados sin ningún teléfono con un nombre muy parecido (para el agente:
+    si escribe uno de estos, no se lo da de alta de nuevo ni se lo vincula solo)."""
+    from app.contactos import tiene_telefono
+    ids = [p["id"] for p in parecidos(nombre)]
+    if not ids:
+        return []
+    return [a for a in Alumno.query.filter(Alumno.id.in_(ids)).order_by(Alumno.nombre) if not tiene_telefono(a)]
+
+
+def _leer_contactos(planilla_txt, telefono, contactos, tutores_en_adultos=False,
+                    sin_telefono_ok=False) -> list[tuple[str, str, str | None]]:
     """[(telefono 549..., parentesco, nombre)] validados, el propio primero.
-    tutores_en_adultos: al editar se dejan los que ya tenía un adulto (cargados antes del alta del panel)."""
+    tutores_en_adultos: al editar se dejan los que ya tenía un adulto (cargados antes del alta del panel).
+    sin_telefono_ok: deja la lista vacía (panel y script de carga; el agente y el registro no)."""
     salida = []
     if telefono not in (None, ""):
         t = normalizar_telefono(telefono)
@@ -133,6 +146,8 @@ def _leer_contactos(planilla_txt, telefono, contactos,
     if len(lista) > tope:
         raise ErrorAlta(f"Como mucho {tope} contactos de padre, madre o tutor")
     for i, c in enumerate(lista, start=1):
+        if not str(c.get("telefono") or "").strip():
+            raise ErrorAlta(f"Al contacto {i} le falta el teléfono: ponelo o sacá ese contacto")
         t = normalizar_telefono(c.get("telefono"))
         if not t:
             raise ErrorAlta(f"El teléfono del contacto {i} no es válido: característica y número, sin 0 ni 15")
@@ -146,7 +161,7 @@ def _leer_contactos(planilla_txt, telefono, contactos,
         if t in vistos:
             raise ErrorAlta("Pusiste el mismo teléfono dos veces")
         vistos.add(t)
-    if not salida:
+    if not salida and not sin_telefono_ok:
         raise ErrorAlta("Poné el teléfono del alumno" if not es_menor(planilla_txt)
                         else "Poné al menos un teléfono: el del chico o el de un padre, madre o tutor")
     return salida
@@ -172,11 +187,14 @@ def _marcar_inscripcion(alumno, modo, usuario_id):
 
 
 def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None, tarifa_head_coach=False,
-                 inscripcion="cobrar", usuario_id=None, origen="panel", confirmar_parecidos=False) -> tuple[Alumno, list]:
+                 inscripcion="cobrar", usuario_id=None, origen="panel", confirmar_parecidos=False,
+                 sin_telefono_ok=False) -> tuple[Alumno, list]:
     """Da de alta un alumno. Devuelve (alumno, parecidos que se confirmaron).
     - nivel: el que dice el alumno o el encargado; queda "a clasificar" hasta que lo confirme un profe.
       En adultos es obligatorio; en Kids puede ir vacío.
     - telefono: el propio. contactos: solo Kids, [{telefono, parentesco, nombre}] de padre/madre/tutor.
+    - sin_telefono_ok: se puede dar de alta sin ningún teléfono (solo panel y script de carga).
+      Sin teléfono los parecidos van solo por nombre.
     - inscripcion: cobrar / ya_estaba / None (no la toca: para quien la maneje aparte).
     - Si hay parecidos y no se confirmó, ErrorAlta con .parecidos (el panel los muestra y pide confirmar).
     No hace commit."""
@@ -195,7 +213,7 @@ def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None
         raise ErrorAlta("Elegí qué pasa con la inscripción")
     if not isinstance(tarifa_head_coach, bool):
         raise ErrorAlta("Tarifa Head Coach tiene que ser sí o no")
-    tels = _leer_contactos(planilla_txt, telefono, contactos)
+    tels = _leer_contactos(planilla_txt, telefono, contactos, sin_telefono_ok=sin_telefono_ok)
 
     dudosos = parecidos(nombre, [t for t, _, _ in tels])
     if dudosos and not confirmar_parecidos:
@@ -203,7 +221,7 @@ def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None
         e.parecidos = dudosos
         raise e
 
-    alumno = Alumno(nombre=nombre, telefono=tels[0][0], categoria=nivel_ok or "", planilla=planilla_txt,
+    alumno = Alumno(nombre=nombre, telefono=tels[0][0] if tels else "", categoria=nivel_ok or "", planilla=planilla_txt,
                     estado="activo", tarifa_head_coach=tarifa_head_coach)
     db.session.add(alumno)
     db.session.flush()
@@ -226,6 +244,7 @@ def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None
             "contactos": [{"telefono": t, "parentesco": p, "nombre": n} for t, p, n in tels],
             "tarifa_head_coach": tarifa_head_coach, "inscripcion": inscripcion,
             "parecidos_confirmados": [d["id"] for d in dudosos],
+            "sin_telefono": not tels,
         }, ensure_ascii=False),
     ))
     db.session.flush()

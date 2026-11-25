@@ -18,6 +18,8 @@
 }
 .alta-etiqueta { font-size: 12px; color: var(--suave); font-weight: 600; }
 .alta-tel-ok { font-size: 12px; color: var(--ok); }
+/* aviso de alta sin teléfono: se guarda igual, pero no se vincula */
+.alta-sin-tel { font-size: 12px; color: var(--aviso, #b26a00); }
 .alta-tel-mal { font-size: 12px; color: var(--mal); display: block; }
 
 .alta-segmentos { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
@@ -100,7 +102,7 @@ body.con-cartel .alta-velo { top: var(--alto-cartel); }
 /* botón Nuevo alumno: a la derecha en la fila de filtros */
 .alu-filtros .alu-nuevo { margin-left: auto; white-space: nowrap; }
 @media (max-width: 820px) {
-  .alu-filtros .alu-nuevo { margin-left: 0; }
+  .alu-filtros .alu-nuevo { margin-left: 0; grid-column: 1 / -1; } /* a lo ancho: con Sin teléfono quedaba solo en media fila */
 }
 
 /* editar: baja y borrado */

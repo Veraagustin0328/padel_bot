@@ -146,6 +146,8 @@ def fichas():
                 "planilla": a.planilla,
                 "estado": a.estado or "activo",
                 "contactos": contactos.get(a.id, []),
+                # ni contacto ni teléfono principal: no se puede vincular ni escribirle
+                "sin_telefono": not contactos.get(a.id) and len(tel10(a.telefono)) < 10,
                 "max_contactos": _tope(a),
                 "tarifa_head_coach": bool(a.tarifa_head_coach),
             }
@@ -379,6 +381,7 @@ def crear_alumno():
             tarifa_head_coach=d.get("tarifa_head_coach", False),
             inscripcion=d.get("inscripcion") or "cobrar",
             usuario_id=g.usuario.id, origen="panel", confirmar_parecidos=d.get("confirmar") is True,
+            sin_telefono_ok=True,  # dueño o encargado: el teléfono se carga después
         )
     except alumnos_alta.ErrorAlta as e:
         db.session.rollback()

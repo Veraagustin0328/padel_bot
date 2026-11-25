@@ -86,7 +86,8 @@ def editar_alumno(alumno, nombre, planilla_txt, nivel, telefono, contactos, usua
         nivel_ok = alumno.categoria
     if not nivel_ok and not es_menor(planilla_txt):
         raise ErrorAlta("Elegí el nivel (categoría)")
-    tels = _leer_contactos(planilla_txt, telefono, contactos, tutores_en_adultos=True)
+    # desde el panel se puede dejar sin teléfono (se completa cuando llegue)
+    tels = _leer_contactos(planilla_txt, telefono, contactos, tutores_en_adultos=True, sin_telefono_ok=True)
 
     antes = _ficha(alumno)
     dudosos = parecidos_edicion(alumno, nombre, [t for t, _, _ in tels])
@@ -115,7 +116,7 @@ def editar_alumno(alumno, nombre, planilla_txt, nivel, telefono, contactos, usua
     db.session.flush()
     for t, parentesco, nom in tels:
         db.session.add(ContactoAlumno(alumno_id=alumno.id, telefono=t, tel10=tel10(t), parentesco=parentesco, nombre=nom))
-    alumno.telefono = tels[0][0]
+    alumno.telefono = tels[0][0] if tels else ""
     db.session.flush()
 
     despues = _ficha(alumno)

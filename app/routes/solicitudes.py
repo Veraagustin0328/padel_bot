@@ -10,8 +10,9 @@ from datetime import datetime
 
 from flask import Blueprint, request, jsonify, g
 
+from app.contactos import tel10, tiene_telefono
 from app.extensions import db
-from app.models import Alumno
+from app.models import Alumno, ContactoAlumno
 from app.models_plataforma import Usuario, Profesor
 from app.models_academia import UsuarioPerfil, AlumnoUsuario
 from app.routes.auth import requiere_login, puede_tocar_rol
@@ -57,11 +58,14 @@ def opciones():
     """Para los selects del panel: roles, profes y alumnos activos."""
     profes = Profesor.query.filter_by(activo=True).order_by(Profesor.nombre).all()
     alumnos = Alumno.query.filter(Alumno.estado != "baja").order_by(Alumno.nombre).all()
+    con_contacto = {i for i, t in db.session.query(ContactoAlumno.alumno_id, ContactoAlumno.tel10) if len(t or "") == 10}
     return jsonify({
         "roles": [r for r in ROLES if puede_tocar_rol(g.usuario, r)],
         "parentescos": list(RELACIONES_TUTOR),
         "profesores": [{"id": p.id, "nombre": p.nombre} for p in profes],
-        "alumnos": [{"id": a.id, "nombre": a.nombre} for a in alumnos],
+        # sin teléfono no se puede vincular: el panel lo muestra apagado
+        "alumnos": [{"id": a.id, "nombre": a.nombre,
+                     "sin_telefono": a.id not in con_contacto and len(tel10(a.telefono)) < 10} for a in alumnos],
     })
 
 
@@ -132,8 +136,11 @@ def aprobar(id_):
         if parentesco not in RELACIONES_TUTOR:
             return _error("El parentesco tiene que ser padre, madre o tutor")
         if alumno_id:
-            if not db.session.get(Alumno, alumno_id):
+            propio = db.session.get(Alumno, alumno_id)
+            if not propio:
                 return _error("Ese alumno no existe")
+            if not tiene_telefono(propio):
+                return _error(f"{propio.nombre} no tiene teléfono cargado: cargalo en Fichas antes de vincularlo")
             if AlumnoUsuario.query.filter_by(alumno_id=alumno_id, relacion="jugador").first():
                 return _error("Ese alumno ya tiene una cuenta de jugador vinculada")
         if alumno_id and alumno_id in hijos:
@@ -142,6 +149,9 @@ def aprobar(id_):
             hijo = db.session.get(Alumno, h)
             if not hijo:
                 return _error("Ese alumno no existe")
+            if not tiene_telefono(hijo):
+                return _error(f"{hijo.nombre} no tiene teléfono cargado (ni del chico ni de un tutor): "
+                              "cargalo en Fichas antes de vincularlo")
             tutores = AlumnoUsuario.query.filter(AlumnoUsuario.alumno_id == h,
                                                  AlumnoUsuario.relacion.in_(RELACIONES_TUTOR)).count()
             if tutores >= MAX_TUTORES:

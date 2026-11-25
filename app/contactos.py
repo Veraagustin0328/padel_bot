@@ -74,6 +74,11 @@ def telefonos_de_alumno(alumno: Alumno) -> list[tuple[str, str]]:
     return list(vistos.items())
 
 
+def tiene_telefono(alumno: Alumno) -> bool:
+    """Si tiene algún número cargado. Sin ninguno no se lo puede vincular a una cuenta."""
+    return bool(telefonos_de_alumno(alumno))
+
+
 def horas_pausa() -> int:
     """Cuántas horas dura la pausa del agente, de config_academia (pausa_horas). 0 = no vence sola."""
     cfg = db.session.get(ConfigAcademia, "pausa_horas")

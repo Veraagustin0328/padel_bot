@@ -151,6 +151,9 @@ export function Formulario({ opciones, alGuardar, alCerrar, alumno = null }) {
   const planillas = editando && !opciones.planillas.includes(alumno.planilla) ? [...opciones.planillas, alumno.planilla] : opciones.planillas;
   const nivelesOpc = f.nivel && !opciones.niveles.includes(f.nivel) ? [f.nivel, ...opciones.niveles] : opciones.niveles;
   const conTutores = esKids || (editando && f.contactos.length > 0);
+  // sin ningún teléfono se puede guardar igual (llega después), pero no se vincula
+  const sinTel = ![f.telefono, ...f.contactos.map((c) => c.telefono)].some((t) => t.trim());
+  const AVISO_SIN_TEL = <span className="nota alta-sin-tel">Sin teléfono por ahora: no podrá vincularse hasta que lo cargues.</span>;
   return (
     <form className="alta-form" onSubmit={guardar} noValidate>
       <div className="campo">
@@ -182,10 +185,11 @@ export function Formulario({ opciones, alGuardar, alCerrar, alumno = null }) {
       </div>
 
       <div className="campo">
-        <label htmlFor="alta-tel">Teléfono {esKids ? "del chico (opcional)" : "del alumno"}</label>
+        <label htmlFor="alta-tel">Teléfono {esKids ? "del chico" : "del alumno"} (opcional)</label>
         <input id="alta-tel" inputMode="tel" autoComplete="off" value={f.telefono}
                onChange={(e) => poner("telefono", e.target.value)} placeholder="Ej. 2614567890" />
         <AyudaTel valor={f.telefono} />
+        {sinTel && !conTutores && AVISO_SIN_TEL}
       </div>
 
       {conTutores && (
@@ -224,6 +228,7 @@ export function Formulario({ opciones, alGuardar, alCerrar, alumno = null }) {
               + Agregar padre, madre o tutor
             </button>
           )}
+          {sinTel && AVISO_SIN_TEL}
         </fieldset>
       )}
 
