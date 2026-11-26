@@ -154,6 +154,8 @@ export function Formulario({ opciones, alGuardar, alCerrar, alumno = null }) {
   // sin ningún teléfono se puede guardar igual (llega después), pero no se vincula
   const sinTel = ![f.telefono, ...f.contactos.map((c) => c.telefono)].some((t) => t.trim());
   const AVISO_SIN_TEL = <span className="nota alta-sin-tel">Sin teléfono por ahora: no podrá vincularse hasta que lo cargues.</span>;
+  // adultos: la categoría se puede dejar para después (alta, o editar a uno que ya no la tenía); la que tenía no se borra
+  const catOpcional = esKids || !editando || !(alumno.categoria || "");
   return (
     <form className="alta-form" onSubmit={guardar} noValidate>
       <div className="campo">
@@ -175,13 +177,14 @@ export function Formulario({ opciones, alGuardar, alCerrar, alumno = null }) {
       </div>
 
       <div className="campo">
-        <label htmlFor="alta-nivel">Categoría / nivel{esKids ? " (opcional)" : ""}</label>
+        <label htmlFor="alta-nivel">Categoría / nivel{catOpcional ? " (opcional)" : ""}</label>
         <select id="alta-nivel" value={f.nivel} onChange={(e) => poner("nivel", e.target.value)}>
-          <option value="">{esKids ? "Sin nivel" : "Elegí…"}</option>
+          <option value="">{esKids ? "Sin nivel" : catOpcional ? "Sin categoría" : "Elegí…"}</option>
           {nivelesOpc.map((n) => <option key={n} value={n}>{etiquetaNivel(n)}</option>)}
         </select>
         {f.nivel && !editando && <span className="nota">Queda “a clasificar” hasta que su profe lo confirme en Mis clases.</span>}
         {editando && f.nivel !== (alumno.categoria || "") && f.nivel && <span className="nota">Si lo cambiás acá, queda confirmado.</span>}
+        {!esKids && !f.nivel && catOpcional && <span className="nota alta-sin-tel">Sin categoría por ahora: queda marcado en Fichas hasta que la cargues.</span>}
       </div>
 
       <div className="campo">

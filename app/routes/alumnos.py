@@ -148,6 +148,8 @@ def fichas():
                 "contactos": contactos.get(a.id, []),
                 # ni contacto ni teléfono principal: no se puede vincular ni escribirle
                 "sin_telefono": not contactos.get(a.id) and len(tel10(a.telefono)) < 10,
+                # adulto sin categoría (en Kids sin nivel es normal): se completa desde la ficha
+                "sin_categoria": not (a.categoria or "").strip() and not alumnos_alta.es_menor(a.planilla),
                 "max_contactos": _tope(a),
                 "tarifa_head_coach": bool(a.tarifa_head_coach),
             }
@@ -382,6 +384,7 @@ def crear_alumno():
             inscripcion=d.get("inscripcion") or "cobrar",
             usuario_id=g.usuario.id, origen="panel", confirmar_parecidos=d.get("confirmar") is True,
             sin_telefono_ok=True,  # dueño o encargado: el teléfono se carga después
+            sin_categoria_ok=True,  # y la categoría también (la saben Gabi o Kari)
         )
     except alumnos_alta.ErrorAlta as e:
         db.session.rollback()

@@ -6,6 +6,8 @@ así un importador puede cargar varios en una sola transacción.
 parecidos() busca posibles duplicados (mismo teléfono o nombre muy parecido) para avisar antes.
 Sin teléfono: solo el panel (dueño/encargado) y el script de carga pueden dar de alta así
 (sin_telefono_ok=True). Queda Alumno.telefono = "" y sin contactos: no se vincula ni le escribe nadie.
+Sin categoría (adultos): lo mismo, solo panel y script de carga (sin_categoria_ok=True). Queda
+Alumno.categoria = "" (igual que un chico sin nivel) hasta que gestión la complete en Fichas.
 """
 import json
 import re
@@ -188,10 +190,10 @@ def _marcar_inscripcion(alumno, modo, usuario_id):
 
 def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None, tarifa_head_coach=False,
                  inscripcion="cobrar", usuario_id=None, origen="panel", confirmar_parecidos=False,
-                 sin_telefono_ok=False) -> tuple[Alumno, list]:
+                 sin_telefono_ok=False, sin_categoria_ok=False) -> tuple[Alumno, list]:
     """Da de alta un alumno. Devuelve (alumno, parecidos que se confirmaron).
     - nivel: el que dice el alumno o el encargado; queda "a clasificar" hasta que lo confirme un profe.
-      En adultos es obligatorio; en Kids puede ir vacío.
+      En adultos es obligatorio salvo sin_categoria_ok (panel y script de carga); en Kids puede ir vacío.
     - telefono: el propio. contactos: solo Kids, [{telefono, parentesco, nombre}] de padre/madre/tutor.
     - sin_telefono_ok: se puede dar de alta sin ningún teléfono (solo panel y script de carga).
       Sin teléfono los parecidos van solo por nombre.
@@ -207,7 +209,7 @@ def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None
     nivel_ok = niveles.nivel_canonico(nivel) if nivel else None
     if nivel and (not nivel_ok or nivel_ok not in niveles.niveles()):
         raise ErrorAlta("Ese nivel no existe")
-    if not nivel_ok and not es_menor(planilla_txt):
+    if not nivel_ok and not es_menor(planilla_txt) and not sin_categoria_ok:
         raise ErrorAlta("Elegí el nivel (categoría)")
     if inscripcion is not None and inscripcion not in INSCRIPCION:
         raise ErrorAlta("Elegí qué pasa con la inscripción")
@@ -245,6 +247,8 @@ def crear_alumno(nombre, planilla_txt, nivel=None, telefono=None, contactos=None
             "tarifa_head_coach": tarifa_head_coach, "inscripcion": inscripcion,
             "parecidos_confirmados": [d["id"] for d in dudosos],
             "sin_telefono": not tels,
+            # adulto sin categoría: queda quién lo creó así (usuario_id) para que alguien la complete
+            "sin_categoria": not nivel_ok and not es_menor(planilla_txt),
         }, ensure_ascii=False),
     ))
     db.session.flush()

@@ -84,7 +84,8 @@ def editar_alumno(alumno, nombre, planilla_txt, nivel, telefono, contactos, usua
         if str(nivel) != (alumno.categoria or ""):
             raise ErrorAlta("Ese nivel no existe")
         nivel_ok = alumno.categoria
-    if not nivel_ok and not es_menor(planilla_txt):
+    # el que se cargó sin categoría se puede seguir editando sin ponerla; la que tenía no se borra
+    if not nivel_ok and not es_menor(planilla_txt) and (alumno.categoria or ""):
         raise ErrorAlta("Elegí el nivel (categoría)")
     # desde el panel se puede dejar sin teléfono (se completa cuando llegue)
     tels = _leer_contactos(planilla_txt, telefono, contactos, tutores_en_adultos=True, sin_telefono_ok=True)

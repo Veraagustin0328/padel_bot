@@ -22,6 +22,7 @@ export default function AlumnosFichas({ accion = null }) {
   const [ok, setOk] = useState("");
   const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
   const [soloSinTel, setSoloSinTel] = useState(false); // filtro "Sin teléfono"
+  const [soloSinCat, setSoloSinCat] = useState(false); // filtro "Sin categoría" (adultos)
   const [guardandoHC, setGuardandoHC] = useState(null); // id del alumno que se está guardando
   const [sentido, setSentido] = useState(1); // 1 = A–Z, -1 = Z–A (clic en "Nombre")
 
@@ -41,17 +42,19 @@ export default function AlumnosFichas({ accion = null }) {
     const filtrados = (datos?.alumnos || []).filter((a) => {
       if (soloNuevos && !a.clasificar) return false;
       if (soloSinTel && !a.sin_telefono) return false;
+      if (soloSinCat && !a.sin_categoria) return false;
       if (estado !== "todos" && norm(a.estado) !== estado) return false;
       if (q && !norm(a.nombre).includes(q)) return false;
       return true;
     });
     return ordenarPorNombre(filtrados, sentido);
-  }, [datos, buscar, estado, soloNuevos, soloSinTel, sentido]);
+  }, [datos, buscar, estado, soloNuevos, soloSinTel, soloSinCat, sentido]);
 
   const alumno = datos?.alumnos.find((a) => a.id === abierto);
   const aClasificar = (datos?.alumnos || []).filter((a) => a.clasificar).length;
   // los de baja no cuentan: no hace falta salir a buscarles el teléfono
   const sinTel = (datos?.alumnos || []).filter((a) => a.sin_telefono && norm(a.estado) !== "baja").length;
+  const sinCat = (datos?.alumnos || []).filter((a) => a.sin_categoria && norm(a.estado) !== "baja").length;
 
   // clasificar o recategorizar desde la ficha
   async function elegirNivel(a, nivel) {
@@ -62,7 +65,7 @@ export default function AlumnosFichas({ accion = null }) {
       setDatos((d) => ({
         ...d,
         alumnos: d.alumnos.map((x) => (x.id === a.id
-          ? { ...x, categoria: r.nivel, nivel_declarado: r.nivel_declarado, clasificar: r.clasificar }
+          ? { ...x, categoria: r.nivel, nivel_declarado: r.nivel_declarado, clasificar: r.clasificar, sin_categoria: false }
           : x)),
       }));
       setOk(`Listo, ${a.nombre} quedó en ${etiquetaNivel(r.nivel)}.`);
@@ -138,7 +141,15 @@ export default function AlumnosFichas({ accion = null }) {
         >
           Sin teléfono <span className="fic-contador">{sinTel}</span>
         </button>
-        <button className="boton chico claro" onClick={cargar}>Actualizar</button>
+        <button
+          type="button"
+          className={"fic-filtro-nuevos fic-filtro-sincat" + (soloSinCat ? " activo" : "")}
+          aria-pressed={soloSinCat}
+          onClick={() => setSoloSinCat(!soloSinCat)}
+        >
+          Sin categoría <span className="fic-contador">{sinCat}</span>
+        </button>
+        <button className="boton chico claro fic-actualizar" onClick={cargar}>Actualizar</button>
         {accion}
       </div>
 
@@ -146,8 +157,10 @@ export default function AlumnosFichas({ accion = null }) {
         <div className="cargando">Cargando…</div>
       ) : lista.length === 0 ? (
         <div className="alu-vacio">
-          {soloNuevos && !soloSinTel ? "No hay alumnos nuevos para clasificar."
-            : soloSinTel && !soloNuevos && !buscar ? "Todos tienen teléfono cargado 👌" : "No hay alumnos con esos filtros."}
+          {soloNuevos && !soloSinTel && !soloSinCat ? "No hay alumnos nuevos para clasificar."
+            : soloSinTel && !soloNuevos && !soloSinCat && !buscar ? "Todos tienen teléfono cargado 👌"
+            : soloSinCat && !soloNuevos && !soloSinTel && !buscar ? "Todos tienen categoría cargada 👌"
+            : "No hay alumnos con esos filtros."}
         </div>
       ) : (
         <ScrollLateral className="alu-scroll">
@@ -169,6 +182,7 @@ export default function AlumnosFichas({ accion = null }) {
                     {a.nombre}
                     {norm(a.estado) === "baja" && <span className="fic-baja">de baja</span>}
                     {a.sin_telefono && <span className="fic-sintel" title="No se puede vincular hasta que se cargue: Editar">Sin teléfono</span>}
+                    {a.sin_categoria && <span className="fic-sintel" title="Cargala tocando Sin nivel, en la columna Cat">Sin categoría</span>}
                   </td>
                   <td className="fic-nivel">
                     <NivelAlumno alumno={{ ...a, nivel: a.categoria || "" }} niveles={datos.niveles}

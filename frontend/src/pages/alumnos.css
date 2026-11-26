@@ -88,6 +88,8 @@ div.alu-dato { cursor: default; }
   .alu-filtros input { grid-column: 1 / -1; min-width: 0; }
   .alu-filtros input, .alu-filtros select, .alu-filtros button { min-height: 44px; min-width: 0; }
   .alu-solapa { min-height: 44px; }
+  /* con Sin categoría los filtros quedan pares: Actualizar va a lo ancho y no queda suelto */
+  .alu-filtros .fic-actualizar { grid-column: 1 / -1; }
 }
 
 /* casilla Tarifa Head Coach en la ficha */
