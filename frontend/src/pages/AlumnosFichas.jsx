@@ -13,7 +13,8 @@ const NOMBRE_PARENTESCO = { propio: "Propio (el alumno)", padre: "Padre", madre:
 const corto = (p) => (p === "propio" ? "propio" : (NOMBRE_PARENTESCO[p] || p).toLowerCase());
 
 // accion: el botón "Nuevo alumno", que va en la misma fila que los filtros
-export default function AlumnosFichas({ accion = null }) {
+// filtro: el que viene prendido desde un link (Inicio): sin_telefono / sin_categoria
+export default function AlumnosFichas({ accion = null, filtro = "" }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [buscar, setBuscar] = useState("");
@@ -21,8 +22,8 @@ export default function AlumnosFichas({ accion = null }) {
   const [abierto, setAbierto] = useState(null); // id del alumno que se está editando
   const [ok, setOk] = useState("");
   const [soloNuevos, setSoloNuevos] = useState(false); // filtro "A clasificar"
-  const [soloSinTel, setSoloSinTel] = useState(false); // filtro "Sin teléfono"
-  const [soloSinCat, setSoloSinCat] = useState(false); // filtro "Sin categoría" (adultos)
+  const [soloSinTel, setSoloSinTel] = useState(filtro === "sin_telefono"); // filtro "Sin teléfono"
+  const [soloSinCat, setSoloSinCat] = useState(filtro === "sin_categoria"); // filtro "Sin categoría" (adultos)
   const [guardandoHC, setGuardandoHC] = useState(null); // id del alumno que se está guardando
   const [sentido, setSentido] = useState(1); // 1 = A–Z, -1 = Z–A (clic en "Nombre")
 

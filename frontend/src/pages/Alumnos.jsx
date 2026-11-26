@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ahora } from "../fechas.js";
 import { api } from "../api.js";
 import AlumnosFichas from "./AlumnosFichas.jsx";
@@ -169,8 +170,19 @@ const SOLAPAS = [
 ];
 
 export default function Alumnos() {
-  const [solapa, setSolapa] = useState("planilla");
-  const [alta, setAlta] = useState(false);
+  // desde el Inicio: ?solapa=fichas&filtro=sin_telefono abre Fichas filtrada; ?nuevo=1 abre el alta
+  const [params, setParams] = useSearchParams();
+  const [solapa, setSolapa] = useState(params.get("solapa") === "fichas" ? "fichas" : "planilla");
+  const [alta, setAlta] = useState(params.get("nuevo") === "1");
+  const filtro = params.get("filtro") || "";
+  // el ?nuevo=1 se saca al abrir, así recargar no vuelve a abrir el alta
+  useEffect(() => {
+    if (params.get("nuevo")) {
+      const p = new URLSearchParams(params);
+      p.delete("nuevo");
+      setParams(p, { replace: true });
+    }
+  }, [params, setParams]);
   const [vuelta, setVuelta] = useState(0); // para recargar las fichas después de un alta
 
   function cerrarAlta(huboCambios) {
@@ -197,7 +209,7 @@ export default function Alumnos() {
           </button>
         ))}
       </div>
-      {solapa === "planilla" ? <ListadoPlanilla accion={nuevo} /> : <AlumnosFichas key={vuelta} accion={nuevo} />}
+      {solapa === "planilla" ? <ListadoPlanilla accion={nuevo} /> : <AlumnosFichas key={vuelta} accion={nuevo} filtro={vuelta ? "" : filtro} />}
       {alta && <AltaAlumno alCerrar={cerrarAlta} />}
     </div>
   );

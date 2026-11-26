@@ -61,8 +61,9 @@ function NivelFijo({ alumno, colores }) {
 }
 
 // soloLectura: "Ver como profe" del dueño. Se ve igual, pero sin marcar nada (el back igual lo rechaza)
-function Clase({ clase, fecha, futuro, soloLectura }) {
-  const [abierta, setAbierta] = useState(false);
+// abrir: arranca abierta (la usa el Inicio del profe para las de hoy)
+export function Clase({ clase, fecha, futuro, soloLectura, abrir = false }) {
+  const [abierta, setAbierta] = useState(abrir);
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState({});
@@ -503,7 +504,7 @@ export default function MisClases({ verComo }) {
         </div>
       </div>
 
-      {/* el profe no pasa por el Inicio, así que las novedades las ve acá */}
+      {/* las novedades también acá: el profe puede entrar directo a Mis clases */}
       {comoProfe && <NovedadesVigentes />}
       {comoProfe && <MisHoras hoy={hoy} />}
 

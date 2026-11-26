@@ -186,11 +186,10 @@ function Protegida() {
   return <Layout />;
 }
 
-// el profe arranca directo en Mis clases; alumnos y padres tienen su propio Inicio
+// dueño, encargado y profe: cada uno su tablero en Inicio; alumnos y padres tienen el suyo
 function PaginaInicial() {
   const { usuario } = useAuth();
   if (usuario.rol === "profe" && !usuario.profesor_id) return <SinVinculo />;
-  if (usuario.rol === "profe") return <Navigate to="/mis-clases" replace />;
   if (esAlumno(usuario)) return <InicioAlumno />;
   return <Inicio />;
 }
